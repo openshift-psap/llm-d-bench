@@ -4,6 +4,16 @@ Automated [llm-d](https://llm-d.ai/) inference benchmarking on OpenShift with ML
 
 > This might work with any other LLM endpoint but has only been tested with `llm-d` endpoints.
 
+## Components
+
+This repository contains two main components:
+
+### 1. [llm-d-deploy/](./llm-d-deploy/README.md) - Deployment Automation
+
+### 2. [llm-d-bench/](./llm-d-bench) - Benchmarking Suite
+
+Benchmark Helm chart for running GuideLLM load tests against llm-d deployments with MLflow tracking.
+
 ## Quick Setup
 
 This project uses the following: 
