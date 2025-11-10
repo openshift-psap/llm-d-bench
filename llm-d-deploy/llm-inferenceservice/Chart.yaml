@@ -1,0 +1,13 @@
+apiVersion: v2
+name: llm-inferenceservice
+description: A chart to deploy a LLMInferenceService CR
+type: application
+version: 0.1.0
+appVersion: "1.0"
+keywords:
+  - llm-d
+maintainers:
+  - name: Alberto Perdomo
+home: https://github.com/albertoperdomo2/llm-d-bench
+sources:
+  - https://github.com/albertoperdomo2/llm-d-bench

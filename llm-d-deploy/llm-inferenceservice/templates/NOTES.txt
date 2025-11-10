@@ -1,0 +1,9 @@
+🚀 llm-inferenceservice Deployed Successfully!
+
+An LLMInferenceService resource named "{{ .Values.model.name }}-{{ .Values.role }}" has been created in the "{{ .Release.Namespace }}" namespace.
+
+To check the status of the service, run:
+  oc get llminferenceservice {{ .Values.model.name }}-{{ .Values.role }} -n {{ .Release.Namespace }}
+
+To see the pods being created, run:
+  oc get pods -n {{ .Release.Namespace }} -l llm-d.ai/model-name={{ .Values.model.name }},llm-d.ai/model-role={{ .Values.role }}

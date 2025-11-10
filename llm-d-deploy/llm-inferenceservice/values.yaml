@@ -1,0 +1,35 @@
+# Default values for the llm-inferenceservice chart.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+# role defines the function of this model deployment (e.g., "decode", "prefill").
+# This is used in labels for the scheduler to discover the service.
+role: "decode"
+
+# replicas is the number of pods to deploy for this model role.
+replicas: 1
+
+# model contains the configuration specific to the LLM being deployed.
+model:
+  # name is the common name of the model, used for naming resources.
+  name: "my-model"
+  # uri is the location of the model weights, e.g., "hf://org/model-name".
+  uri: ""
+  # tensorParallel is the number of GPUs required for the model.
+  tensorParallel: 1
+  # size is the required storage size for the model's PVC.
+  size: "20Gi"
+
+  # extraArgs allows for passing custom command-line arguments to the vLLM container.
+  # Example:
+  # extraArgs:
+  #   - "--max-log-len"
+  #   - "8192"
+  extraArgs: []
+
+  # extraEnv allows for passing custom environment variables to the vLLM container.
+  # Example:
+  # extraEnv:
+  #   - name: VLLM_GPU_MEMORY_UTILIZATION
+  #     value: "0.90"
+  extraEnv: []

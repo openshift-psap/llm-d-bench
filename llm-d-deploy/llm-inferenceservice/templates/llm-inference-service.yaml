@@ -1,0 +1,45 @@
+---
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: "{{ .Values.model.name }}-{{ .Values.role }}"
+  namespace: {{ .Release.Namespace }}
+  labels:
+    llm-d.ai/model-name: "{{ .Values.model.name }}"
+    llm-d.ai/model-role: "{{ .Values.role }}"
+  annotations:
+    llm-d.ai/model-name: "{{ .Values.model.name }}"
+spec:
+  predictor:
+    replicas: {{ .Values.replicas }}
+    model:
+      runtime: vllm
+      storageUri: "{{ .Values.model.uri }}"
+      {{- with .Values.model.extraArgs }}
+      args:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      env:
+        - name: VLLM_TENSOR_PARALLEL_SIZE
+          value: {{ .Values.model.tensorParallel | quote }}
+        - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: VLLM_LOGGING_LEVEL
+          value: "INFO"
+        - name: CUDA_VISIBLE_DEVICES
+          value: "{{ if eq (.Values.model.tensorParallel | int) 1 }}0{{ else }}{{ join "," (until (.Values.model.tensorParallel | int) | toStrings) }}{{ end }}"
+        - name: TP
+          value: {{ .Values.model.tensorParallel | quote }} 
+        {{- with .Values.model.extraEnv }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      resources:
+        limits:
+          nvidia.com/gpu: "{{ .Values.model.tensorParallel }}"
+        requests:
+          nvidia.com/gpu: "{{ .Values.model.tensorParallel }}"
+    storage:
+      persistentVolumeClaim:
+        claimName: "{{ .Values.model.name | replace "/" "-" }}-pvc" 

@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Values schema for the llm-inferenceservice chart",
+  "type": "object",
+  "required": [
+    "role",
+    "replicas",
+    "model"
+  ],
+  "properties": {
+    "role": {
+      "type": "string",
+      "description": "The function of this model deployment (e.g., 'decode', 'prefill').",
+      "enum": ["decode", "prefill"]
+    },
+    "replicas": {
+      "type": "integer",
+      "description": "The number of pods to deploy for this model role.",
+      "minimum": 0
+    },
+    "model": {
+      "type": "object",
+      "description": "Configuration specific to the LLM being deployed.",
+      "required": [
+        "name",
+        "uri",
+        "tensorParallel",
+        "size"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The common name of the model, used for naming resources."
+        },
+        "uri": {
+          "type": "string",
+          "description": "The location of the model weights, e.g., 'hf://org/model-name'."
+        },
+        "tensorParallel": {
+          "type": "integer",
+          "description": "The number of GPUs required for the model.",
+          "minimum": 1
+        },
+        "size": {
+          "type": "string",
+          "description": "The required storage size for the model's PVC."
+        },
+        "extraArgs": {
+          "type": "array",
+          "description": "A list of extra command-line arguments for the vLLM container.",
+          "items": {
+            "type": "string"
+          }
+        },
+        "extraEnv": {
+          "type": "array",
+          "description": "A list of extra environment variables for the vLLM container.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
