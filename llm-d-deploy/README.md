@@ -3,23 +3,21 @@
 Templated Helmfile deployment for llm-d with automatic configuration based on model and parallelism settings.
 
 ```
-llm-d-deploy/
-├── helmfile.yaml.gotmpl       # Main orchestration with Go templates
-├── configs/
-│   ├── gaie/
-│   │   ├── default.yaml       # Standard inference scheduler config
-│   │   └── pd.yaml            # Prefill/Decode disaggregation scheduler
-│   └── modelservice/
-│       └── base.yaml          # Base vLLM model server configuration
+llm-d-deploy
+├── configs
+│   └── gaie
+│       ├── default.yaml                # Standard inference scheduler config
+│       └── pd.yaml                     # Prefill/Decode disaggregation scheduler
+├── helmfile.yaml.gotmpl                # Main orchestration with Go templates
+├── llm-inferenceservice                # LLMInferenceService Chart
+│   ├── Chart.yaml
+│   ├── templates
+│   │   ├── llm-inference-service.yaml
+│   │   └── NOTES.txt
+│   ├── values.schema.json
+│   └── values.yaml
+└── README.md
 ```
-
-**helmfile.yaml.gotmpl**: Orchestrates 3 Helm releases (infra, gaie, ms). Defines preset environments and uses Go templates to calculate CUDA devices, GPU resources, and select scheduler config based on parameters.
-
-**configs/gaie/default.yaml**: InferencePool configuration for standard inference scheduling with queue-based scoring.
-
-**configs/gaie/pd.yaml**: InferencePool configuration for Prefill/Decode disaggregation with separate scheduling profiles.
-
-**configs/modelservice/base.yaml**: Common vLLM container configuration. Values are overridden via helmfile `set` and `setString` directives.
 
 ## Prerequisites
 
@@ -27,7 +25,8 @@ llm-d-deploy/
 - GPU nodes with NVIDIA GPU Operator
 - [Helmfile](https://helmfile.readthedocs.io/) installed
 - Gateway API provider (Istio recommended)
-- HuggingFace token secret
+- HuggingFace token secret (Already available if provisioned with [bootstrap.sh](../bootstrap.sh))
+- Red Hat OpenShift AI Operator
 
 ## Install
 

@@ -12,9 +12,12 @@ environments:
           name: "Qwen/Qwen3-0.6B"
           uri: "hf://Qwen/Qwen3-0.6B"
           size: "20Gi"
-          tensorParallel: 1
         decode:
           replicas: 1
+          tensorParallel: 1
+        prefill:
+          replicas: 0
+          tensorParallel: 1
         gateway:
           className: istio
 
@@ -25,12 +28,23 @@ environments:
           name: "RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic"
           uri: "hf://RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic"
           size: "50Gi"
-          tensorParallel: 4
+          extraArgs:
+            - "--max-model-len=8192"
+            - "--uvicorn-log-level=debug"
+            - "--trust-remote-code"
+            - "--tensor-parallel-size=4"
+            - "--gpu-memory-utilization=0.92"
+            - "--no-enable-prefix-caching"
+            - "--disable-log-requests"
         decode:
           replicas: 1
+          tensorParallel: 4
+        prefill:
+          replicas: 0
+          tensorParallel: 4
         gateway:
           className: istio
-  
+
   # Llama 4 Maverick 17B 128E Instruct FP8 (8 GPUs)
   llama-4-maverick-17b-128e-instruct-fp8:
     values:
@@ -38,9 +52,21 @@ environments:
           name: "RedHatAI/Llama-4-Maverick-17B-128E-Instruct-FP8"
           uri: "hf://RedHatAI/Llama-4-Maverick-17B-128E-Instruct-FP8"
           size: "60Gi"
-          tensorParallel: 8
+          extraArgs:
+            - "--max-model-len=8192"
+            - "--uvicorn-log-level=debug"
+            - "--trust-remote-code"
+            - "--tensor-parallel-size=8"
+            - "--gpu-memory-utilization=0.92"
+            - "--no-enable-prefix-caching"
+            - "--disable-log-requests"
+            - "--kv-cache-dtype=fp8"
         decode:
           replicas: 1
+          tensorParallel: 8
+        prefill:
+          replicas: 0
+          tensorParallel: 8
         gateway:
           className: istio
 
@@ -51,9 +77,21 @@ environments:
           name: "RedHatAI/Qwen3-235B-A22B-FP8-dynamic"
           uri: "hf://RedHatAI/Qwen3-235B-A22B-FP8-dynamic"
           size: "120Gi"
-          tensorParallel: 4
+          extraArgs:
+            - "--max-model-len=8192"
+            - "--uvicorn-log-level=debug"
+            - "--trust-remote-code"
+            - "--tensor-parallel-size=4"
+            - "--gpu-memory-utilization=0.92"
+            - "--no-enable-prefix-caching"
+            - "--disable-log-requests"
+            - "--enable-expert-parallel"
         decode:
           replicas: 1
+          tensorParallel: 4
+        prefill:
+          replicas: 0
+          tensorParallel: 4
         gateway:
           className: istio
 
@@ -64,9 +102,20 @@ environments:
           name: "openai/gpt-oss-120b"
           uri: "hf://openai/gpt-oss-120b"
           size: "80Gi"
-          tensorParallel: 1
+          extraArgs:
+            - "--max-model-len=8192"
+            - "--uvicorn-log-level=debug"
+            - "--trust-remote-code"
+            - "--tensor-parallel-size=1"
+            - "--gpu-memory-utilization=0.92"
+            - "--no-enable-prefix-caching"
+            - "--disable-log-requests"
         decode:
           replicas: 1
+          tensorParallel: 1
+        prefill:
+          replicas: 0
+          tensorParallel: 1
         gateway:
           className: istio
 
@@ -75,86 +124,84 @@ environments:
     values:
       - model:
           name: "Qwen/Qwen3-0.6B"
-          tensorParallel: 1
         decode:
           replicas: 2
+          tensorParallel: 1
+        prefill:
+          replicas: 0
+          tensorParallel: 1
         gateway:
           className: istio
 
 ---
 
-{{- $gatewayClassName := .Values | get "gateway.className" "istio" -}}
-{{- $modelName := .Values | get "model.name" "Qwen/Qwen3-0.6B" -}}
-{{- $modelUri := .Values | get "model.uri" (printf "hf://%s" $modelName) -}}
-{{- $modelSize := .Values | get "model.size" "20Gi" -}}
-{{- $tensorParallel := .Values | get "model.tensorParallel" 1 -}}
-{{- $decodeReplicas := .Values | get "decode.replicas" 2 -}}
-{{- $prefillReplicas := .Values | get "prefill.replicas" 0 -}}
-{{- $prefillEnabled := gt ($prefillReplicas | int) 0 -}}
-{{- $gpuPerPod := $tensorParallel -}}
-
 releases:
   # Infrastructure (Gateway)
   - name: infra
-    namespace: {{ .Namespace | default "llm-d" }}
-    chart: llm-d-infra/llm-d-infra
-    version: v1.3.3
-    installed: true
+    chart: llm-d/llm-d-infra
+    version: v0.3.0
+    namespace: {{ .Namespace }}
     values:
-      - gateway:
-          gatewayClassName: {{ $gatewayClassName }}
+      - modelArtifacts:
+          authSecretName: "llm-d-hf-token"
+        modelStorage:
+          pvc:
+            create: true
+            name: "{{ .Values.model.name | replace "/" "-" }}-pvc"
+            size: {{ .Values.model.size }}
 
   # InferencePool (EPP/Scheduler)
   - name: gaie
-    namespace: {{ .Namespace | default "llm-d" }}
-    chart: oci://registry.k8s.io/gateway-api-inference-extension/charts/inferencepool
-    version: v1.0.1
-    installed: true
+    chart: llm-d/llm-d-gaie
+    version: v0.3.2
+    namespace: {{ .Namespace }}
     needs:
       - infra
     values:
-      - configs/gaie/{{ if $prefillEnabled }}pd{{ else }}default{{ end }}.yaml
+      - "{{ if gt (.Values.prefill.replicas | int) 0 }}./configs/gaie/pd.yaml{{ else }}./configs/gaie/default.yaml{{ end }}"
+      - gateway:
+          className: {{ .Values.gateway.className }}
 
-  # Model Service
-  - name: ms
-    namespace: {{ .Namespace | default "llm-d" }}
-    chart: llm-d-modelservice/llm-d-modelservice
-    version: v0.2.10
-    installed: true
+  # Decode LLMInferenceService
+  - name: ms-decode
+    chart: ./llm-inferenceservice
+    namespace: {{ .Namespace }}
     needs:
-      - infra
       - gaie
     values:
-      - configs/modelservice/base.yaml
-    set:
-      # Model configuration
-      - name: modelArtifacts.name
-        value: {{ $modelName | quote }}
-      - name: modelArtifacts.uri
-        value: {{ $modelUri | quote }}
-      - name: modelArtifacts.size
-        value: {{ $modelSize | quote }}
-      # Decode configuration
-      - name: decode.replicas
-        value: {{ $decodeReplicas }}
-      - name: decode.parallelism.tensor
-        value: {{ $tensorParallel }}
-      - name: decode.containers[0].resources.limits.nvidia\.com/gpu
-        value: {{ $gpuPerPod }}
-      - name: decode.containers[0].resources.requests.nvidia\.com/gpu
-        value: {{ $gpuPerPod }}
-      # Prefill configuration
-      - name: prefill.create
-        value: {{ $prefillEnabled }}
-      {{- if $prefillEnabled }}
-      - name: prefill.replicas
-        value: {{ $prefillReplicas }}
-      {{- end }}
-      # Routing
-      - name: routing.inferencePool.name
-        value: gaie-ip
-      - name: routing.parentRefs[0].name
-        value: infra-inference-gateway
-    setString:
-      - name: decode.containers[0].env[0].value
-        value: {{ if eq $gpuPerPod 1 }}0{{ else }}{{ join "," (until $gpuPerPod | toStrings) }}{{ end }}
+      - role: "decode"
+      - replicas: {{ .Values.decode.replicas }}
+      - model:
+          name: "{{ .Values.model.name }}"
+          uri: "{{ .Values.model.uri }}"
+          tensorParallel: {{ .Values.decode.tensorParallel }}
+          size: {{ .Values.model.size }}
+          # extraArgs:
+          #   - "--your-arg"
+          #   - "value"
+          # extraEnv:
+          #   - name: YOUR_ENV_VAR
+          #     value: "value"
+
+  # Prefill LLMInferenceService
+  {{- if gt (.Values.prefill.replicas | int) 0 }}
+  - name: ms-prefill
+    chart: ./llm-inferenceservice
+    namespace: {{ .Namespace }}
+    needs:
+      - gaie
+    values:
+      - role: "prefill"
+      - replicas: {{ .Values.prefill.replicas }}
+      - model:
+          name: "{{ .Values.model.name }}"
+          uri: "{{ .Values.model.uri }}"
+          tensorParallel: {{ .Values.prefill.tensorParallel }}
+          size: {{ .Values.model.size }}
+          # extraArgs:
+          #   - "--your-arg"
+          #   - "value"
+          # extraEnv:
+          #   - name: YOUR_ENV_VAR
+          #     value: "value"
+  {{- end }}
