@@ -2,23 +2,6 @@
 
 Templated Helmfile deployment for llm-d with automatic configuration based on model and parallelism settings.
 
-```
-llm-d-deploy
-├── configs
-│   └── gaie
-│       ├── default.yaml                # Standard inference scheduler config
-│       └── pd.yaml                     # Prefill/Decode disaggregation scheduler
-├── helmfile.yaml.gotmpl                # Main orchestration with Go templates
-├── llm-inferenceservice                # LLMInferenceService Chart
-│   ├── Chart.yaml
-│   ├── templates
-│   │   ├── llm-inference-service.yaml
-│   │   └── NOTES.txt
-│   ├── values.schema.json
-│   └── values.yaml
-└── README.md
-```
-
 ## Prerequisites
 
 - OpenShift 4.14+

@@ -1,71 +1,157 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Values schema for the llm-inferenceservice chart",
+  "description": "Schema for deploying a single LLMInferenceService with a specific role (decode or prefill)",
   "type": "object",
   "required": [
     "role",
-    "replicas",
-    "model"
+    "container",
+    "model",
+    "decode",
+    "prefill",
+    "gateway"
   ],
   "properties": {
     "role": {
       "type": "string",
-      "description": "The function of this model deployment (e.g., 'decode', 'prefill').",
+      "description": "The role of this LLMInferenceService instance",
       "enum": ["decode", "prefill"]
     },
-    "replicas": {
-      "type": "integer",
-      "description": "The number of pods to deploy for this model role.",
-      "minimum": 0
+    "container": {
+      "type": "object",
+      "description": "Container configuration for the vLLM runtime",
+      "required": ["image"],
+      "properties": {
+        "image": {
+          "type": "string",
+          "description": "Container image for vLLM serving",
+          "default": "ghcr.io/llm-d/llm-d-cuda:v0.3.1"
+        }
+      }
     },
     "model": {
       "type": "object",
-      "description": "Configuration specific to the LLM being deployed.",
+      "description": "Configuration specific to the LLM being deployed",
       "required": [
         "name",
         "uri",
-        "tensorParallel",
         "size"
       ],
       "properties": {
         "name": {
           "type": "string",
-          "description": "The common name of the model, used for naming resources."
+          "description": "Model name used for resource naming and identification (e.g., 'Qwen/Qwen3-0.6B')"
         },
         "uri": {
           "type": "string",
-          "description": "The location of the model weights, e.g., 'hf://org/model-name'."
-        },
-        "tensorParallel": {
-          "type": "integer",
-          "description": "The number of GPUs required for the model.",
-          "minimum": 1
+          "description": "Model URI for downloading weights (e.g., 'hf://Qwen/Qwen3-0.6B')"
         },
         "size": {
           "type": "string",
-          "description": "The required storage size for the model's PVC."
+          "description": "Storage size for the model's PersistentVolumeClaim",
+          "pattern": "^[0-9]+(Gi|Ti|Mi)$"
+        }
+      }
+    },
+    "decode": {
+      "type": "object",
+      "description": "Decode workload configuration (used when role='decode')",
+      "required": ["replicas", "tensorParallel"],
+      "properties": {
+        "replicas": {
+          "type": "integer",
+          "description": "Number of decode replicas to deploy",
+          "minimum": 0
+        },
+        "tensorParallel": {
+          "type": "integer",
+          "description": "Tensor parallel size - number of GPUs per replica",
+          "minimum": 1
         },
         "extraArgs": {
           "type": "array",
-          "description": "A list of extra command-line arguments for the vLLM container.",
+          "description": "Additional command-line arguments passed to vLLM",
           "items": {
             "type": "string"
-          }
+          },
+          "default": []
         },
         "extraEnv": {
           "type": "array",
-          "description": "A list of extra environment variables for the vLLM container.",
+          "description": "Additional environment variables for the vLLM container",
           "items": {
             "type": "object",
+            "required": ["name"],
             "properties": {
               "name": {
                 "type": "string"
               },
               "value": {
                 "type": "string"
+              },
+              "valueFrom": {
+                "type": "object"
               }
             }
-          }
+          },
+          "default": []
+        }
+      }
+    },
+    "prefill": {
+      "type": "object",
+      "description": "Prefill workload configuration (used when role='prefill')",
+      "required": ["replicas", "tensorParallel"],
+      "properties": {
+        "replicas": {
+          "type": "integer",
+          "description": "Number of prefill replicas to deploy",
+          "minimum": 0
+        },
+        "tensorParallel": {
+          "type": "integer",
+          "description": "Tensor parallel size - number of GPUs per replica",
+          "minimum": 1
+        },
+        "extraArgs": {
+          "type": "array",
+          "description": "Additional command-line arguments passed to vLLM",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "extraEnv": {
+          "type": "array",
+          "description": "Additional environment variables for the vLLM container",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "value": {
+                "type": "string"
+              },
+              "valueFrom": {
+                "type": "object"
+              }
+            }
+          },
+          "default": []
+        }
+      }
+    },
+    "gateway": {
+      "type": "object",
+      "description": "Gateway configuration for routing",
+      "required": ["className"],
+      "properties": {
+        "className": {
+          "type": "string",
+          "description": "Gateway class name for the inference gateway (e.g., 'istio', 'envoy-gateway')",
+          "default": "istio"
         }
       }
     }

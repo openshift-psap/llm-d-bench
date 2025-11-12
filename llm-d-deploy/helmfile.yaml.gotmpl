@@ -1,6 +1,4 @@
 repositories:
-  - name: llm-d-modelservice
-    url: https://llm-d-incubation.github.io/llm-d-modelservice/
   - name: llm-d-infra
     url: https://llm-d-incubation.github.io/llm-d-infra/
 
@@ -13,6 +11,8 @@ environments:
           uri: "hf://Qwen/Qwen3-0.6B"
           size: "20Gi"
         decode:
+          extraArgs:
+            - "--max-model-len=8192"
           replicas: 1
           tensorParallel: 1
         prefill:
@@ -28,6 +28,9 @@ environments:
           name: "RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic"
           uri: "hf://RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic"
           size: "50Gi"
+        decode:
+          replicas: 1
+          tensorParallel: 4
           extraArgs:
             - "--max-model-len=8192"
             - "--uvicorn-log-level=debug"
@@ -36,9 +39,6 @@ environments:
             - "--gpu-memory-utilization=0.92"
             - "--no-enable-prefix-caching"
             - "--disable-log-requests"
-        decode:
-          replicas: 1
-          tensorParallel: 4
         prefill:
           replicas: 0
           tensorParallel: 4
@@ -52,6 +52,9 @@ environments:
           name: "RedHatAI/Llama-4-Maverick-17B-128E-Instruct-FP8"
           uri: "hf://RedHatAI/Llama-4-Maverick-17B-128E-Instruct-FP8"
           size: "60Gi"
+        decode:
+          replicas: 1
+          tensorParallel: 8
           extraArgs:
             - "--max-model-len=8192"
             - "--uvicorn-log-level=debug"
@@ -61,9 +64,6 @@ environments:
             - "--no-enable-prefix-caching"
             - "--disable-log-requests"
             - "--kv-cache-dtype=fp8"
-        decode:
-          replicas: 1
-          tensorParallel: 8
         prefill:
           replicas: 0
           tensorParallel: 8
@@ -77,6 +77,9 @@ environments:
           name: "RedHatAI/Qwen3-235B-A22B-FP8-dynamic"
           uri: "hf://RedHatAI/Qwen3-235B-A22B-FP8-dynamic"
           size: "120Gi"
+        decode:
+          replicas: 1
+          tensorParallel: 4
           extraArgs:
             - "--max-model-len=8192"
             - "--uvicorn-log-level=debug"
@@ -86,9 +89,6 @@ environments:
             - "--no-enable-prefix-caching"
             - "--disable-log-requests"
             - "--enable-expert-parallel"
-        decode:
-          replicas: 1
-          tensorParallel: 4
         prefill:
           replicas: 0
           tensorParallel: 4
@@ -102,6 +102,9 @@ environments:
           name: "openai/gpt-oss-120b"
           uri: "hf://openai/gpt-oss-120b"
           size: "80Gi"
+        decode:
+          replicas: 1
+          tensorParallel: 1
           extraArgs:
             - "--max-model-len=8192"
             - "--uvicorn-log-level=debug"
@@ -110,9 +113,6 @@ environments:
             - "--gpu-memory-utilization=0.92"
             - "--no-enable-prefix-caching"
             - "--disable-log-requests"
-        decode:
-          replicas: 1
-          tensorParallel: 1
         prefill:
           replicas: 0
           tensorParallel: 1
@@ -124,6 +124,8 @@ environments:
     values:
       - model:
           name: "Qwen/Qwen3-0.6B"
+          uri: "hf://Qwen/Qwen3-0.6B"
+          size: "20Gi"
         decode:
           replicas: 2
           tensorParallel: 1
@@ -138,22 +140,17 @@ environments:
 releases:
   # Infrastructure (Gateway)
   - name: infra
-    chart: llm-d/llm-d-infra
-    version: v0.3.0
+    chart: llm-d-infra/llm-d-infra
+    version: v1.3.3
     namespace: {{ .Namespace }}
     values:
-      - modelArtifacts:
-          authSecretName: "llm-d-hf-token"
-        modelStorage:
-          pvc:
-            create: true
-            name: "{{ .Values.model.name | replace "/" "-" }}-pvc"
-            size: {{ .Values.model.size }}
+      - gateway:
+          gatewayClassName: {{ .Values.gateway.className }}
 
   # InferencePool (EPP/Scheduler)
   - name: gaie
-    chart: llm-d/llm-d-gaie
-    version: v0.3.2
+    chart: oci://registry.k8s.io/gateway-api-inference-extension/charts/inferencepool
+    version: v1.0.1
     namespace: {{ .Namespace }}
     needs:
       - infra
@@ -162,46 +159,38 @@ releases:
       - gateway:
           className: {{ .Values.gateway.className }}
 
-  # Decode LLMInferenceService
-  - name: ms-decode
+  # LLMInferenceService for Decode
+  - name: llm-service-decode
     chart: ./llm-inferenceservice
     namespace: {{ .Namespace }}
     needs:
       - gaie
     values:
       - role: "decode"
-      - replicas: {{ .Values.decode.replicas }}
       - model:
           name: "{{ .Values.model.name }}"
           uri: "{{ .Values.model.uri }}"
-          tensorParallel: {{ .Values.decode.tensorParallel }}
           size: {{ .Values.model.size }}
-          # extraArgs:
-          #   - "--your-arg"
-          #   - "value"
-          # extraEnv:
-          #   - name: YOUR_ENV_VAR
-          #     value: "value"
+      - decode: {{ .Values.decode | toYaml | nindent 10 }}
+      - prefill: {{ .Values.prefill | toYaml | nindent 10 }}
+      - gateway:
+          className: {{ .Values.gateway.className }}
 
-  # Prefill LLMInferenceService
   {{- if gt (.Values.prefill.replicas | int) 0 }}
-  - name: ms-prefill
+  # LLMInferenceService for Prefill
+  - name: llm-service-prefill
     chart: ./llm-inferenceservice
     namespace: {{ .Namespace }}
     needs:
       - gaie
     values:
       - role: "prefill"
-      - replicas: {{ .Values.prefill.replicas }}
       - model:
           name: "{{ .Values.model.name }}"
           uri: "{{ .Values.model.uri }}"
-          tensorParallel: {{ .Values.prefill.tensorParallel }}
           size: {{ .Values.model.size }}
-          # extraArgs:
-          #   - "--your-arg"
-          #   - "value"
-          # extraEnv:
-          #   - name: YOUR_ENV_VAR
-          #     value: "value"
+      - decode: {{ .Values.decode | toYaml | nindent 10 }}
+      - prefill: {{ .Values.prefill | toYaml | nindent 10 }}
+      - gateway:
+          className: {{ .Values.gateway.className }}
   {{- end }}

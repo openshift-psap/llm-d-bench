@@ -1,35 +1,67 @@
 # Default values for the llm-inferenceservice chart.
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
+# This chart deploys a single LLMInferenceService resource with a specific role (decode or prefill).
+# For disaggregated serving (prefill-decode), deploy this chart twice with different roles.
 
-# role defines the function of this model deployment (e.g., "decode", "prefill").
-# This is used in labels for the scheduler to discover the service.
+# role defines whether this instance is "decode" or "prefill"
+# This determines which configuration section below (decode or prefill) is used for the workload
+# Valid values: "decode", "prefill"
 role: "decode"
 
-# replicas is the number of pods to deploy for this model role.
-replicas: 1
+# Container configuration for the vLLM runtime
+container:
+  # Container image for vLLM serving
+  image: "ghcr.io/llm-d/llm-d-cuda:v0.3.1"
 
-# model contains the configuration specific to the LLM being deployed.
+# Model configuration - defines which LLM to deploy
 model:
-  # name is the common name of the model, used for naming resources.
+  # Model name used for resource naming and identification
+  # Example: "Qwen/Qwen3-0.6B"
   name: "my-model"
-  # uri is the location of the model weights, e.g., "hf://org/model-name".
+
+  # Model URI for downloading weights
+  # Example: "hf://Qwen/Qwen3-0.6B" for HuggingFace models
   uri: ""
-  # tensorParallel is the number of GPUs required for the model.
-  tensorParallel: 1
-  # size is the required storage size for the model's PVC.
+
+  # Storage size for the model's PersistentVolumeClaim
+  # Must be large enough to hold the model weights
   size: "20Gi"
 
-  # extraArgs allows for passing custom command-line arguments to the vLLM container.
-  # Example:
-  # extraArgs:
-  #   - "--max-log-len"
-  #   - "8192"
+# Decode workload configuration (used when role="decode")
+# The decode workload handles token generation
+decode:
+  # Number of decode replicas to deploy
+  replicas: 1
+
+  # Tensor parallel size - number of GPUs per replica
+  # Set based on model size and available GPU memory
+  tensorParallel: 1
+
+  # Additional command-line arguments passed to vLLM
+  # Example: ["--max-model-len=8192", "--gpu-memory-utilization=0.92"]
   extraArgs: []
 
-  # extraEnv allows for passing custom environment variables to the vLLM container.
-  # Example:
-  # extraEnv:
-  #   - name: VLLM_GPU_MEMORY_UTILIZATION
-  #     value: "0.90"
+  # Additional environment variables for the vLLM container
+  # Example: [{"name": "VLLM_LOGGING_LEVEL", "value": "DEBUG"}]
   extraEnv: []
+
+# Prefill workload configuration (used when role="prefill")
+# The prefill workload handles prompt processing in disaggregated serving
+prefill:
+  # Number of prefill replicas to deploy
+  replicas: 1
+
+  # Tensor parallel size - number of GPUs per replica
+  # Can differ from decode tensorParallel for optimal resource usage
+  tensorParallel: 1
+
+  # Additional command-line arguments passed to vLLM
+  extraArgs: []
+
+  # Additional environment variables for the vLLM container
+  extraEnv: []
+
+# Gateway configuration for routing
+gateway:
+  # Gateway class name for the inference gateway
+  # Common values: "istio", "envoy-gateway"
+  className: "istio"

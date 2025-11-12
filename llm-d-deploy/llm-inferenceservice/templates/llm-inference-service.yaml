@@ -1,45 +1,71 @@
+{{- $workload := .Values.decode }}
+{{- if eq .Values.role "prefill" }}
+{{- $workload = .Values.prefill }}
+{{- end }}
 ---
 apiVersion: serving.kserve.io/v1alpha1
 kind: LLMInferenceService
 metadata:
-  name: "{{ .Values.model.name }}-{{ .Values.role }}"
+  name: {{ include "llm-inferenceservice.fullname" . }}
   namespace: {{ .Release.Namespace }}
   labels:
-    llm-d.ai/model-name: "{{ .Values.model.name }}"
-    llm-d.ai/model-role: "{{ .Values.role }}"
+    llm-d.ai/model-name: {{ include "llm-inferenceservice.modelShortName" . | quote }}
+    llm-d.ai/model-role: {{ .Values.role | quote }}
+    llm-d.ai/inferenceServing: "true"
   annotations:
-    llm-d.ai/model-name: "{{ .Values.model.name }}"
+    llm-d.ai/model-name: {{ include "llm-inferenceservice.modelShortName" . | quote }}
 spec:
-  predictor:
-    replicas: {{ .Values.replicas }}
-    model:
-      runtime: vllm
-      storageUri: "{{ .Values.model.uri }}"
-      {{- with .Values.model.extraArgs }}
-      args:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      env:
-        - name: VLLM_TENSOR_PARALLEL_SIZE
-          value: {{ .Values.model.tensorParallel | quote }}
-        - name: VLLM_NIXL_SIDE_CHANNEL_HOST
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
-        - name: VLLM_LOGGING_LEVEL
-          value: "INFO"
-        - name: CUDA_VISIBLE_DEVICES
-          value: "{{ if eq (.Values.model.tensorParallel | int) 1 }}0{{ else }}{{ join "," (until (.Values.model.tensorParallel | int) | toStrings) }}{{ end }}"
-        - name: TP
-          value: {{ .Values.model.tensorParallel | quote }} 
-        {{- with .Values.model.extraEnv }}
-        {{- toYaml . | nindent 8 }}
-        {{- end }}
-      resources:
-        limits:
-          nvidia.com/gpu: "{{ .Values.model.tensorParallel }}"
-        requests:
-          nvidia.com/gpu: "{{ .Values.model.tensorParallel }}"
-    storage:
-      persistentVolumeClaim:
-        claimName: "{{ .Values.model.name | replace "/" "-" }}-pvc" 
+  model:
+    uri: "{{ .Values.model.uri }}"
+    name: "{{ .Values.model.name }}"
+  replicas: {{ $workload.replicas }}
+  template:
+    containers:
+      - name: main
+        image: {{ .Values.container.image }}
+        command:
+          - "python3"
+          - "-m"
+          - "vllm.entrypoints.openai.api_server"
+        env:
+          - name: VLLM_TENSOR_PARALLEL_SIZE
+            value: {{ $workload.tensorParallel | quote }}
+          - name: VLLM_NIXL_SIDE_CHANNEL_HOST
+            valueFrom:
+              fieldRef:
+                fieldPath: status.podIP
+          - name: VLLM_NIXL_SIDE_CHANNEL_PORT
+            value: "5557"
+          - name: VLLM_LOGGING_LEVEL
+            value: "INFO"
+          - name: CUDA_VISIBLE_DEVICES
+            value: "{{ if eq ($workload.tensorParallel | int) 1 }}0{{ else }}{{ join "," (until ($workload.tensorParallel | int) | toStrings) }}{{ end }}"
+          - name: TP
+            value: {{ $workload.tensorParallel | quote }}
+          {{- with $workload.extraEnv }}
+          {{- toYaml . | nindent 10 }}
+          {{- end }}
+        args:
+          - --model
+          - {{ .Values.model.name }}
+          - --host
+          - "0.0.0.0"
+          - --port
+          - "8080"
+          - "--kv-transfer-config"
+          - '{"kv_connector":"NixlConnector", "kv_role":"kv_both"}'
+          {{- with $workload.extraArgs }}
+          {{- toYaml . | nindent 10 }}
+          {{- end }}
+        resources:
+          limits:
+            nvidia.com/gpu: "{{ $workload.tensorParallel }}"
+          requests:
+            nvidia.com/gpu: "{{ $workload.tensorParallel }}"
+        volumeMounts:
+          - name: model-storage
+            mountPath: /mnt/models-pvc
+    volumes:
+      - name: model-storage
+        persistentVolumeClaim:
+          claimName: models-pvc
