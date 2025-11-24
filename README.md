@@ -23,6 +23,8 @@ The deployment of the experiments infrastructure is completely optional and it i
 In order to deploy it, create the necessary secrets within `infra/` for each component and then simply run `oc apply -k .` from the infrastructure dir.
 
 #### Runing Benchmarks Via GitHub Actions (if `infra` deployed)
+
+> Needs building the benchmark image in the given namespace. See [Build and Push Custom Guidellm Image using OpenShift Builds](./build/README.md)
 ```
 # Comment on any PR:
 /benchmark qwen-0.6b-baseline
@@ -33,6 +35,8 @@ benchmark.maxSeconds=600
 ```
 
 #### Runing Benchmarks Via Helm
+> Needs building the benchmark image in the given namespace. See [Build and Push Custom Guidellm Image using OpenShift Builds](./build/README.md)
+
 > [!WARNING]
 > If using MLFlow, the user is responsible for creating the needed secrets in the appropriate namespace and configuring the given experiment.
 
