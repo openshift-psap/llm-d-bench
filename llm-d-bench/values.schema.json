@@ -82,6 +82,13 @@
         "additionalArgs": {
           "type": "string"
         },
+        "tags": {
+          "type": "object",
+          "description": "Tags to upload to MLflow as key-value pairs",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
         "nodeSelector": {
           "type": "object"
         },

@@ -39,6 +39,14 @@ benchmark:
   # Use this for any flags not covered by the above parameters
   additionalArgs: ""
 
+  # Tags to upload to MLflow (key-value pairs)
+  # Example:
+  # tags:
+  #   team: ml-platform
+  #   env: production
+  #   experiment_type: latency_test
+  tags: {}
+
   # Node scheduling configuration (optional)
   # Ensure benchmark jobs do not run on GPU nodes
   # nodeSelector:

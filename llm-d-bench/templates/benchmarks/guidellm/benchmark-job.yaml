@@ -60,6 +60,10 @@ spec:
           - "--experiment-name"
           - "{{ .Values.mlflow.experimentName }}"
           {{- end}}
+          {{- range $key, $value := .Values.benchmark.tags }}
+          - "--tag"
+          - "{{ $key }}={{ $value }}"
+          {{- end }}
           {{- if .Values.benchmark.additionalArgs }}
           - "{{ .Values.benchmark.additionalArgs }}"
           {{- end }}
