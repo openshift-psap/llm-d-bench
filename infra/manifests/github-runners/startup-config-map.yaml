@@ -8,7 +8,6 @@ data:
     #!/bin/bash
     set -e
 
-    # GitHub configuration
     GITHUB_OWNER="${GITHUB_OWNER}"
     GITHUB_REPOSITORY="${GITHUB_REPOSITORY}"
     RUNNER_NAME="${RUNNER_NAME:-$(hostname)}"
@@ -16,7 +15,6 @@ data:
     RUNNER_LABELS="${RUNNER_LABELS:-openshift,self-hosted}"
     RUNNER_GROUP="${RUNNER_GROUP:-default}"
 
-    # Determine registration URL
     if [ -n "${GITHUB_REPOSITORY}" ]; then
       REGISTRATION_URL="https://github.com/${GITHUB_OWNER}/${GITHUB_REPOSITORY}"
       echo "Registering runner for repository: ${REGISTRATION_URL}"
@@ -94,104 +92,3 @@ data:
 
     # Start the runner
     ./run.sh
----
-apiVersion: apps/v1
-kind: StatefulSet
-metadata:
-  name: github-runner
-  namespace: github-runners
-  labels:
-    app: github-runner
-spec:
-  serviceName: github-runner
-  replicas: ${RUNNER_REPLICAS:-2}
-  selector:
-    matchLabels:
-      app: github-runner
-  template:
-    metadata:
-      labels:
-        app: github-runner
-    spec:
-      serviceAccountName: github-runner
-      securityContext:
-        runAsUser: 1001
-        fsGroup: 1001
-      containers:
-      - name: runner
-        image: ghcr.io/actions/actions-runner:latest
-        securityContext:
-          runAsUser: 1001
-        command:
-        - /bin/bash
-        - -c
-        args:
-        - |
-          # Run startup script
-          /scripts/startup.sh
-        env:
-        - name: GITHUB_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: github-token
-              key: github_token
-        - name: GITHUB_OWNER
-          valueFrom:
-            secretKeyRef:
-              name: github-token
-              key: github_owner
-        - name: GITHUB_REPOSITORY
-          valueFrom:
-            secretKeyRef:
-              name: github-token
-              key: github_repo
-        - name: RUNNER_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        - name: RUNNER_LABELS
-          value: "${RUNNER_LABELS:-openshift,self-hosted,linux,x64}"
-        - name: RUNNER_GROUP
-          value: "default"
-        - name: RUNNER_WORKDIR
-          value: "_work"
-        - name: RUNNER_JOB_TIMEOUT
-          value: "43200000"  # 12 hours in milliseconds
-        volumeMounts:
-        - name: runner-scripts
-          mountPath: /scripts
-          readOnly: true
-        - name: work
-          mountPath: /home/runner/_work
-        resources:
-          requests:
-            cpu: 500m
-            memory: 1Gi
-          limits:
-            cpu: 2000m
-            memory: 4Gi
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-            - matchExpressions:
-              - key: nvidia.com/gpu
-                operator: DoesNotExist
-              - key: nvidia.com/gpu.present
-                operator: DoesNotExist
-      volumes:
-      - name: runner-scripts
-        configMap:
-          name: runner-scripts
-          defaultMode: 0755
-      - name: work
-        emptyDir: {}
-  volumeClaimTemplates:
-  - metadata:
-      name: runner-storage
-    spec:
-      accessModes:
-      - ReadWriteOnce
-      resources:
-        requests:
-          storage: 10Gi

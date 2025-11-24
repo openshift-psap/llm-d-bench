@@ -1,4 +1,3 @@
----
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
@@ -6,6 +5,8 @@ metadata:
 spec:
   # Define the total resources this queue can manage
   namespaceSelector: {}
+  admissionChecks:
+  - multikueue-admission-check
   resourceGroups:
   - coveredResources: ["cpu", "memory"]
     flavors:
