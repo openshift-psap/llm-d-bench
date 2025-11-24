@@ -4,39 +4,25 @@ Automated [llm-d](https://llm-d.ai/) inference benchmarking on OpenShift with ML
 
 > This might work with any other LLM endpoint but has only been tested with `llm-d` endpoints.
 
+> [!WARNING]  
+> This repo does not handle llm-d deployment, so you need to make sure which model is running to make sure the benchmark succeeds.
+
 ## Quick Setup
 
-This project uses the following: 
+This project expects the following to be installed and correctly configured when using the provided `infra/`: 
 
   - [Reflector](https://github.com/emberstack/kubernetes-reflector) - Secret and ConfigMap mirroring across namespaces
-  - [Kueue](https://github.com/kubernetes-sigs/kueue) - For job batching
 
-### 1. Deploy Infrastructure
+### Deploy Infrastructure (Optional)
 
 > [!NOTE]
-> AWS IAM Policy is handled by the user, see [`mlflow/AWS_IAM_POLICY.md`](mlflow/AWS_IAM_POLICY.md) for more.
+> llm-d-bench can be used without deploying this infra, but it is advised for CI/CD integration or experiment tracking, among others.
 
-```bash
-# Copy and configure environment
-cp .env.example .env
-# Edit .env with your credentials
+The deployment of the experiments infrastructure is completely optional and it is inteded to be a persistent environment for automated benchmarking. The infrastructure is composed by MLFlow, Self Hosted GitHub Action Runners and Kueue with MultiCluster capabilities.
 
-# Deploy MLflow, PostgreSQL, and GitHub runners
-./bootstrap.sh
+In order to deploy it, create the necessary secrets within `infra/` for each component and then simply run `oc apply -k .` from the infrastructure dir.
 
-# Dry run
-./bootstrap.sh --dry-run
-```
-
-This deploys:
-- **MLflow** - Experiment tracking with PostgreSQL backend and S3 storage
-- **Self-hosted GitHub runners** - Run benchmarks via PR comments
-- **Custom benchmark image** - Built and pushed to OpenShift registry
-- All needed addons/operators (Kueue, Reflector).
-
-### 2. Run Benchmarks
-
-**Via GitHub Actions (recommended):**
+#### Runing Benchmarks Via GitHub Actions (if `infra` deployed)
 ```
 # Comment on any PR:
 /benchmark qwen-0.6b-baseline
@@ -46,10 +32,10 @@ This deploys:
 benchmark.maxSeconds=600
 ```
 
-> [!WARNING]  
-> This repo does not handle llm-d deployment, so you need to make sure which model is running to make sure the benchmark succeeds.
+#### Runing Benchmarks Via Helm
+> [!WARNING]
+> If using MLFlow, the user is responsible for creating the needed secrets in the appropriate namespace and configuring the given experiment.
 
-**Via Helm:**
 ```bash
 helm install <your_deployment_name> ./llm-d-bench \
   -f llm-d-bench/experiments/qwen-0.6b-baseline.yaml \
@@ -70,64 +56,6 @@ For new experiments, add them in `llm-d-bench/experiments`.
 > [!NOTE]
 > Experiment names cannot include `.` for security reasons.
 
-## GitHub Action Workflow
-
-The benchmark workflow (`.github/workflows/benchmark.yaml`) triggers on PR comments:
-
-**How it works:**
-1. User comments `/benchmark <experiment>` on a PR
-2. Self-hosted runner picks up the job
-3. Checks out PR branch
-4. Runs Helm install with experiment config
-5. Waits for job completion (up to 12 hours)
-6. Reacts with 🚀 on success or 😕 on failure
-
-**Requirements:**
-- Self-hosted runner with label `openshift`
-- GitHub environment named `benchmark`
-- OpenShift secrets: `OPENSHIFT_SERVER_URL`, `OPENSHIFT_CA_CERT`, `OPENSHIFT_TOKEN`
-- Only repository owner can trigger benchmarks
-
-## Configuration
-
-### Environment Variables (.env)
-
-**MLflow:**
-```bash
-POSTGRES_PASSWORD=your-password
-AWS_ACCESS_KEY_ID=your-key
-AWS_SECRET_ACCESS_KEY=your-secret
-S3_BUCKET_NAME=your-bucket
-AWS_REGION=us-east-1
-MLFLOW_ADMIN_PASSWORD=your-password
-```
-
-**GitHub Runners:**
-```bash
-GITHUB_TOKEN=ghp_your_token
-GITHUB_OWNER=your-org-or-username
-GITHUB_REPOSITORY=                    # Empty for org-wide runners
-RUNNER_LABELS=openshift,self-hosted
-RUNNER_REPLICAS=2
-```
-
-### Benchmark Parameters
-
-Key parameters in `llm-d-bench/values.yaml`:
-- `benchmark.target` - Target inference endpoint
-- `benchmark.model` - Model name
-- `benchmark.rate` - Concurrent request rates (e.g., `{1,50,100}`)
-- `benchmark.data` - Number of requests or token specs
-- `benchmark.maxSeconds` - Max runtime (default: 600s)
-- `mlflow.enabled` - Enable MLflow tracking
-- `kueue.enabled` - Enable Kueue queues
-
 ## Results
 
-- **MLflow** - Experiments tracked if `mlflow.enabled=True`
-
-Access MLflow UI:
-```bash
-oc get route mlflow -n mlflow -o jsonpath='{.spec.host}'
-# Login with credentials from .env
-```
+- **MLflow** - Experiments tracked if `mlflow.enabled=True` and other config values.

@@ -1,12 +1,7 @@
 .DS_Store
 results/**
 
-# Environment files with secrets
-.env
-*.env.local
+99-*.yaml
+!99-*.example.yaml
 
-# Generated YAML files from envsubst
-*-generated.yaml
-
-# Dry-run output directory
-dry-run-output/
+infra/manifests/kueue/overlays/management/clusters/kustomization.yaml

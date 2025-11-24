@@ -2,7 +2,7 @@
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: LocalQueue
 metadata:
-  name: "guidellm-jobs"
-  namespace: ${NAMESPACE}
+  name: "llm-d-bench-jobs"
+  namespace: kueue
 spec:
   clusterQueue: "benchmark-cluster-queue"
