@@ -22,11 +22,11 @@ logger = logging.getLogger(__name__)
 def extract_metrics_from_benchmark(benchmark: Dict[str, Any]) -> Dict[str, Any]:
     metrics = {}
     try:
-        run_stats = benchmark.get("run_stats", {})
+        scheduler_metrics = benchmark.get("scheduler_metrics", {})
         all_metrics = benchmark.get("metrics", {})
 
         # Request stats
-        requests_made = run_stats.get("requests_made", {})
+        requests_made = scheduler_metrics.get("requests_made", {})
         if "total" in requests_made:
             metrics["total_requests"] = requests_made["total"]
         if "successful" in requests_made:
@@ -148,6 +148,8 @@ def run_guidellm_cli(
         output_path,
     ]
 
+    if target.startswith("https://"):
+        cmd.extend(["--insecure"])
     if data:
         cmd.extend(["--data", data])
     if max_seconds:
@@ -273,14 +275,14 @@ def run_benchmark_with_mlflow(
                 for benchmark in benchmarks:
                     concurrency_step = 0
                     try:
-                        concurrency_step = int(benchmark["args"]["strategy"]["streams"])
+                        concurrency_step = int(
+                            benchmark["config"]["strategy"]["streams"]
+                        )
                     except (KeyError, TypeError, IndexError):
                         try:
                             # Fallback for other strategies
                             concurrency_step = int(
-                                benchmark["args"]["profile"]["measured_concurrencies"][
-                                    0
-                                ]
+                                benchmark["config"]["profile"]["streams"][0]
                             )
                         except (KeyError, TypeError, IndexError):
                             logger.warning(
@@ -362,7 +364,7 @@ def main():
 
     # Log in to HF
     subprocess.run(
-        ["huggingface-cli", "login", "--token", os.environ.get("HF_CLI_TOKEN")],
+        ["hf", "auth", "login", "--token", os.environ.get("HF_CLI_TOKEN")],
         check=True,
     )
 
