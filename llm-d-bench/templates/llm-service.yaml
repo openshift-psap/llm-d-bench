@@ -1,0 +1,48 @@
+{{- if .Values.deploy }}
+{{- $stdName := include "model.serviceName" . }}
+{{- $existingService := lookup "serving.kserve.io/v1alpha1" "LLMInferenceService" .Values.namespace $stdName }}
+{{- if not $existingService }}
+apiVersion: serving.kserve.io/v1alpha1
+kind: LLMInferenceService
+metadata:
+  name: {{ $stdName }}
+  namespace: {{ .Values.namespace }}
+spec:
+  model:
+    name: {{ .Values.benchmark.model }}
+    uri: hf://{{ .Values.benchmark.model }}
+  replicas: 1
+  template:
+    containers:
+    - name: main
+      # image: vllm/vllm-openai:latest
+      # args:
+      # - "--port=8080"
+      # - "--host=0.0.0.0"
+      # - "--model={{ .Values.benchmark.model }}"
+      # - "--tensor-parallel-size={{ .Values.benchmark.tp }}"
+      # {{- range .Values.benchmark.vllmArgs }}
+      # - {{ . | quote }} \
+      # {{- end }}
+      resources:
+        limits:
+          nvidia.com/gpu: "{{ .Values.benchmark.tp }}"
+        requests:
+          nvidia.com/gpu: "{{ .Values.benchmark.tp }}"
+      env:
+      - name: HF_HOME
+        value: /mnt/models
+      - name: HF_CLI_TOKEN
+        valueFrom:
+          secretKeyRef:
+            name: huggingface-token
+            key: HF_CLI_TOKEN
+      volumeMounts:
+      - name: kserve-provision-location
+        mountPath: /mnt/models
+    volumes:
+    - name: kserve-provision-location
+      persistentVolumeClaim:
+        claimName: models-storage
+{{- end }}
+{{- end }}

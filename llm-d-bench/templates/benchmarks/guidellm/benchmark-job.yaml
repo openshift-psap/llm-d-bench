@@ -1,5 +1,4 @@
 {{- if eq .Values.benchmarkTool "guidellm" }}
----
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -21,13 +20,31 @@ spec:
         app: llm-d-bench
         job: {{ .Values.benchmark.name }}
     spec:
+      initContainers:
+      - name: wait-for-inference
+        image: registry.access.redhat.com/ubi9/ubi:latest
+        command: ['/bin/bash', '-c']
+        args:
+        - |
+          echo "Waiting for LLMInferenceService..."
+          TARGET="https://{{ include "model.serviceName" . }}-kserve-workload-svc.{{ .Values.namespace }}.svc.cluster.local:8000/v1/models"
+          until curl -k -s -f -o /dev/null "$TARGET"; do
+            echo "Waiting for 200 OK from $TARGET..."
+            sleep 10
+          done
+          echo "Model is UP!"
+
       containers:
       - name: guidellm
         image: "{{ .Values.benchmark.image.repository }}:{{ .Values.benchmark.image.tag }}"
         imagePullPolicy: {{ .Values.benchmark.image.pullPolicy | quote }}
         args:
           - "--target"
-          - "{{ .Values.benchmark.target }}"
+          {{- if .Values.benchmark.target }}
+          - "{{ .Values.benchmark.target }}" 
+          {{- else}}
+          - "https://{{ include "model.serviceName" . }}-kserve-workload-svc.{{ .Values.namespace }}.svc.cluster.local:8000"
+          {{- end}}
           {{- if .Values.benchmark.model }}
           - "--model"
           - "{{ .Values.benchmark.model }}"
@@ -56,9 +73,9 @@ spec:
           - "--accelerator"
           - "{{ .Values.benchmark.accelerator }}"
           {{- end }}
-          {{- if .Values.mlflow.experimentName }}
+          {{- if .Values.benchmark.name }}
           - "--experiment-name"
-          - "{{ .Values.mlflow.experimentName }}"
+          - "{{ .Values.benchmark.name }}"
           {{- end}}
           {{- range $key, $value := .Values.benchmark.tags }}
           - "--tag"
@@ -90,7 +107,7 @@ spec:
                 name: {{ .Values.mlflow.auth.secretName }}
                 key: {{ .Values.mlflow.auth.passwordKey }}
           - name: MLFLOW_EXPERIMENT_NAME
-            value: {{ .Values.mlflow.experimentName | default .Values.benchmark.name | quote }}
+            value: {{ .Values.benchmark.name | quote }}
           - name: AWS_ACCESS_KEY_ID
             valueFrom:
               secretKeyRef:

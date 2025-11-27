@@ -1,4 +1,11 @@
+{{- if .Values.deploy }}
+🚀 Model And Benchmark Job Deployed Successfully!
+
+Model Name: {{ .Values.benchmark.model }}
+
+{{- else }}
 🚀 Benchmark Job Deployed Successfully!
+{{- end }}
 
 Job Name: {{ .Values.benchmark.name }}
 Namespace: {{ .Values.namespace }}
@@ -7,3 +14,9 @@ To monitor the job:
 
   oc get job {{ .Values.benchmark.name }} -n {{ .Values.namespace }}
   oc logs job/{{ .Values.benchmark.name }} -n {{ .Values.namespace }} -f
+
+{{- if .Values.deploy }}
+To monitor the model deployment:
+  oc get llminferenceservice {{ .Values.benchmark.name }} -n {{ .Values.namespace }}
+  oc logs llminferenceservice/{{ .Values.benchmark.name }} -n {{ .Values.namespace }}
+{{- end }}

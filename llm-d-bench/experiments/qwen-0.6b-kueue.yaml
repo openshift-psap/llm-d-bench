@@ -39,9 +39,6 @@ mlflow:
   # MLFlow tracking URI
   trackingUri: "https://mlflow-mlflow.apps.aperdomo-lab.ibm.rhperfscale.org"
 
-  # Experiment name (groups related benchmark runs together)
-  experimentName: "qwen-0.6b-baseline"
-
   # Authentication secret (must exist in the same namespace!)
   auth:
     secretName: "mlflow-auth"

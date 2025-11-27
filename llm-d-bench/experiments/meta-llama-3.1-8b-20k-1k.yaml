@@ -32,7 +32,6 @@ benchmark:
 mlflow:
   enabled: true
   trackingUri: "https://mlflow-mlflow.apps.aperdomo-lab.ibm.rhperfscale.org"
-  experimentName: "meta-llama-3-1-8b-20k-1k"
   # Authentication secret (must exist in the same namespace!)
   auth:
     secretName: "mlflow-auth"

@@ -1,11 +1,13 @@
-# meta-llama/Llama-3.1-8B Benchmark Experiment
+# Qwen/Qwen3-0.6B Benchmark Experiment with Deployment
 namespace: downstream-llm-d
 
+deploy: true
+
 benchmark:
-  name: meta-llama-3-1-8b-8k-1k
+  name: qwen-qwen3-06b-1k-1k
 
   tags:
-    llm-d-version: v0.3.1
+    llm-d-version: placeholder
 
   image:
     repository: "image-registry.openshift-image-registry.svc:5000/downstream-llm-d/guidellm-custom"
@@ -14,29 +16,30 @@ benchmark:
 
   affinity: null
 
-  target: http://infra-inference-scheduling-inference-gateway-istio.llm-d-inference-scheduling.svc.cluster.local:80
+  # target: https://{{ .Values.benchmark.name }}-kserve-workload-svc.{{ .Values.namespace }}.svc.cluster.local:8000
 
-  model: meta-llama/Llama-3.1-8B
-  processor: meta-llama/Llama-3.1-8B
+  model: Qwen/Qwen3-0.6B
+  processor: Qwen/Qwen3-0.6B
 
   rateType: concurrent
-  rate: "1,50,100,200,300,500,650"
-  data: "prompt_tokens=8000,output_tokens=1000"
+  rate: "1,5,20"
+  data: "prompt_tokens=1000,output_tokens=1000"
   maxSeconds: "60"
   accelerator: "H200"
+  tp: 1
 
   env:
     GUIDELLM__REQUEST_TIMEOUT: "1000"
     GUIDELLM__LOGGING__CONSOLE_LOG_LEVEL: "INFO"
-
+  
 mlflow:
   enabled: true
   trackingUri: "https://mlflow-mlflow.apps.aperdomo-lab.ibm.rhperfscale.org"
   # Authentication secret (must exist in the same namespace!)
   auth:
-    secretName: "mlflow-auth"
-    usernameKey: "admin-username"
-    passwordKey: "admin-password"
+    secretName: "mlflow-ui-auth"
+    usernameKey: "username"
+    passwordKey: "password"
   # S3 credentials for MLflow artifact store
   s3:
     # Secret name containing S3 credentials

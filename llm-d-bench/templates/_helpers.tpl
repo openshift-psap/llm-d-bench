@@ -71,3 +71,12 @@ Benchmark job name
 {{- define "llm-d-bench.benchmarkJobName" -}}
 {{- .Values.benchmark.name | default (printf "%s-benchmark" (include "llm-d-bench.fullname" .)) }}
 {{- end }}
+
+{{/*
+Generate a standardized, DNS-compliant name from the Model ID.
+Example: "Qwen/Qwen3-0.6B" -> "qwen-qwen3-06b"
+Logic: Lowercase -> Replace '/' with '-' -> Remove '.'
+*/}}
+{{- define "model.serviceName" -}}
+{{- .Values.benchmark.model | lower | replace "/" "-" | replace "." "" | trimSuffix "-" -}}
+{{- end -}}

@@ -3,6 +3,9 @@
 # Namespace to deploy to
 namespace: llm-d-inference-scheduler
 
+# Enable model deployment
+deploy: false
+
 # Benchmark tool to use (guidellm, or add more in the future)
 benchmarkTool: guidellm
 
@@ -34,6 +37,11 @@ benchmark:
   data: "1000"                  # Number of requests or data points
   maxSeconds: "600"             # Maximum seconds to run
   accelerator: ""               # Accelerator type (e.g., nvidia-h100, nvidia-a100)
+  tp: 1                         # Tensor parallelism (for now, aggregated workloads only)
+
+  # Additional vLLM arguments for serving runtime (optional)
+  # Example: ["--max-model-len=4096", "--enable-prefix-caching"]
+  vllmArgs: []
 
   # Additional GuideLLM arguments (optional)
   # Use this for any flags not covered by the above parameters
@@ -79,9 +87,6 @@ mlflow:
   # Example: "http://mlflow.mlflow.svc.cluster.local:5000" (internal service)
   # or "https://mlflow-mlflow.apps.your-cluster.com" (via route)
   trackingUri: ""
-
-  # MLflow experiment name (if not provided, will use benchmark.name)
-  experimentName: ""
 
   # MLflow authentication secret
   # NOTE: The secret must exist in the same namespace as the benchmark job.

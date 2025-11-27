@@ -6,6 +6,10 @@
       "type": "string",
       "description": "Namespace to deploy resources"
     },
+    "deploy": {
+      "type": "boolean",
+      "description": "Enable model deployment"
+    },
     "benchmarkTool": {
       "type": "string",
       "description": "Benchmark tool to use"
@@ -79,6 +83,17 @@
           "type": "string",
           "description": "Accelerator type (e.g., nvidia-h100, nvidia-a100)"
         },
+        "tp": {
+          "type": "integer",
+          "description": "Tensor parallelism degree"
+        },
+        "vllmArgs": {
+          "type": "array",
+          "description": "Additional vLLM arguments for serving runtime",
+          "items": {
+            "type": "string"
+          }
+        },
         "additionalArgs": {
           "type": "string"
         },
@@ -122,10 +137,6 @@
         "trackingUri": {
           "type": "string",
           "description": "MLflow tracking server URL"
-        },
-        "experimentName": {
-          "type": "string",
-          "description": "MLflow experiment name (defaults to benchmark.name if not provided)"
         },
         "auth": {
           "type": "object",

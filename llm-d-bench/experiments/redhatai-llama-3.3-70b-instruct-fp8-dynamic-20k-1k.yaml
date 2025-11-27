@@ -32,7 +32,6 @@ benchmark:
 mlflow:
   enabled: true
   trackingUri: "https://mlflow-mlflow.apps.aperdomo-lab.ibm.rhperfscale.org"
-  experimentName: "redhatai-llama-3-3-70b-instruct-fp8-dynamic-20k-1k"
   # Authentication secret (must exist in the same namespace!)
   auth:
     secretName: "mlflow-auth"
