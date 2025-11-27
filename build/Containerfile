@@ -7,9 +7,6 @@ RUN dnf install -y git
 
 RUN pip install --no-warn-script-location mlflow boto3 certifi
 
-RUN git clone --branch feature/skip-ssl --single-branch https://github.com/albertoperdomo2/guidellm.git /tmp/guidellm && \
-    pip install -e /tmp/guidellm
-
 RUN mkdir -p /tmp/.huggingface && chmod -R 777 /tmp/.huggingface
 
 COPY run_benchmark.py /usr/local/bin/run_benchmark.py

@@ -149,7 +149,7 @@ def run_guidellm_cli(
     ]
 
     if target.startswith("https://"):
-        cmd.extend(["--insecure"])
+        cmd.extend(["--backend-kwargs", '{"verify": false}'])
     if data:
         cmd.extend(["--data", data])
     if max_seconds:
