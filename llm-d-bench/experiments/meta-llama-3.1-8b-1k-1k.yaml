@@ -1,8 +1,10 @@
 # meta-llama/Llama-3.1-8B Benchmark Experiment
 namespace: downstream-llm-d
 
+deploy: false
+
 benchmark:
-  name: meta-llama-3-1-8b-1k-1k
+  name: meta-llama-31-8b-1k-1k
 
   tags:
     llm-d-version: v0.3.1
@@ -14,8 +16,6 @@ benchmark:
 
   affinity: null
 
-  target: http://infra-inference-scheduling-inference-gateway-istio.llm-d-inference-scheduling.svc.cluster.local:80
-
   model: meta-llama/Llama-3.1-8B
   processor: meta-llama/Llama-3.1-8B
 
@@ -24,6 +24,13 @@ benchmark:
   data: "prompt_tokens=1000,output_tokens=1000"
   maxSeconds: "60"
   accelerator: "H200"
+  tp: 1
+
+  vllmArgs:
+    - "--uvicorn-log-level=debug" 
+    - "--trust-remote-code"
+    - "--gpu-memory-utilization=0.92"
+    - "--disable-log-requests"
 
   env:
     GUIDELLM__REQUEST_TIMEOUT: "1000"
@@ -34,9 +41,9 @@ mlflow:
   trackingUri: "https://mlflow-mlflow.apps.aperdomo-lab.ibm.rhperfscale.org"
   # Authentication secret (must exist in the same namespace!)
   auth:
-    secretName: "mlflow-auth"
-    usernameKey: "admin-username"
-    passwordKey: "admin-password"
+    secretName: "mlflow-ui-auth"
+    usernameKey: "username"
+    passwordKey: "password"
   # S3 credentials for MLflow artifact store
   s3:
     # Secret name containing S3 credentials

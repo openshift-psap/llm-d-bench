@@ -10,39 +10,39 @@ metadata:
 spec:
   model:
     name: {{ .Values.benchmark.model }}
-    uri: hf://{{ .Values.benchmark.model }}
+    uri: pvc://models-storage/models/{{ .Values.benchmark.model | replace "/" "-" }}
   replicas: 1
   template:
     containers:
     - name: main
-      # image: vllm/vllm-openai:latest
-      # args:
-      # - "--port=8080"
-      # - "--host=0.0.0.0"
-      # - "--model={{ .Values.benchmark.model }}"
-      # - "--tensor-parallel-size={{ .Values.benchmark.tp }}"
-      # {{- range .Values.benchmark.vllmArgs }}
-      # - {{ . | quote }} \
-      # {{- end }}
+      command: ["python3", "-m", "vllm.entrypoints.openai.api_server"]
+      args:
+        - "--port=8000"
+        - "--host=0.0.0.0"
+        - "--model=/mnt/models"
+        - "--served-model-name={{ .Values.benchmark.model }}"
+        - "--enable-ssl-refresh"
+        - "--ssl-certfile=/var/run/kserve/tls/tls.crt"
+        - "--ssl-keyfile=/var/run/kserve/tls/tls.key"
+        - "--tensor-parallel-size={{ .Values.benchmark.tp }}"
+      {{- range .Values.benchmark.vllmArgs }}
+        - {{ . | quote }}
+      {{- end }}
       resources:
         limits:
           nvidia.com/gpu: "{{ .Values.benchmark.tp }}"
         requests:
           nvidia.com/gpu: "{{ .Values.benchmark.tp }}"
-      env:
-      - name: HF_HOME
-        value: /mnt/models
-      - name: HF_CLI_TOKEN
-        valueFrom:
-          secretKeyRef:
-            name: huggingface-token
-            key: HF_CLI_TOKEN
-      volumeMounts:
-      - name: kserve-provision-location
-        mountPath: /mnt/models
-    volumes:
-    - name: kserve-provision-location
-      persistentVolumeClaim:
-        claimName: models-storage
+      # for slow startup models
+      livenessProbe:
+        httpGet:
+          path: /health
+          port: 8000
+          scheme: HTTPS
+        initialDelaySeconds: 200
+        periodSeconds: 10
+        timeoutSeconds: 10
+        successThreshold: 1
+        failureThreshold: 3
 {{- end }}
 {{- end }}

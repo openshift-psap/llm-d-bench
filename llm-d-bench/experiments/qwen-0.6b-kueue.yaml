@@ -41,9 +41,9 @@ mlflow:
 
   # Authentication secret (must exist in the same namespace!)
   auth:
-    secretName: "mlflow-auth"
-    usernameKey: "admin-username"
-    passwordKey: "admin-password"
+    secretName: "mlflow-ui-auth"
+    usernameKey: "username"
+    passwordKey: "password"
 
   # S3 credentials for MLflow artifact store
   s3:
