@@ -78,5 +78,5 @@ Example: "Qwen/Qwen3-0.6B" -> "qwen-qwen3-06b"
 Logic: Lowercase -> Replace '/' with '-' -> Remove '.'
 */}}
 {{- define "model.serviceName" -}}
-{{- .Values.benchmark.model | lower | replace "/" "-" | replace "." "" | trimSuffix "-" -}}
+{{- .Values.benchmark.model | lower | replace "/" "-" | replace "." "" | trimSuffix "-" | trunc 42 -}}
 {{- end -}}
