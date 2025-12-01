@@ -1,7 +1,7 @@
 # RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic Benchmark Experiment
 namespace: downstream-llm-d
 
-deploy: false
+deploy: true
 
 benchmark:
   name: redhatai-llama-33-70b-instruct-fp8-dynamic-1k-1k
@@ -37,7 +37,7 @@ benchmark:
     - "--disable-log-requests"
 
   env:
-    GUIDELLM__REQUEST_TIMEOUT: "1000"
+    GUIDELLM__REQUEST_TIMEOUT: "6000"
     GUIDELLM__LOGGING__CONSOLE_LOG_LEVEL: "INFO"
   
 mlflow:

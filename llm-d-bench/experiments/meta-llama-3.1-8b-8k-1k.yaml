@@ -7,7 +7,9 @@ benchmark:
   name: meta-llama-31-8b-8k-1k
 
   tags:
-    llm-d-version: v0.3.1
+    llm-d-version: RHOAI 3.0
+    # tag to mark "golden" runs - ones to be consumed by the perf dashboard
+    # golden: true
 
   image:
     repository: "image-registry.openshift-image-registry.svc:5000/downstream-llm-d/guidellm-custom"
@@ -26,8 +28,15 @@ benchmark:
   accelerator: "H200"
   tp: 1
 
+  vllmArgs:
+    - "--max-model-len=10000"
+    - "--uvicorn-log-level=debug" 
+    - "--trust-remote-code"
+    - "--gpu-memory-utilization=0.92"
+    - "--disable-log-requests"
+
   env:
-    GUIDELLM__REQUEST_TIMEOUT: "1000"
+    GUIDELLM__REQUEST_TIMEOUT: "6000"
     GUIDELLM__LOGGING__CONSOLE_LOG_LEVEL: "INFO"
 
 mlflow:
