@@ -1,0 +1,11 @@
+# Wait for this to become Ready:
+# oc wait Kuadrant -n kuadrant-system kuadrant --for=condition=Ready --timeout=10m
+# Then, apply the annotation:
+# oc annotate svc/authorino-authorino-authorization  service.beta.openshift.io/serving-cert-secret-name=authorino-server-cert -n kuadrant-system
+
+apiVersion: kuadrant.io/v1beta1
+kind: Kuadrant
+metadata:
+  name: kuadrant
+  namespace: kuadrant-system
+
