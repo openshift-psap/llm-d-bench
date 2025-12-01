@@ -39,7 +39,7 @@ spec:
           path: /health
           port: 8000
           scheme: HTTPS
-        initialDelaySeconds: 200
+        initialDelaySeconds: 400
         periodSeconds: 10
         timeoutSeconds: 10
         successThreshold: 1
