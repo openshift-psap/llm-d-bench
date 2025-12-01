@@ -1,6 +1,8 @@
 # openai/gpt-oss-20b Benchmark Experiment
 namespace: downstream-llm-d
 
+deploy: true
+
 benchmark:
   name: openai-gpt-oss-20b-20k-1k
 

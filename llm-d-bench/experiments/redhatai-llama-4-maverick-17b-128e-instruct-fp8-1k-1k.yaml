@@ -1,6 +1,8 @@
 # RedHatAI/Llama-4-Maverick-17B-128E-Instruct-FP8 Benchmark Experiment
 namespace: downstream-llm-d
 
+deploy: true
+
 benchmark:
   name: redhatai-llama-4-maverick-17b-128e-instruct-fp8-1k-1k
 
