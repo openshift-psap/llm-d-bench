@@ -20,4 +20,5 @@ patches:
     patch: |-
       - op: replace
         path: /spec/listeners/0/hostname
-        value: "*.apps.REPLACEME.example.com"
+        value: "inference-gateway.apps.psap-llmd-h200.ibm-rh-ai.rhperfscale.org" # "inference.apps.REPLACEME.example.com"
+

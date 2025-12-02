@@ -1,20 +1,24 @@
 apiVersion: gateway.networking.k8s.io/v1
 kind: Gateway
 metadata:
+  labels:
+    istio.io/rev: openshift-gateway
   name: openshift-ai-inference
   namespace: openshift-ingress
 spec:
-  gatewayClassName: openshift-default
+  gatewayClassName: openshift-ai-inference
   listeners:
-    - name: https
-      protocol: HTTPS
-      port: 443
-      hostname: "*.apps.REPLACEME.example.com"
-      allowedRoutes:
+    - allowedRoutes:
         namespaces:
           from: All
+      hostname: "inference-gateway.apps.REPLACEME.example.com"
+      name: https
+      port: 443
+      protocol: HTTPS
       tls:
-        mode: Terminate
         certificateRefs:
-          - name: router-certs-default # Instead of docs' gwapi-wildcard
+          - group: ''
             kind: Secret
+            name: default-gateway-tls
+        mode: Terminate
+

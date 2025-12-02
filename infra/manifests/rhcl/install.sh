@@ -7,8 +7,7 @@ echo ""
 
 echo "Step 1: Installing operator..."
 oc apply -f 01-namespace.yaml
-oc apply -f 02-operatorgroup.yaml
-oc apply -f 03-subscription.yaml
+oc apply -f 02-subscription.yaml
 
 echo "Waiting for operator (this takes 2-5 minutes)..."
 until oc get csv -n kuadrant-system 2>/dev/null | grep -q Succeeded; do
@@ -19,7 +18,7 @@ echo " ✓ Operator ready"
 echo ""
 
 echo "Step 2: Creating Kuadrant..."
-oc apply -f 04-kuadrant.yaml
+oc apply -f 03-kuadrant.yaml
 
 echo "Waiting for Kuadrant (this takes 3-10 minutes)..."
 oc wait Kuadrant -n kuadrant-system kuadrant --for=condition=Ready --timeout=10m
@@ -41,7 +40,7 @@ echo " ✓ Certificate ready"
 echo ""
 
 echo "Step 4: Enabling SSL..."
-oc apply -f 05-authorino-ssl.yaml
+oc apply -f 04-authorino-ssl.yaml
 
 echo "Waiting for Authorino pods..."
 oc wait --for=condition=ready pod -l authorino-resource=authorino -n kuadrant-system --timeout=150s
