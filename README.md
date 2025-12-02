@@ -4,14 +4,14 @@ Automated [llm-d](https://llm-d.ai/) inference benchmarking on OpenShift with ML
 
 > This might work with any other LLM endpoint but has only been tested with `llm-d` endpoints.
 
-> [!WARNING]  
-> This repo does not handle llm-d deployment, so you need to make sure which model is running to make sure the benchmark succeeds.
+  
+This repo does can handle llm-d deployment, but infrastructure provisioning is not yet fully automated, so RHOAI setup for Distributed Inference is expected to be taken care by the user.
 
 ## Quick Setup
 
 This project expects the following to be installed and correctly configured when using the provided `infra/`: 
 
-  - [Reflector](https://github.com/emberstack/kubernetes-reflector) - Secret and ConfigMap mirroring across namespaces
+  - [Reflector](https://github.com/emberstack/kubernetes-reflector) - Secret and ConfigMap mirroring across namespaces, can be omitted if the user manually creates the secrets in each namespace.
 
 ### Deploy Infrastructure (Optional)
 
@@ -22,9 +22,12 @@ The deployment of the experiments infrastructure is completely optional and it i
 
 In order to deploy it, create the necessary secrets within `infra/` for each component and then simply run `oc apply -k .` from the infrastructure dir.
 
+Other manifests for deploying RHOAI and configuring Distributed Inference can be found inside `infra/` too.
+
 #### Runing Benchmarks Via GitHub Actions (if `infra` deployed)
 
-> Needs building the benchmark image in the given namespace. See [Build and Push Custom Guidellm Image using OpenShift Builds](./build/README.md)
+> Needs building the benchmark image in the given namespace. See [Build and Push Custom Guidellm Image using OpenShift Builds](./build/README.md) and GHA setup.
+
 ```
 # Comment on any PR:
 /benchmark qwen-0.6b-baseline
