@@ -7,7 +7,7 @@ benchmark:
   name: redhatai-llama-4-maverick-17b-128e-instruct-fp8-20k-1k
 
   tags:
-    llm-d-version: RHOAI 3.0
+    llm-d-version: RHOAI-3.0
     # tag to mark "golden" runs - ones to be consumed by the perf dashboard
     # golden: true
 
@@ -24,7 +24,7 @@ benchmark:
   rateType: concurrent
   rate: "1,50,100,200,300,500,650"
   data: "prompt_tokens=20000,output_tokens=1000"
-  maxSeconds: "60"
+  maxSeconds: "480"
   accelerator: "H200"
   tp: 8
 
