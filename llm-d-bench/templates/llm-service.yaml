@@ -36,9 +36,9 @@ spec:
       {{- end }}
       resources:
         limits:
-          nvidia.com/gpu: "{{ .Values.benchmark.gpus }}"
+          nvidia.com/gpu: "{{ .Values.benchmark.gpus | default .Values.benchmark.tp }}"
         requests:
-          nvidia.com/gpu: "{{ .Values.benchmark.gpus }}"
+          nvidia.com/gpu: "{{ .Values.benchmark.gpus | default .Values.benchmark.tp }}"
       # for slow startup models
       livenessProbe:
         httpGet:

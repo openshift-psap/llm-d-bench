@@ -44,7 +44,7 @@ benchmark:
   maxSeconds: "600"             # Maximum seconds to run
   accelerator: ""               # Accelerator type (e.g., nvidia-h100, nvidia-a100)
   tp: 1                         # Tensor parallelism (for now, aggregated workloads only)
-  gpus: 0                       # Number of GPUs to request for the benchmark job
+  # gpus: 0                       # Number of GPUs to request for the benchmark job
 
   # Additional vLLM arguments for serving runtime (optional)
   # Example: ["--max-model-len=4096", "--enable-prefix-caching"]
