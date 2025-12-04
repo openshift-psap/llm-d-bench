@@ -27,6 +27,7 @@ benchmark:
   maxSeconds: "480"
   accelerator: "H200"
   tp: 1 # and 4
+  gpus: 4
 
   vllmArgs:
     - "--max-model-len=10000"

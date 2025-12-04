@@ -6,6 +6,12 @@ namespace: llm-d-inference-scheduler
 # Enable model deployment
 deploy: false
 
+# Number of decode replica pods
+decodeReplicas: 1
+
+# Number of prefill replica pods
+prefillReplicas: 1
+
 # Benchmark tool to use (guidellm, or add more in the future)
 benchmarkTool: guidellm
 
@@ -38,6 +44,7 @@ benchmark:
   maxSeconds: "600"             # Maximum seconds to run
   accelerator: ""               # Accelerator type (e.g., nvidia-h100, nvidia-a100)
   tp: 1                         # Tensor parallelism (for now, aggregated workloads only)
+  gpus: 0                       # Number of GPUs to request for the benchmark job
 
   # Additional vLLM arguments for serving runtime (optional)
   # Example: ["--max-model-len=4096", "--enable-prefix-caching"]

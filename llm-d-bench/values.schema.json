@@ -10,6 +10,14 @@
       "type": "boolean",
       "description": "Enable model deployment"
     },
+    "decodeReplicas": {
+      "type": "integer",
+      "description": "Number of decode replica pods"
+    },
+    "prefillReplicas": {
+      "type": "integer",
+      "description": "Number of prefill replica pods"
+    },
     "benchmarkTool": {
       "type": "string",
       "description": "Benchmark tool to use"
@@ -86,6 +94,11 @@
         "tp": {
           "type": "integer",
           "description": "Tensor parallelism degree"
+        },
+        "gpus": {
+          "type": "integer",
+          "description": "Number of GPUs to request for the benchmark job",
+          "minimum": 0
         },
         "vllmArgs": {
           "type": "array",
