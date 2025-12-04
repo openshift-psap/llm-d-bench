@@ -27,7 +27,7 @@ spec:
         args:
         - |
           echo "Waiting for LLMInferenceService..."
-          TARGET="https://{{ include "model.serviceName" . }}-kserve-workload-svc.{{ .Values.namespace }}.svc.cluster.local:8000/v1/models"
+          TARGET="https://inference-gateway.apps.REPLACE_ME_DOMAIN.org/{{ .Values.namespace }}/{{ include "model.serviceName" . }}/v1/models"
           until curl -k -s -f -o /dev/null "$TARGET"; do
             echo "Waiting for 200 OK from $TARGET..."
             sleep 10
@@ -43,7 +43,7 @@ spec:
           {{- if .Values.benchmark.target }}
           - "{{ .Values.benchmark.target }}" 
           {{- else}}
-          - "https://{{ include "model.serviceName" . }}-kserve-workload-svc.{{ .Values.namespace }}.svc.cluster.local:8000"
+          - "https://inference-gateway.apps.REPLACE_ME_DOMAIN.org/{{ .Values.namespace }}/{{ include "model.serviceName" . }}"
           {{- end}}
           {{- if .Values.benchmark.model }}
           - "--model"
