@@ -293,6 +293,9 @@ def run_benchmark_with_mlflow(
                     metrics = extract_metrics_from_benchmark(benchmark)
 
                     if metrics:
+                        # Add concurrency as a metric for easier comparison
+                        metrics["concurrency"] = concurrency_step
+
                         # Log each metric with the concurrency as the step
                         for key, value in metrics.items():
                             mlflow.log_metric(key, value, step=concurrency_step)
