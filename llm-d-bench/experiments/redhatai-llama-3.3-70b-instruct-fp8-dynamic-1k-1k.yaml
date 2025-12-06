@@ -22,7 +22,7 @@ benchmark:
   processor: RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic
 
   rateType: concurrent
-  rate: "1,50,100,150,200,300,400,500,650"
+  rate: "650,500,400,300,200,150,100,50,1"
   data: "prompt_tokens=1000,output_tokens=1000"
   maxSeconds: "600"
   accelerator: "H200"
@@ -39,6 +39,7 @@ benchmark:
   env:
     GUIDELLM__REQUEST_TIMEOUT: "6000"
     GUIDELLM__LOGGING__CONSOLE_LOG_LEVEL: "INFO"
+    GUIDELLM__MAX_WORKER_PROCESSES: "100"
   
 mlflow:
   enabled: true

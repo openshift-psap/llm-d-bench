@@ -27,7 +27,11 @@ spec:
         args:
         - |
           echo "Waiting for LLMInferenceService..."
+          {{- if .Values.benchmark.target }}
+          TARGET="{{ .Values.benchmark.target }}/v1/models"
+          {{- else }}
           TARGET="https://inference-gateway.apps.REPLACE_ME_DOMAIN.org/{{ .Values.namespace }}/{{ include "model.serviceName" . }}/v1/models"
+          {{- end }}
           until curl -k -s -f -o /dev/null "$TARGET"; do
             echo "Waiting for 200 OK from $TARGET..."
             sleep 10
@@ -38,6 +42,7 @@ spec:
       - name: guidellm
         image: "{{ .Values.benchmark.image.repository }}:{{ .Values.benchmark.image.tag }}"
         imagePullPolicy: {{ .Values.benchmark.image.pullPolicy | quote }}
+        workingDir: /tmp
         args:
           - "--target"
           {{- if .Values.benchmark.target }}
@@ -134,10 +139,10 @@ spec:
           {{- end }}
         resources:
           requests:
-            memory: "2Gi"
+            memory: "8Gi"
             cpu: "500m"
           limits:
-            memory: "4Gi"
+            memory: "10Gi"
             cpu: "1000m"
       restartPolicy: Never
       {{- if .Values.benchmark.nodeSelector }}
