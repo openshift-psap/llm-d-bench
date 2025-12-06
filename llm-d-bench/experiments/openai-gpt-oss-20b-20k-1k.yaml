@@ -12,7 +12,6 @@ benchmark:
     # golden: true
 
   image:
-    repository: "image-registry.openshift-image-registry.svc:5000/downstream-llm-d/guidellm-custom"
     tag: "latest"
     pullPolicy: Always
 
