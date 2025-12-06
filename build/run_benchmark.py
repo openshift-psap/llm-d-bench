@@ -4,6 +4,7 @@ import logging
 import subprocess
 import sys
 import os
+import requests
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any
@@ -22,11 +23,15 @@ logger = logging.getLogger(__name__)
 def extract_metrics_from_benchmark(benchmark: Dict[str, Any]) -> Dict[str, Any]:
     metrics = {}
     try:
+        # Support both v0.3.0 (run_stats) and v0.4.0+ (scheduler_metrics)
         scheduler_metrics = benchmark.get("scheduler_metrics", {})
+        run_stats = benchmark.get("run_stats", {})
         all_metrics = benchmark.get("metrics", {})
 
-        # Request stats
-        requests_made = scheduler_metrics.get("requests_made", {})
+        # Request stats - try v0.4.0 first, fallback to v0.3.0
+        requests_made = scheduler_metrics.get("requests_made", {}) or run_stats.get(
+            "requests_made", {}
+        )
         if "total" in requests_made:
             metrics["total_requests"] = requests_made["total"]
         if "successful" in requests_made:
@@ -149,7 +154,8 @@ def run_guidellm_cli(
     ]
 
     if target.startswith("https://"):
-        cmd.extend(["--backend-kwargs", '{"verify": false}'])
+        # cmd.extend(["--backend-kwargs", '{"verify": false}'])
+        cmd.extend(["--backend-args", '{"verify": false}'])
     if data:
         cmd.extend(["--data", data])
     if max_seconds:
@@ -165,19 +171,29 @@ def run_guidellm_cli(
 
     try:
         with open(console_log_path, "w") as log_file:
-            _ = subprocess.run(
+            process = subprocess.Popen(
                 cmd,
-                stdout=log_file,
+                stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                check=True,
             )
 
-        logger.info("Guidellm completed successfully")
+            for line in process.stdout:
+                print(line, end="")
+                log_file.write(line)
+                log_file.flush()
+
+            return_code = process.wait()
+
+            if return_code != 0:
+                logger.error(f"Guidellm command failed with return code {return_code}")
+            else:
+                logger.info("Guidellm completed successfully")
+
         return output_path, console_log_path
 
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Guidellm command failed with return code {e.returncode}")
+    except Exception as e:
+        logger.error(f"Guidellm command failed: {e}")
         return output_path, console_log_path
 
 
@@ -237,9 +253,28 @@ def run_benchmark_with_mlflow(
 
             mlflow.log_params(params)
 
+            try:
+                # guidellm_version = subprocess.check_output(
+                #     ["guidellm", "--version"], text=True
+                # ).split()[-1]
+
+                # XXX: Hardcoded since version in the image is incorrect
+                guidellm_version = "0.3.0"
+            except Exception:
+                guidellm_version = "unknown"
+
+            try:
+                vllm_version = requests.get(f"{target}/version", verify=False).json()[
+                    "version"
+                ]
+            except Exception:
+                vllm_version = "unknown"
+
             default_tags = {
                 "model": model,
                 "rate_type": rate_type,
+                "vllm": vllm_version,
+                "guidellm": guidellm_version,
             }
             if accelerator:
                 default_tags["accelerator"] = accelerator
@@ -274,15 +309,19 @@ def run_benchmark_with_mlflow(
 
                 for benchmark in benchmarks:
                     concurrency_step = 0
+
+                    # Support both v0.3.0 (args) and v0.4.0+ (config)
+                    config_or_args = benchmark.get("config") or benchmark.get(
+                        "args", {}
+                    )
+
                     try:
-                        concurrency_step = int(
-                            benchmark["config"]["strategy"]["streams"]
-                        )
+                        concurrency_step = int(config_or_args["strategy"]["streams"])
                     except (KeyError, TypeError, IndexError):
                         try:
                             # Fallback for other strategies
                             concurrency_step = int(
-                                benchmark["config"]["profile"]["streams"][0]
+                                config_or_args["profile"]["streams"][0]
                             )
                         except (KeyError, TypeError, IndexError):
                             logger.warning(
@@ -366,9 +405,38 @@ def main():
     logger.info(f"Starting benchmark sweep for rates: {args.rate}")
 
     # Log in to HF
-    subprocess.run(
-        ["hf", "auth", "login", "--token", os.environ.get("HF_CLI_TOKEN")],
-        check=True,
+    try:
+        subprocess.run(
+            ["hf", "auth", "login", "--token", os.environ.get("HF_CLI_TOKEN")],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+        logger.info("Successfully authenticated with 'hf auth login'")
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ):
+        pass
+
+    try:
+        subprocess.run(
+            ["huggingface-cli", "login", "--token", os.environ.get("HF_CLI_TOKEN")],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+        logger.info("Successfully authenticated with 'huggingface-cli login'")
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ):
+        pass
+
+    logger.info(
+        "Could not authenticate with HuggingFace CLI, continuing without authentication"
     )
 
     try:
