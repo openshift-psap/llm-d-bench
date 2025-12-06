@@ -1,0 +1,13 @@
+{{- if and (eq .Values.benchmarkTool "guidellm") (not .Values.mlflow.enabled) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.benchmark.name }}-results
+  namespace: {{ .Values.namespace }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+{{- end }}

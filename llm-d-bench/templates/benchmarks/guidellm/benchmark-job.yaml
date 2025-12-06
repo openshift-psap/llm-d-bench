@@ -40,9 +40,14 @@ spec:
 
       containers:
       - name: guidellm
-        image: "{{ .Values.benchmark.image.repository }}:{{ .Values.benchmark.image.tag }}"
+        image: {{ include "benchmark.image" . | quote }}
         imagePullPolicy: {{ .Values.benchmark.image.pullPolicy | quote }}
         workingDir: /tmp
+        {{- if not .Values.mlflow.enabled }}
+        volumeMounts:
+        - name: benchmark-results
+          mountPath: /benchmark-results
+        {{- end }}
         args:
           - "--target"
           {{- if .Values.benchmark.target }}
@@ -92,13 +97,16 @@ spec:
         env:
           - name: HF_HOME
             value: "/tmp/.huggingface"
-          - name: MLFLOW_TRACKING_INSECURE_TLS
-            value: "true"
           - name: HF_CLI_TOKEN
             valueFrom:
               secretKeyRef:
                 name: huggingface-token
                 key: HF_CLI_TOKEN
+          {{- if .Values.mlflow.enabled }}
+          - name: MLFLOW_ENABLED
+            value: "true"
+          - name: MLFLOW_TRACKING_INSECURE_TLS
+            value: "true"
           - name: MLFLOW_TRACKING_URI
             value: {{ .Values.mlflow.trackingUri | quote }}
           - name: MLFLOW_TRACKING_USERNAME
@@ -133,6 +141,10 @@ spec:
               secretKeyRef:
                 name: {{ .Values.mlflow.s3.secretName }}
                 key: {{ .Values.mlflow.s3.bucketNameKey }}
+          {{- else }}
+          - name: MLFLOW_ENABLED
+            value: "false"
+          {{- end }}
           {{- range $key, $value := .Values.benchmark.env }}
           - name: {{ $key }}
             value: {{ $value | quote }}
@@ -144,6 +156,12 @@ spec:
           limits:
             memory: "10Gi"
             cpu: "1000m"
+      {{- if not .Values.mlflow.enabled }}
+      volumes:
+      - name: benchmark-results
+        persistentVolumeClaim:
+          claimName: {{ .Values.benchmark.name }}-results
+      {{- end }}
       restartPolicy: Never
       {{- if .Values.benchmark.nodeSelector }}
       nodeSelector:

@@ -197,6 +197,66 @@ def run_guidellm_cli(
         return output_path, console_log_path
 
 
+def run_benchmark_without_mlflow(
+    target: str,
+    model: str,
+    rate: str,
+    backend_type: str = "openai_http",
+    rate_type: str = "concurrent",
+    data: str = None,
+    max_seconds: int = None,
+    max_requests: int = None,
+    processor: str = None,
+    output_dir: str = "/benchmark-results",
+) -> str:
+    """Run benchmark without MLflow tracking, saving results to specified directory."""
+    logger.info(f"Running benchmark without MLflow tracking")
+    logger.info(f"Starting benchmark for rates: {rate}")
+    logger.info(f"Results will be saved to: {output_dir}")
+
+    # Ensure output directory exists
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    output_json = f"{output_dir}/benchmark_output.json"
+    json_path, console_log_path = run_guidellm_cli(
+        target=target,
+        model=model,
+        rate=rate,
+        backend_type=backend_type,
+        rate_type=rate_type,
+        data=data,
+        max_seconds=max_seconds,
+        max_requests=max_requests,
+        processor=processor,
+        output_path=output_json,
+    )
+
+    if Path(json_path).exists():
+        logger.info(f"Benchmark results saved to: {json_path}")
+        with open(json_path, "r") as f:
+            result_json = json.load(f)
+
+        benchmarks = result_json.get("benchmarks", [])
+        logger.info(f"Found {len(benchmarks)} benchmark results")
+
+        # Print summary metrics
+        for i, benchmark in enumerate(benchmarks):
+            metrics = extract_metrics_from_benchmark(benchmark)
+            if metrics:
+                logger.info(
+                    f"Benchmark {i + 1} metrics: {json.dumps(metrics, indent=2)}"
+                )
+    else:
+        logger.warning(f"Output JSON not found: {json_path}")
+
+    if Path(console_log_path).exists():
+        logger.info(f"Console log saved to: {console_log_path}")
+    else:
+        logger.warning(f"Console log not found: {console_log_path}")
+
+    return json_path
+
+
 def run_benchmark_with_mlflow(
     target: str,
     model: str,
@@ -439,6 +499,32 @@ def main():
         "Could not authenticate with HuggingFace CLI, continuing without authentication"
     )
 
+    # Check if MLflow is enabled via environment variable
+    mlflow_enabled = os.environ.get("MLFLOW_ENABLED", "false").lower() == "true"
+
+    if not mlflow_enabled:
+        logger.info("MLflow tracking disabled - running benchmark without MLflow")
+        try:
+            json_path = run_benchmark_without_mlflow(
+                target=args.target,
+                model=args.model,
+                rate=args.rate,
+                backend_type=args.backend_type,
+                rate_type=args.rate_type,
+                data=args.data,
+                max_seconds=args.max_seconds,
+                max_requests=args.max_requests,
+                processor=args.processor,
+                output_dir="/benchmark-results",
+            )
+            logger.info("\nBenchmark completed successfully.")
+            logger.info(f"  Results saved to: {json_path}")
+            return 0
+        except Exception as e:
+            logger.error(f"Benchmark failed: {e}")
+            return 1
+
+    logger.info("MLflow tracking enabled")
     try:
         run_id = run_benchmark_with_mlflow(
             target=args.target,

@@ -20,11 +20,14 @@ benchmark:
   # Job name
   name: guidellm-test
 
-  # Image - For custom images, specify repository and tag.
-  # If repository is empty, the default guidellm image with configmap script will be used.
+  # Image configuration
+  # If repository is empty, image URL will be constructed as:
+  # image-registry.openshift-image-registry.svc:5000/<namespace>/<name>:<tag>
+  # This allows users to build images in their own namespace without hardcoding the namespace
   image:
-    repository: ""
-    tag: ""
+    repository: ""  # Leave empty to use namespace-based construction
+    name: "guidellm-custom"  # Image name (used when repository is empty)
+    tag: "latest"  # Image tag
     pullPolicy: IfNotPresent
 
   # Environment variables for the benchmark container

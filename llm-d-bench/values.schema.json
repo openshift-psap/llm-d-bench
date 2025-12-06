@@ -33,10 +33,21 @@
           "type": "object",
           "properties": {
             "repository": {
-              "type": "string"
+              "type": "string",
+              "description": "Full image repository URL. If empty, will be constructed from namespace"
+            },
+            "name": {
+              "type": "string",
+              "description": "Image name (used when repository is empty)"
             },
             "tag": {
-              "type": "string"
+              "type": "string",
+              "description": "Image tag"
+            },
+            "pullPolicy": {
+              "type": "string",
+              "description": "Image pull policy",
+              "enum": ["Always", "IfNotPresent", "Never"]
             }
           }
         },
