@@ -56,7 +56,18 @@ def extract_metrics_from_benchmark(benchmark: Dict[str, Any]) -> Dict[str, Any]:
 
         tok_throughput = all_metrics.get("tokens_per_second", {}).get("successful", {})
         if "mean" in tok_throughput:
-            metrics["throughput_tokens_per_sec"] = tok_throughput["mean"]
+            metrics["total_tokens_per_second"] = tok_throughput["mean"]
+
+        output_tok_throughput = all_metrics.get("output_tokens_per_second", {}).get(
+            "successful", {}
+        )
+        if "mean" in output_tok_throughput:
+            metrics["throughput_output_tokens_per_sec"] = output_tok_throughput["mean"]
+
+        # Concurrency
+        concurrency = all_metrics.get("request_concurrency", {}).get("successful", {})
+        if "mean" in concurrency:
+            metrics["request_concurrency_mean"] = concurrency["mean"]
 
         # Latency (Overall Request)
         latency = all_metrics.get("request_latency", {}).get("successful", {})
@@ -95,6 +106,20 @@ def extract_metrics_from_benchmark(benchmark: Dict[str, Any]) -> Dict[str, Any]:
             metrics["itl_median_ms"] = itl["median"]
         if "p95" in itl_pct:
             metrics["itl_p95_ms"] = itl_pct["p95"]
+        if "p99" in itl_pct:
+            metrics["itl_p99_ms"] = itl_pct["p99"]
+
+        # TPOT (Time Per Output Token)
+        tpot = all_metrics.get("time_per_output_token_ms", {}).get("successful", {})
+        tpot_pct = tpot.get("percentiles", {})
+        if "mean" in tpot:
+            metrics["tpot_mean_ms"] = tpot["mean"]
+        if "median" in tpot:
+            metrics["tpot_median_ms"] = tpot["median"]
+        if "p95" in tpot_pct:
+            metrics["tpot_p95_ms"] = tpot_pct["p95"]
+        if "p99" in tpot_pct:
+            metrics["tpot_p99_ms"] = tpot_pct["p99"]
 
         # Tokens
         input_tokens = all_metrics.get("prompt_token_count", {}).get("successful", {})
