@@ -1,4 +1,4 @@
-{{- if .Values.deploy }}
+{{- if and (eq .Values.upstream false) (eq .Values.downstream true) }}
 {{- $existingPvc := lookup "v1" "PersistentVolumeClaim" .Values.namespace "models-storage" }}
 {{- if not $existingPvc }}
 apiVersion: v1

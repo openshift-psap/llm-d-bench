@@ -6,9 +6,13 @@
       "type": "string",
       "description": "Namespace to deploy resources"
     },
-    "deploy": {
+    "upstream": {
       "type": "boolean",
-      "description": "Enable model deployment"
+      "description": "Enable upstream model deployment"
+    },
+    "downstream": {
+      "type": "boolean",
+      "description": "Enable downstream model deployment"
     },
     "decodeReplicas": {
       "type": "integer",

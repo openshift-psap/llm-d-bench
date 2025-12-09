@@ -1,4 +1,4 @@
-{{- if .Values.deploy }}
+{{- if and (eq .Values.upstream false) (eq .Values.downstream true)  }}
 {{- $stdName := include "model.serviceName" . }}
 {{- $existingService := lookup "serving.kserve.io/v1alpha1" "LLMInferenceService" .Values.namespace $stdName }}
 {{- if not $existingService }}

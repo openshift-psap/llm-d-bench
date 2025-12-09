@@ -3,8 +3,11 @@
 # Namespace to deploy to
 namespace: llm-d-inference-scheduler
 
-# Enable model deployment
-deploy: false
+# Enable upstream model deployment
+upstream: false
+
+# Enable downstream model deployment
+downstream: false
 
 # Number of decode replica pods
 decodeReplicas: 1

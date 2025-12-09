@@ -1,0 +1,109 @@
+environments:
+  default:
+    values:
+      - values.yaml
+  
+  llama-4-1k-1k:
+    values:
+      - values.yaml  # for defaults
+      - experiments/redhatai-llama-4-maverick-17b-128e-instruct-fp8-1k-1k.yaml
+
+---
+repositories:
+  - name: llm-d-modelservice
+    url: https://llm-d-incubation.github.io/llm-d-modelservice
+  - name: llm-d-infra
+    url: https://llm-d-incubation.github.io/llm-d-infra/
+
+{{ $releaseName := .Values.benchmark.name | trimSuffix "-" | trunc 42 -}}
+{{ $deploy := and (eq .Values.upstream true) (eq .Values.downstream false) | default false }}
+
+releases:
+  - name: bench-{{ $releaseName }}
+    chart: .
+    namespace: {{ .Values.namespace }}
+
+  # Infrastructure chart
+  - name: infra-{{ $releaseName }}
+    chart: llm-d-infra/llm-d-infra
+    version: v1.3.4
+    namespace: {{ .Values.namespace }}
+    installed: {{ $deploy }}
+    needs:
+      - bench-{{ $releaseName }}
+    values:
+      - gateway:
+          gatewayClassName: istio
+
+  # Scheduler chart
+  - name: gaie-{{ $releaseName }}
+    chart: oci://registry.k8s.io/gateway-api-inference-extension/charts/inferencepool
+    version: v1.0.1
+    namespace: {{ .Values.namespace }}
+    installed: {{ $deploy }}
+    needs:
+      - infra-{{ $releaseName }}
+    values:
+      - inferenceExtension:
+          replicas: 1
+          image:
+            repository: ghcr.io/llm-d/llm-d-inference-scheduler
+            tag: v0.4.0-rc.1
+          extProcPort: 9002
+        pluginsCustomConfig:
+          plugins.yaml: |
+            plugins:
+              - name: approximate-prefix-cache-scorer
+                type: scorer
+                weight: 1.0
+        inferencePool:
+          apiVersion: inference.networking.x-k8s.io/v1alpha2
+          targetPortNumber: 8000
+          modelServerType: vllm
+          modelServers:
+            matchLabels:
+              llm-d.ai/inferenceServing: "true"
+
+  # Model service chart
+  - name: ms-{{ $releaseName }}
+    chart: llm-d-modelservice/llm-d-modelservice
+    version: 0.2.0
+    namespace: {{ .Values.namespace }}
+    installed: {{ $deploy }}
+    needs:
+      - gaie-{{ $releaseName }}
+    values:
+      - modelArtifacts:
+          uri: hf://{{ .Values.benchmark.model | default "Qwen/Qwen3-0.6B" }}
+          routing:
+            modelName: {{ .Values.benchmark.model | default "Qwen/Qwen3-0.6B" | quote }}
+            serviceName: vllm-service
+            servicePort: 8000
+          labels:
+            llm-d.ai/role: decode
+        decode:
+          enabled: true
+          replicas: {{ .Values.decodeReplicas | default 1 }}
+          resources:
+            limits:
+              nvidia.com/gpu: {{ .Values.benchmark.tp | default 1 }}
+            requests:
+              nvidia.com/gpu: {{ .Values.benchmark.tp | default 1 }}
+          {{- if .Values.benchmark.vllmArgs }}
+          vllmArgs:
+            {{- toYaml .Values.benchmark.vllmArgs | nindent 12 }}
+          {{- else }}
+          vllmArgs:
+            - "--max-model-len=4096"
+            - "--enable-prefix-caching"
+          {{- end }}
+        prefill:
+          enabled: {{ gt (.Values.prefillReplicas | default 0 | int) 0 }}
+          {{- if gt (.Values.prefillReplicas | default 0 | int) 0 }}
+          replicas: {{ .Values.prefillReplicas }}
+          resources:
+            limits:
+              nvidia.com/gpu: {{ .Values.benchmark.tp | default 1 }}
+            requests:
+              nvidia.com/gpu: {{ .Values.benchmark.tp | default 1 }}
+          {{- end }}
