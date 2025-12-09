@@ -30,7 +30,7 @@ spec:
           {{- if .Values.benchmark.target }}
           TARGET="{{ .Values.benchmark.target }}/v1/models"
           {{- else }}
-          TARGET="https://inference-gateway.apps.REPLACE_ME_DOMAIN.org/{{ .Values.namespace }}/{{ include "model.serviceName" . }}/v1/models"
+          TARGET="https://{{ include "model.serviceName" . }}-kserve-workload-svc.{{ .Values.namespace }}.svc.cluster.local:8000/v1/models"
           {{- end }}
           until curl -k -s -f -o /dev/null "$TARGET"; do
             echo "Waiting for 200 OK from $TARGET..."
@@ -53,7 +53,7 @@ spec:
           {{- if .Values.benchmark.target }}
           - "{{ .Values.benchmark.target }}" 
           {{- else}}
-          - "https://inference-gateway.apps.REPLACE_ME_DOMAIN.org/{{ .Values.namespace }}/{{ include "model.serviceName" . }}"
+          - "https://{{ include "model.serviceName" . }}-kserve-workload-svc.{{ .Values.namespace }}.svc.cluster.local:8000"
           {{- end}}
           {{- if .Values.benchmark.model }}
           - "--model"
