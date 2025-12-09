@@ -1,0 +1,62 @@
+# openai/gpt-oss-120b Benchmark Experiment
+namespace: downstream-llm-d
+
+deploy: true
+
+benchmark:
+  name: openai-gpt-oss-120b-1k-1k
+
+  tags:
+    llm-d-version: RHOAI 3.0
+    # tag to mark "golden" runs - ones to be consumed by the perf dashboard
+    # golden: true
+
+  image:
+    tag: "latest"
+    pullPolicy: Always
+
+  affinity: null
+
+  model: openai/gpt-oss-120b
+  processor: openai/gpt-oss-120b
+
+  rateType: concurrent
+  rate: "650,500,400,300,200,150,100,50,1"
+  data: "prompt_tokens=1000,output_tokens=1000"
+  maxSeconds: "600"
+  accelerator: "H200"
+  tp: 1 # and 4
+
+  vllmArgs:
+    - "--max-model-len=8192"
+    - "--uvicorn-log-level=debug" 
+    - "--trust-remote-code"
+    - "--gpu-memory-utilization=0.92"
+    - "--disable-log-requests"
+    - "--no-enable-prefix-caching"
+
+  env:
+    GUIDELLM__REQUEST_TIMEOUT: "6000"
+    GUIDELLM__LOGGING__CONSOLE_LOG_LEVEL: "INFO"
+    GUIDELLM__MAX_WORKER_PROCESSES: "100"
+
+mlflow:
+  enabled: true
+  trackingUri: "https://mlflow-mlflow.apps.aperdomo-lab.ibm.rhperfscale.org"
+  # Authentication secret (must exist in the same namespace!)
+  auth:
+    secretName: "mlflow-ui-auth"
+    usernameKey: "username"
+    passwordKey: "password"
+  # S3 credentials for MLflow artifact store
+  s3:
+    # Secret name containing S3 credentials
+    secretName: "mlflow-s3-secret"
+    # Keys in the secret for S3 credentials
+    accessKey: "access-key"
+    secretKey: "secret-key"
+    bucketNameKey: "bucket-name"
+    regionKey: "region"
+
+kueue:
+  enabled: false

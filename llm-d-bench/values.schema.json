@@ -6,6 +6,18 @@
       "type": "string",
       "description": "Namespace to deploy resources"
     },
+    "deploy": {
+      "type": "boolean",
+      "description": "Enable model deployment"
+    },
+    "decodeReplicas": {
+      "type": "integer",
+      "description": "Number of decode replica pods"
+    },
+    "prefillReplicas": {
+      "type": "integer",
+      "description": "Number of prefill replica pods"
+    },
     "benchmarkTool": {
       "type": "string",
       "description": "Benchmark tool to use"
@@ -21,10 +33,21 @@
           "type": "object",
           "properties": {
             "repository": {
-              "type": "string"
+              "type": "string",
+              "description": "Full image repository URL. If empty, will be constructed from namespace"
+            },
+            "name": {
+              "type": "string",
+              "description": "Image name (used when repository is empty)"
             },
             "tag": {
-              "type": "string"
+              "type": "string",
+              "description": "Image tag"
+            },
+            "pullPolicy": {
+              "type": "string",
+              "description": "Image pull policy",
+              "enum": ["Always", "IfNotPresent", "Never"]
             }
           }
         },
@@ -79,8 +102,31 @@
           "type": "string",
           "description": "Accelerator type (e.g., nvidia-h100, nvidia-a100)"
         },
+        "tp": {
+          "type": "integer",
+          "description": "Tensor parallelism degree"
+        },
+        "gpus": {
+          "type": "integer",
+          "description": "Number of GPUs to request for the benchmark job",
+          "minimum": 0
+        },
+        "vllmArgs": {
+          "type": "array",
+          "description": "Additional vLLM arguments for serving runtime",
+          "items": {
+            "type": "string"
+          }
+        },
         "additionalArgs": {
           "type": "string"
+        },
+        "tags": {
+          "type": "object",
+          "description": "Tags to upload to MLflow as key-value pairs",
+          "additionalProperties": {
+            "type": "string"
+          }
         },
         "nodeSelector": {
           "type": "object"
@@ -115,10 +161,6 @@
         "trackingUri": {
           "type": "string",
           "description": "MLflow tracking server URL"
-        },
-        "experimentName": {
-          "type": "string",
-          "description": "MLflow experiment name (defaults to benchmark.name if not provided)"
         },
         "auth": {
           "type": "object",

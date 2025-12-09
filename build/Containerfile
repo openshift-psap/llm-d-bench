@@ -1,11 +1,9 @@
 # Use the official guidellm image as a base
-FROM ghcr.io/vllm-project/guidellm:latest
+FROM ghcr.io/vllm-project/guidellm:v0.3.0
 
 USER root
 
-RUN dnf install -y git
-
-RUN pip install --no-warn-script-location mlflow boto3
+RUN pip install --no-warn-script-location mlflow boto3 certifi
 
 RUN mkdir -p /tmp/.huggingface && chmod -R 777 /tmp/.huggingface
 

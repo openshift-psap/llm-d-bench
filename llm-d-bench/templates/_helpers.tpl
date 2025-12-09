@@ -71,3 +71,27 @@ Benchmark job name
 {{- define "llm-d-bench.benchmarkJobName" -}}
 {{- .Values.benchmark.name | default (printf "%s-benchmark" (include "llm-d-bench.fullname" .)) }}
 {{- end }}
+
+{{/*
+Generate a standardized, DNS-compliant name from the Model ID.
+Example: "Qwen/Qwen3-0.6B" -> "qwen-qwen3-06b"
+Logic: Lowercase -> Replace '/' with '-' -> Remove '.'
+*/}}
+{{- define "model.serviceName" -}}
+{{- .Values.benchmark.model | lower | replace "/" "-" | replace "." "" | trimSuffix "-" | trunc 42 -}}
+{{- end -}}
+
+{{/*
+Construct the benchmark image URL.
+If repository is provided, use it. Otherwise, construct from namespace.
+Default: image-registry.openshift-image-registry.svc:5000/<namespace>/<imageName>:<tag>
+*/}}
+{{- define "benchmark.image" -}}
+{{- if .Values.benchmark.image.repository -}}
+{{- printf "%s:%s" .Values.benchmark.image.repository .Values.benchmark.image.tag -}}
+{{- else -}}
+{{- $imageName := .Values.benchmark.image.name | default "guidellm-custom" -}}
+{{- $imageTag := .Values.benchmark.image.tag | default "latest" -}}
+{{- printf "image-registry.openshift-image-registry.svc:5000/%s/%s:%s" .Values.namespace $imageName $imageTag -}}
+{{- end -}}
+{{- end -}}

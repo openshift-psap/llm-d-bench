@@ -3,6 +3,15 @@
 # Namespace to deploy to
 namespace: llm-d-inference-scheduler
 
+# Enable model deployment
+deploy: false
+
+# Number of decode replica pods
+decodeReplicas: 1
+
+# Number of prefill replica pods
+prefillReplicas: 1
+
 # Benchmark tool to use (guidellm, or add more in the future)
 benchmarkTool: guidellm
 
@@ -11,11 +20,14 @@ benchmark:
   # Job name
   name: guidellm-test
 
-  # Image - For custom images, specify repository and tag.
-  # If repository is empty, the default guidellm image with configmap script will be used.
+  # Image configuration
+  # If repository is empty, image URL will be constructed as:
+  # image-registry.openshift-image-registry.svc:5000/<namespace>/<name>:<tag>
+  # This allows users to build images in their own namespace without hardcoding the namespace
   image:
-    repository: ""
-    tag: ""
+    repository: ""  # Leave empty to use namespace-based construction
+    name: "guidellm-custom"  # Image name (used when repository is empty)
+    tag: "latest"  # Image tag
     pullPolicy: IfNotPresent
 
   # Environment variables for the benchmark container
@@ -34,10 +46,24 @@ benchmark:
   data: "1000"                  # Number of requests or data points
   maxSeconds: "600"             # Maximum seconds to run
   accelerator: ""               # Accelerator type (e.g., nvidia-h100, nvidia-a100)
+  tp: 1                         # Tensor parallelism (for now, aggregated workloads only)
+  # gpus: 0                       # Number of GPUs to request for the benchmark job
+
+  # Additional vLLM arguments for serving runtime (optional)
+  # Example: ["--max-model-len=4096", "--enable-prefix-caching"]
+  vllmArgs: []
 
   # Additional GuideLLM arguments (optional)
   # Use this for any flags not covered by the above parameters
   additionalArgs: ""
+
+  # Tags to upload to MLflow (key-value pairs)
+  # Example:
+  # tags:
+  #   team: ml-platform
+  #   env: production
+  #   experiment_type: latency_test
+  tags: {}
 
   # Node scheduling configuration (optional)
   # Ensure benchmark jobs do not run on GPU nodes
@@ -71,9 +97,6 @@ mlflow:
   # Example: "http://mlflow.mlflow.svc.cluster.local:5000" (internal service)
   # or "https://mlflow-mlflow.apps.your-cluster.com" (via route)
   trackingUri: ""
-
-  # MLflow experiment name (if not provided, will use benchmark.name)
-  experimentName: ""
 
   # MLflow authentication secret
   # NOTE: The secret must exist in the same namespace as the benchmark job.

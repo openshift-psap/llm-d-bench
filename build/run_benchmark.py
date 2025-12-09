@@ -4,6 +4,7 @@ import logging
 import subprocess
 import sys
 import os
+import requests
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any
@@ -22,11 +23,15 @@ logger = logging.getLogger(__name__)
 def extract_metrics_from_benchmark(benchmark: Dict[str, Any]) -> Dict[str, Any]:
     metrics = {}
     try:
+        # Support both v0.3.0 (run_stats) and v0.4.0+ (scheduler_metrics)
+        scheduler_metrics = benchmark.get("scheduler_metrics", {})
         run_stats = benchmark.get("run_stats", {})
         all_metrics = benchmark.get("metrics", {})
 
-        # Request stats
-        requests_made = run_stats.get("requests_made", {})
+        # Request stats - try v0.4.0 first, fallback to v0.3.0
+        requests_made = scheduler_metrics.get("requests_made", {}) or run_stats.get(
+            "requests_made", {}
+        )
         if "total" in requests_made:
             metrics["total_requests"] = requests_made["total"]
         if "successful" in requests_made:
@@ -51,7 +56,18 @@ def extract_metrics_from_benchmark(benchmark: Dict[str, Any]) -> Dict[str, Any]:
 
         tok_throughput = all_metrics.get("tokens_per_second", {}).get("successful", {})
         if "mean" in tok_throughput:
-            metrics["throughput_tokens_per_sec"] = tok_throughput["mean"]
+            metrics["total_tokens_per_second"] = tok_throughput["mean"]
+
+        output_tok_throughput = all_metrics.get("output_tokens_per_second", {}).get(
+            "successful", {}
+        )
+        if "mean" in output_tok_throughput:
+            metrics["throughput_output_tokens_per_sec"] = output_tok_throughput["mean"]
+
+        # Concurrency
+        concurrency = all_metrics.get("request_concurrency", {}).get("successful", {})
+        if "mean" in concurrency:
+            metrics["request_concurrency_mean"] = concurrency["mean"]
 
         # Latency (Overall Request)
         latency = all_metrics.get("request_latency", {}).get("successful", {})
@@ -90,6 +106,20 @@ def extract_metrics_from_benchmark(benchmark: Dict[str, Any]) -> Dict[str, Any]:
             metrics["itl_median_ms"] = itl["median"]
         if "p95" in itl_pct:
             metrics["itl_p95_ms"] = itl_pct["p95"]
+        if "p99" in itl_pct:
+            metrics["itl_p99_ms"] = itl_pct["p99"]
+
+        # TPOT (Time Per Output Token)
+        tpot = all_metrics.get("time_per_output_token_ms", {}).get("successful", {})
+        tpot_pct = tpot.get("percentiles", {})
+        if "mean" in tpot:
+            metrics["tpot_mean_ms"] = tpot["mean"]
+        if "median" in tpot:
+            metrics["tpot_median_ms"] = tpot["median"]
+        if "p95" in tpot_pct:
+            metrics["tpot_p95_ms"] = tpot_pct["p95"]
+        if "p99" in tpot_pct:
+            metrics["tpot_p99_ms"] = tpot_pct["p99"]
 
         # Tokens
         input_tokens = all_metrics.get("prompt_token_count", {}).get("successful", {})
@@ -148,6 +178,9 @@ def run_guidellm_cli(
         output_path,
     ]
 
+    if target.startswith("https://"):
+        # cmd.extend(["--backend-kwargs", '{"verify": false}'])
+        cmd.extend(["--backend-args", '{"verify": false}'])
     if data:
         cmd.extend(["--data", data])
     if max_seconds:
@@ -163,20 +196,90 @@ def run_guidellm_cli(
 
     try:
         with open(console_log_path, "w") as log_file:
-            _ = subprocess.run(
+            process = subprocess.Popen(
                 cmd,
-                stdout=log_file,
+                stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
-                check=True,
             )
 
-        logger.info("Guidellm completed successfully")
+            for line in process.stdout:
+                print(line, end="")
+                log_file.write(line)
+                log_file.flush()
+
+            return_code = process.wait()
+
+            if return_code != 0:
+                logger.error(f"Guidellm command failed with return code {return_code}")
+            else:
+                logger.info("Guidellm completed successfully")
+
         return output_path, console_log_path
 
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Guidellm command failed with return code {e.returncode}")
+    except Exception as e:
+        logger.error(f"Guidellm command failed: {e}")
         return output_path, console_log_path
+
+
+def run_benchmark_without_mlflow(
+    target: str,
+    model: str,
+    rate: str,
+    backend_type: str = "openai_http",
+    rate_type: str = "concurrent",
+    data: str = None,
+    max_seconds: int = None,
+    max_requests: int = None,
+    processor: str = None,
+    output_dir: str = "/benchmark-results",
+) -> str:
+    """Run benchmark without MLflow tracking, saving results to specified directory."""
+    logger.info(f"Running benchmark without MLflow tracking")
+    logger.info(f"Starting benchmark for rates: {rate}")
+    logger.info(f"Results will be saved to: {output_dir}")
+
+    # Ensure output directory exists
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+
+    output_json = f"{output_dir}/benchmark_output.json"
+    json_path, console_log_path = run_guidellm_cli(
+        target=target,
+        model=model,
+        rate=rate,
+        backend_type=backend_type,
+        rate_type=rate_type,
+        data=data,
+        max_seconds=max_seconds,
+        max_requests=max_requests,
+        processor=processor,
+        output_path=output_json,
+    )
+
+    if Path(json_path).exists():
+        logger.info(f"Benchmark results saved to: {json_path}")
+        with open(json_path, "r") as f:
+            result_json = json.load(f)
+
+        benchmarks = result_json.get("benchmarks", [])
+        logger.info(f"Found {len(benchmarks)} benchmark results")
+
+        # Print summary metrics
+        for i, benchmark in enumerate(benchmarks):
+            metrics = extract_metrics_from_benchmark(benchmark)
+            if metrics:
+                logger.info(
+                    f"Benchmark {i + 1} metrics: {json.dumps(metrics, indent=2)}"
+                )
+    else:
+        logger.warning(f"Output JSON not found: {json_path}")
+
+    if Path(console_log_path).exists():
+        logger.info(f"Console log saved to: {console_log_path}")
+    else:
+        logger.warning(f"Console log not found: {console_log_path}")
+
+    return json_path
 
 
 def run_benchmark_with_mlflow(
@@ -235,9 +338,28 @@ def run_benchmark_with_mlflow(
 
             mlflow.log_params(params)
 
+            try:
+                # guidellm_version = subprocess.check_output(
+                #     ["guidellm", "--version"], text=True
+                # ).split()[-1]
+
+                # XXX: Hardcoded since version in the image is incorrect
+                guidellm_version = "0.3.0"
+            except Exception:
+                guidellm_version = "unknown"
+
+            try:
+                vllm_version = requests.get(f"{target}/version", verify=False).json()[
+                    "version"
+                ]
+            except Exception:
+                vllm_version = "unknown"
+
             default_tags = {
                 "model": model,
                 "rate_type": rate_type,
+                "vllm": vllm_version,
+                "guidellm": guidellm_version,
             }
             if accelerator:
                 default_tags["accelerator"] = accelerator
@@ -272,15 +394,19 @@ def run_benchmark_with_mlflow(
 
                 for benchmark in benchmarks:
                     concurrency_step = 0
+
+                    # Support both v0.3.0 (args) and v0.4.0+ (config)
+                    config_or_args = benchmark.get("config") or benchmark.get(
+                        "args", {}
+                    )
+
                     try:
-                        concurrency_step = int(benchmark["args"]["strategy"]["streams"])
+                        concurrency_step = int(config_or_args["strategy"]["streams"])
                     except (KeyError, TypeError, IndexError):
                         try:
                             # Fallback for other strategies
                             concurrency_step = int(
-                                benchmark["args"]["profile"]["measured_concurrencies"][
-                                    0
-                                ]
+                                config_or_args["profile"]["streams"][0]
                             )
                         except (KeyError, TypeError, IndexError):
                             logger.warning(
@@ -291,6 +417,9 @@ def run_benchmark_with_mlflow(
                     metrics = extract_metrics_from_benchmark(benchmark)
 
                     if metrics:
+                        # Add concurrency as a metric for easier comparison
+                        metrics["concurrency"] = concurrency_step
+
                         # Log each metric with the concurrency as the step
                         for key, value in metrics.items():
                             mlflow.log_metric(key, value, step=concurrency_step)
@@ -361,11 +490,66 @@ def main():
     logger.info(f"Starting benchmark sweep for rates: {args.rate}")
 
     # Log in to HF
-    subprocess.run(
-        ["huggingface-cli", "login", "--token", os.environ.get("HF_CLI_TOKEN")],
-        check=True,
+    try:
+        subprocess.run(
+            ["hf", "auth", "login", "--token", os.environ.get("HF_CLI_TOKEN")],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+        logger.info("Successfully authenticated with 'hf auth login'")
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ):
+        pass
+
+    try:
+        subprocess.run(
+            ["huggingface-cli", "login", "--token", os.environ.get("HF_CLI_TOKEN")],
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+        logger.info("Successfully authenticated with 'huggingface-cli login'")
+    except (
+        subprocess.CalledProcessError,
+        FileNotFoundError,
+        subprocess.TimeoutExpired,
+    ):
+        pass
+
+    logger.info(
+        "Could not authenticate with HuggingFace CLI, continuing without authentication"
     )
 
+    # Check if MLflow is enabled via environment variable
+    mlflow_enabled = os.environ.get("MLFLOW_ENABLED", "false").lower() == "true"
+
+    if not mlflow_enabled:
+        logger.info("MLflow tracking disabled - running benchmark without MLflow")
+        try:
+            json_path = run_benchmark_without_mlflow(
+                target=args.target,
+                model=args.model,
+                rate=args.rate,
+                backend_type=args.backend_type,
+                rate_type=args.rate_type,
+                data=args.data,
+                max_seconds=args.max_seconds,
+                max_requests=args.max_requests,
+                processor=args.processor,
+                output_dir="/benchmark-results",
+            )
+            logger.info("\nBenchmark completed successfully.")
+            logger.info(f"  Results saved to: {json_path}")
+            return 0
+        except Exception as e:
+            logger.error(f"Benchmark failed: {e}")
+            return 1
+
+    logger.info("MLflow tracking enabled")
     try:
         run_id = run_benchmark_with_mlflow(
             target=args.target,
