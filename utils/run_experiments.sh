@@ -11,7 +11,7 @@ wait_for_job() {
     echo "⏳ Waiting for job '$job_name' to complete..."
     
     oc wait --for=condition=complete \
-        --timeout=7200s \ # 2h
+        --timeout=7200s \
         job/"$job_name" \
         -n "$NAMESPACE" || {
         echo "❌ Job failed or timed out"
@@ -87,9 +87,59 @@ EOF
         exit 1
     fi
     
-    echo "📋 Found ${#experiments[@]} experiments to run"
+    echo "📋 Found ${#experiments[@]} experiment(s) matching pattern: $pattern"
+    echo ""
+    echo "Experiments to run:"
+    for i in "${!experiments[@]}"; do
+        local exp_file="${experiments[$i]}"
+        local exp_name=$(basename "$exp_file")
+        echo "  $((i+1)). $exp_name"
+    done
     
-    for exp_file in "${experiments[@]}"; do
+    echo ""
+    echo "Enter experiment numbers to run (comma-separated, e.g., '1,3,5')"
+    echo "Press Enter to run all, or type 'q' to quit:"
+    read -p "> " selection
+    
+    if [[ "$selection" == "q" ]]; then
+        echo "❌ Aborted by user"
+        exit 0
+    fi
+    
+    local selected_experiments=()
+    
+    if [ -z "$selection" ]; then
+        selected_experiments=("${experiments[@]}")
+        echo "✓ Running all experiments"
+    else
+        IFS=',' read -ra indices <<< "$selection"
+        for idx in "${indices[@]}"; do
+            idx=$(echo "$idx" | xargs)
+            
+            if ! [[ "$idx" =~ ^[0-9]+$ ]]; then
+                echo "❌ Invalid input: '$idx' is not a number"
+                exit 1
+            fi
+            
+            local array_idx=$((idx - 1))
+            if [ "$array_idx" -lt 0 ] || [ "$array_idx" -ge ${#experiments[@]} ]; then
+                echo "❌ Invalid experiment number: $idx (valid range: 1-${#experiments[@]})"
+                exit 1
+            fi
+            
+            selected_experiments+=("${experiments[$array_idx]}")
+        done
+        
+        echo "✓ Selected ${#selected_experiments[@]} experiment(s):"
+        for exp in "${selected_experiments[@]}"; do
+            echo "    - $(basename "$exp")"
+        done
+    fi
+    
+    echo ""
+    echo "▶️  Starting experiment pipeline..."
+    
+    for exp_file in "${selected_experiments[@]}"; do
         local exp_name=$(basename "$exp_file" .yaml)
         exp_name=$(echo "$exp_name" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9.-' '-' | cut -c1-52 | sed 's/-$//')
         local job_name=$(get_job_name "$exp_file")
