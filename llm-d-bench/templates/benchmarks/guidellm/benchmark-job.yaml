@@ -152,10 +152,6 @@ spec:
         resources:
           requests:
             memory: "8Gi"
-            cpu: "500m"
-          limits:
-            memory: "10Gi"
-            cpu: "1000m"
       {{- if not .Values.mlflow.enabled }}
       volumes:
       - name: benchmark-results
