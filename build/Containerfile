@@ -1,5 +1,8 @@
-# Use the official guidellm image as a base
-FROM ghcr.io/vllm-project/guidellm:v0.3.0
+ARG IMAGE_VERSION=v0.3.1
+FROM ghcr.io/vllm-project/guidellm:${IMAGE_VERSION}
+
+# XXX: Temporary fix to keep track of the GuideLLM version
+ENV GUIDELLM_VERSION=v0.3.1
 
 USER root
 

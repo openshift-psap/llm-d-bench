@@ -338,15 +338,7 @@ def run_benchmark_with_mlflow(
 
             mlflow.log_params(params)
 
-            try:
-                # guidellm_version = subprocess.check_output(
-                #     ["guidellm", "--version"], text=True
-                # ).split()[-1]
-
-                # XXX: Hardcoded since version in the image is incorrect
-                guidellm_version = "0.3.0"
-            except Exception:
-                guidellm_version = "unknown"
+            guidellm_version = os.environ.get("GUIDELLM_VERSION", "unknown")
 
             try:
                 vllm_version = requests.get(f"{target}/version", verify=False).json()[
