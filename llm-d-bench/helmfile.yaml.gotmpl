@@ -26,7 +26,7 @@ releases:
   # Infrastructure chart
   - name: infra-{{ $releaseName }}
     chart: llm-d-infra/llm-d-infra
-    version: v1.3.4
+    version: v1.3.5
     namespace: {{ .Values.namespace }}
     installed: {{ $deploy }}
     needs:
@@ -38,7 +38,7 @@ releases:
   # Scheduler chart
   - name: gaie-{{ $releaseName }}
     chart: oci://registry.k8s.io/gateway-api-inference-extension/charts/inferencepool
-    version: v1.0.1
+    version: v1.2.0
     namespace: {{ .Values.namespace }}
     installed: {{ $deploy }}
     needs:
@@ -67,7 +67,7 @@ releases:
   # Model service chart
   - name: ms-{{ $releaseName }}
     chart: llm-d-modelservice/llm-d-modelservice
-    version: 0.2.0
+    version: 0.3.8
     namespace: {{ .Values.namespace }}
     installed: {{ $deploy }}
     needs:
