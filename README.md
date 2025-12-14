@@ -47,17 +47,35 @@ In order to deploy it, create the necessary secrets within `infra/manifests/{mlf
 
 Other manifests for deploying RHOAI and configuring Distributed Inference can be found inside `infra/` too.
 
-#### Runing Benchmarks Via Helm
+#### Running Benchmarks Via Helmfile
+
 > Needs building the benchmark image in the given namespace. See [Build and Push Custom Guidellm Image using OpenShift Builds](./build/README.md)
 
 > [!WARNING]
 > If using MLFlow, the user is responsible for creating the needed secrets in the appropriate namespace and configuring the given experiment.
 
+Helmfile deployment must be run from within the `llm-d-bench/` directory. It uses environments to manage different experiment configurations by merging the base `values.yaml` with experiment-specific YAML files.
+
+**Downstream Deployment** (using existing llm-d endpoint):
 ```bash
-helm install <your_deployment_name> ./llm-d-bench \
-  -f llm-d-bench/experiments/qwen-0.6b-baseline.yaml \
-  -n <your_namespace>
+cd llm-d-bench
+helmfile -e llama-4-1k-1k install
 ```
+
+**Upstream Deployment** (deploys llm-d infrastructure, scheduler, and model service):
+```bash
+cd llm-d-bench
+helmfile -e llama-4-1k-1k --set upstream=true install
+```
+
+**Preview Configuration** (test without deploying):
+```bash
+cd llm-d-bench
+helmfile -e llama-4-1k-1k --set upstream=true template
+```
+
+> [!NOTE]
+> The user is responsible for ensuring the infrastructure is correctly set up for each deployment type. Upstream deployment requires appropriate cluster resources and permissions. See `helmfile.yaml.gotmpl` for environment definitions and available experiments.
 
 #### Runing Benchmarks Via GitHub Actions (if `infra` deployed)
 
