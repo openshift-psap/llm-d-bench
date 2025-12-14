@@ -13,7 +13,7 @@ spec:
   model:
     name: {{ .Values.benchmark.model }}
     uri: pvc://models-storage/models/{{ .Values.benchmark.model | replace "/" "-" }}
-  replicas: 1  # TODO make Values.replicas
+  replicas: {{ .Values.replicas }}
   router:
     route: {}
     gateway: {}

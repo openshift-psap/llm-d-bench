@@ -6,6 +6,9 @@ namespace: llm-d-inference-scheduler
 # Enable model deployment
 deploy: false
 
+# Number of replicas for model deployment
+replicas: 1
+
 # Number of decode replica pods
 decodeReplicas: 1
 

@@ -10,6 +10,10 @@
       "type": "boolean",
       "description": "Enable model deployment"
     },
+    "replicas": {
+      "type": "integer",
+      "description": "Number of replicas for model deployment"
+    },
     "decodeReplicas": {
       "type": "integer",
       "description": "Number of decode replica pods"
