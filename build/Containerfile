@@ -6,12 +6,15 @@ ENV GUIDELLM_VERSION=v0.3.1
 
 USER root
 
-RUN pip install --no-warn-script-location mlflow boto3 certifi
+COPY requirements.txt /tmp/requirements.txt
+RUN pip install --no-warn-script-location -r /tmp/requirements.txt && \
+    rm /tmp/requirements.txt
 
 RUN mkdir -p /tmp/.huggingface && chmod -R 777 /tmp/.huggingface
 
-COPY run_benchmark.py /usr/local/bin/run_benchmark.py
+# Copy entire src directory structure
+COPY src/ /usr/local/lib/python3.11/site-packages/
 
-ENTRYPOINT ["python3", "/usr/local/bin/run_benchmark.py"]
+ENTRYPOINT ["python3", "-m", "run_benchmark"]
 
 CMD ["--help"]

@@ -1,95 +1,121 @@
 # llm-d-bench
 
-Automated [llm-d](https://llm-d.ai/) inference benchmarking on OpenShift with optional MLflow tracking and GitHub Actions integration, by using [GuideLLM](https://github.com/vllm-project/guidellm).
+Tekton pipelines for running llm-d inference benchmarks using GuideLLM.
 
 > This might work with any other LLM endpoint but has only been tested with `llm-d` endpoints.
 
-This repo can handle downstream llm-d deployment (distributed inference through `LLInferenceService` via RHOAI 3.0), but infrastructure provisioning is not yet fully automated and it may require manual adjustments. See `infra/manifests/{rhoai,rhcl}`.
+## Prerequisites
 
-## Quick Setup
+- Tekton Pipelines v0.50+
+- OpenShift 4.14+
+- `oc` CLI
 
-This project expects the following to be installed and correctly configured when using the provided `infra/`: 
+## Quick Start
 
-  - [Reflector](https://github.com/emberstack/kubernetes-reflector) - Secret and ConfigMap mirroring across namespaces, can be omitted if the user manually creates the secrets in each namespace.
-  - Red Hat OpenShift AI 3.0 requirements, refer to the official documents.
-
-The secrets needed to launch a benchmark can be created via CLI: 
+### 0. Set Namespace
 
 ```bash
-# HuggingFace Token Secret - Download models
+export NAMESPACE=downstream-llm-d
+```
+
+### 1. Install Tekton Resources
+
+```bash
+./scripts/install.sh -n $NAMESPACE
+```
+
+### 2. Create Secrets
+
+```bash
+# HuggingFace token (required)
 oc create secret generic huggingface-token \
-  --from-literal=HF_CLI_TOKEN=<your-huggingface-token> \
-  -n <namespace>
+  --from-literal=HF_CLI_TOKEN=hf_xxxxxxxxxxxxx \
+  -n $NAMESPACE
 
-# MLFlow Auth (required when mlflow.enabled: true) - Auth to MLFLow API
-oc create secret generic mlflow-auth \
-  --from-literal=admin-username=<username> \
-  --from-literal=admin-password=<password> \
-  -n <namespace>
+# MLflow credentials (optional - only if using MLflow)
+oc create secret generic mlflow-ui-auth \
+  --from-literal=username=admin \
+  --from-literal=password=your-password \
+  -n $NAMESPACE
 
-# MLFlow s3 credentials (required when mlflow.enabled: true) - Artifacts logging to s3
-oc create secret generic mlflow-s3-creds \
-  --from-literal=AWS_ACCESS_KEY_ID=<access-key> \
-  --from-literal=AWS_SECRET_ACCESS_KEY=<secret-key> \
-  --from-literal=bucket-name=<bucket-name> \
-  --from-literal=region=<region> \
-  -n <namespace>
+oc create secret generic mlflow-s3-secret \
+  --from-literal=access-key=your-access-key \
+  --from-literal=secret-key=your-secret-key \
+  --from-literal=bucket-name=mlflow-artifacts \
+  --from-literal=region=us-east-1 \
+  -n $NAMESPACE
 ```
 
-### Deploy Infrastructure (Optional)
+See [config/secrets/](config/secrets/) for YAML templates.
 
-> [!NOTE]
-> llm-d-bench can be used without deploying this infra, but it is advised for CI/CD integration or experiment tracking, among others.
-
-The deployment of the experiments infrastructure is completely optional and it is inteded to be a persistent environment for automated benchmarking. The infrastructure is composed by MLFlow, Self Hosted GitHub Action Runners and Kueue with MultiCluster capabilities.
-
-In order to deploy it, create the necessary secrets within `infra/manifests/{mlflow,github-runners,kueue}` and then simply run `oc apply -k .` from the `infra/` dir.
-
-Other manifests for deploying RHOAI and configuring Distributed Inference can be found inside `infra/` too.
-
-#### Runing Benchmarks Via Helm
-> Needs building the benchmark image in the given namespace. See [Build and Push Custom Guidellm Image using OpenShift Builds](./build/README.md)
-
-> [!WARNING]
-> If using MLFlow, the user is responsible for creating the needed secrets in the appropriate namespace and configuring the given experiment.
+### 3. Build Custom Image
 
 ```bash
-helm install <your_deployment_name> ./llm-d-bench \
-  -f llm-d-bench/experiments/qwen-0.6b-baseline.yaml \
-  -n <your_namespace>
+oc create -f pipelineruns/build-image-run.yaml -n $NAMESPACE
 ```
 
-#### Runing Benchmarks Via GitHub Actions (if `infra` deployed)
+### 4. Run Benchmark
 
-> Needs building the benchmark image in the given namespace. See [Build and Push Custom Guidellm Image using OpenShift Builds](./build/README.md) and GHA setup.
+```bash
+# Use a pre-configured experiment
+oc create -f pipelineruns/meta-llama-3.1-8b-1k-1k.yaml -n $NAMESPACE
 
-For more information, refer to the `.github/` directory.
-
-```
-# Comment on any PR:
-/benchmark qwen-0.6b-baseline
-
-# With parameter overrides:
-/benchmark qwen-0.6b-baseline
-benchmark.maxSeconds=600
+# Watch logs
+tkn pipelinerun logs -f -n $NAMESPACE
 ```
 
-## Adding Benchmarks
+## Pipelines
 
-See [`llm-d-bench/ADDING_BENCHMARKS.md`](llm-d-bench/ADDING_BENCHMARKS.md) for adding new benchmark tools.
+| Pipeline | Purpose | Tasks |
+|----------|---------|-------|
+| `build-image` | Build custom GuideLLM image | git-clone → buildah-build |
+| `run-benchmark` | Run benchmark | wait-for-endpoint → run-benchmark |
+| `build-and-benchmark` | Build + benchmark | git-clone → buildah-build → wait-for-endpoint → run-benchmark |
 
-**Quick summary:**
-1. Add benchmark implementation to `llm-d-bench/templates/benchmarks/<tool-name>/`
-2. Create experiment config in `llm-d-bench/experiments/`
-3. Trigger via `/benchmark <experiment-name>` in PR comments or manually via CLI
+## Custom Benchmarks
 
-For new experiments, add them in `llm-d-bench/experiments`. **Experiment names cannot include `.` for security reasons.**
+Copy an experiment and edit parameters:
 
-## Results
+```bash
+cp pipelineruns/meta-llama-3.1-8b-1k-1k.yaml pipelineruns/my-benchmark.yaml
+vi pipelineruns/my-benchmark.yaml  # Edit TARGET, MODEL, RATE, etc.
+oc create -f pipelineruns/my-benchmark.yaml -n $NAMESPACE
+```
 
-- **MLflow** - Experiments tracked if `mlflow.enabled=true` and other config values.
-- **PVC** - If `mlflow.enabled=false` (default), benchmark results will be in a PVC named `<benchmark name>-results`.
+Or use `tkn` CLI:
 
-## Utils
+```bash
+tkn pipeline start run-benchmark \
+  -p TARGET=https://my-model.example.com \
+  -p MODEL=meta-llama/Llama-3.1-8B \
+  -p RATE="1,50,100" \
+  -n $NAMESPACE \
+  --showlog
+```
 
-There is a collection of utility scripts in the `utils/` dirs. None is mandatory to use but they can come in handy.
+## Storage Modes
+
+**MLflow** (set `MLFLOW_ENABLED=true`):
+- Results logged to MLflow tracking server
+- Requires: `mlflow-ui-auth` and `mlflow-s3-secret` secrets
+
+**PVC** (set `MLFLOW_ENABLED=false`):
+- Results saved to PVC at `/benchmark-results/`
+- Files: `benchmark_output.json`, `benchmark_output_console.log` and HTML reports.
+
+## Debugging
+
+```bash
+# View logs
+tkn pipelinerun logs <pipelinerun-name> -f -n $NAMESPACE
+
+# View specific task
+tkn pipelinerun logs <pipelinerun-name> -t run-benchmark -n $NAMESPACE
+
+# Check status
+oc get pipelinerun -n $NAMESPACE
+oc describe pipelinerun <pipelinerun-name> -n $NAMESPACE
+
+# Pod logs
+oc logs <pod-name> -c step-run-benchmark -n $NAMESPACE
+```

@@ -1,0 +1,267 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: run-benchmark
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "Run GuideLLM Benchmark"
+    tekton.dev/tags: benchmark, llm, guidellm
+    tekton.dev/platforms: "linux/amd64"
+spec:
+  description: >-
+    Execute a GuideLLM benchmark test against an LLM inference endpoint.
+    Supports both MLflow tracking and PVC-based result storage.
+
+  params:
+    - name: IMAGE
+      description: Full URL of the GuideLLM custom image to use
+      type: string
+
+    - name: TARGET
+      description: Target inference endpoint URL
+      type: string
+
+    - name: MODEL
+      description: Model name/identifier
+      type: string
+
+    - name: PROCESSOR
+      description: Tokenizer/processor model name (optional)
+      type: string
+      default: ""
+
+    - name: BACKEND_TYPE
+      description: Backend type for the inference server
+      type: string
+      default: "openai_http"
+
+    - name: RATE_TYPE
+      description: Rate strategy (concurrent or synchronous)
+      type: string
+      default: "concurrent"
+
+    - name: RATE
+      description: Comma-separated list of rates to test (e.g., "1,50,100,200")
+      type: string
+
+    - name: DATA
+      description: Request data profile (e.g., "prompt_tokens=1000,output_tokens=1000")
+      type: string
+      default: ""
+
+    - name: MAX_SECONDS
+      description: Maximum duration per rate in seconds
+      type: string
+      default: "600"
+
+    - name: MAX_REQUESTS
+      description: Maximum number of requests per rate (optional)
+      type: string
+      default: ""
+
+    - name: ACCELERATOR
+      description: Accelerator type tag (e.g., H200, A100)
+      type: string
+      default: ""
+
+    - name: EXPERIMENT_NAME
+      description: MLflow experiment name
+      type: string
+      default: "guidellm-benchmarks"
+
+    - name: MLFLOW_ENABLED
+      description: Enable MLflow tracking (true or false)
+      type: string
+      default: "false"
+
+    - name: MLFLOW_TRACKING_URI
+      description: MLflow tracking server URI
+      type: string
+      default: ""
+
+    - name: TAGS
+      description: Additional tags as JSON object (e.g., '{"version":"3.0","team":"ai"}')
+      type: string
+      default: "{}"
+
+    - name: VERSION
+      description: Version identifier for visualization reports (e.g., RHOAI-3.0)
+      type: string
+      default: ""
+
+    - name: TP
+      description: Tensor parallelism size for visualization reports
+      type: string
+      default: "1"
+
+  workspaces:
+    - name: results
+      description: Workspace for storing benchmark results (only used if MLFLOW_ENABLED=false)
+      optional: true
+
+  steps:
+    - name: run-benchmark
+      image: $(params.IMAGE)
+      workingDir: /tmp
+      env:
+        - name: MLFLOW_ENABLED
+          value: $(params.MLFLOW_ENABLED)
+        - name: HF_CLI_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: huggingface-token
+              key: HF_CLI_TOKEN
+              optional: true
+        - name: MLFLOW_TRACKING_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: username
+              optional: true
+        - name: MLFLOW_TRACKING_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: password
+              optional: true
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: access-key
+              optional: true
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: secret-key
+              optional: true
+        - name: MLFLOW_S3_BUCKET_NAME
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: bucket-name
+              optional: true
+        - name: AWS_DEFAULT_REGION
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: region
+              optional: true
+        - name: GUIDELLM__REQUEST_TIMEOUT
+          value: "6000"
+        - name: GUIDELLM__LOGGING__CONSOLE_LOG_LEVEL
+          value: "INFO"
+      script: |
+        #!/bin/bash
+        set -e
+
+        echo "========================================="
+        echo "GuideLLM Benchmark Starting"
+        echo "========================================="
+        echo "Target: $(params.TARGET)"
+        echo "Model: $(params.MODEL)"
+        echo "Rate: $(params.RATE)"
+        echo "Rate Type: $(params.RATE_TYPE)"
+        echo "MLflow Enabled: $(params.MLFLOW_ENABLED)"
+        echo "========================================="
+        echo ""
+
+        # Build the command
+        CMD="python3 /usr/local/bin/run_benchmark.py"
+        CMD="$CMD --target $(params.TARGET)"
+        CMD="$CMD --model $(params.MODEL)"
+        CMD="$CMD --rate $(params.RATE)"
+        CMD="$CMD --backend-type $(params.BACKEND_TYPE)"
+        CMD="$CMD --rate-type $(params.RATE_TYPE)"
+
+        # Add optional parameters
+        if [ -n "$(params.PROCESSOR)" ]; then
+          CMD="$CMD --processor $(params.PROCESSOR)"
+        fi
+
+        if [ -n "$(params.DATA)" ]; then
+          CMD="$CMD --data $(params.DATA)"
+        fi
+
+        if [ -n "$(params.MAX_SECONDS)" ]; then
+          CMD="$CMD --max-seconds $(params.MAX_SECONDS)"
+        fi
+
+        if [ -n "$(params.MAX_REQUESTS)" ]; then
+          CMD="$CMD --max-requests $(params.MAX_REQUESTS)"
+        fi
+
+        if [ -n "$(params.ACCELERATOR)" ]; then
+          CMD="$CMD --accelerator $(params.ACCELERATOR)"
+        fi
+
+        if [ -n "$(params.VERSION)" ]; then
+          CMD="$CMD --version $(params.VERSION)"
+        fi
+
+        if [ -n "$(params.TP)" ]; then
+          CMD="$CMD --tp $(params.TP)"
+        fi
+
+        # MLflow parameters
+        if [ "$(params.MLFLOW_ENABLED)" = "true" ]; then
+          CMD="$CMD --experiment-name $(params.EXPERIMENT_NAME)"
+
+          if [ -n "$(params.MLFLOW_TRACKING_URI)" ]; then
+            CMD="$CMD --mlflow-tracking-uri $(params.MLFLOW_TRACKING_URI)"
+          fi
+
+          # Parse and add tags from JSON
+          TAGS='$(params.TAGS)'
+          if [ "$TAGS" != "{}" ]; then
+            # Convert JSON to --tag key=value arguments
+            echo "$TAGS" | python3 -c "
+import sys, json
+tags = json.load(sys.stdin)
+for key, value in tags.items():
+    print(f'--tag {key}={value}')
+" | while read -r tag_arg; do
+              CMD="$CMD $tag_arg"
+            done
+          fi
+        fi
+
+        echo "Executing command:"
+        echo "$CMD"
+        echo ""
+
+        # Execute the benchmark
+        eval "$CMD"
+
+        echo ""
+        echo "========================================="
+        echo "Benchmark Completed Successfully"
+        echo "========================================="
+
+      resources:
+        requests:
+          memory: "8Gi"
+          cpu: "2"
+        limits:
+          memory: "16Gi"
+          cpu: "4"
+
+      # Mount results volume only if MLflow is disabled
+      volumeMounts:
+        - name: results-volume
+          mountPath: /benchmark-results
+
+  volumes:
+    - name: results-volume
+      emptyDir: {}
+
+  # Avoid scheduling on GPU nodes
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: nvidia.com/gpu
+                operator: DoesNotExist

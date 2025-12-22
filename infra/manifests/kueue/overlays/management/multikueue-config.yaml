@@ -1,9 +1,0 @@
----
-apiVersion: kueue.x-k8s.io/v1beta1
-kind: MultiKueueConfig
-metadata:
-  name: multikueue-config
-spec:
-  # Clusters list is managed in clusters/kustomization.yaml
-  # Add new clusters there to avoid modifying source code
-  clusters: []

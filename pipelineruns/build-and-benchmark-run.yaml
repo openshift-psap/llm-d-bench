@@ -1,0 +1,83 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: build-and-benchmark-
+  labels:
+    app: llm-d-tekton
+    pipeline: build-and-benchmark
+spec:
+  pipelineRef:
+    name: build-and-benchmark
+
+  params:
+    # Git parameters
+    - name: GIT_URL
+      value: "https://github.com/openshift-psap/llm-d-bench.git"
+    - name: GIT_REVISION
+      value: "main"
+
+    # Build parameters
+    - name: IMAGE_NAME
+      value: "guidellm-custom"
+    - name: IMAGE_TAG
+      value: "latest"
+    - name: REGISTRY
+      value: "image-registry.openshift-image-registry.svc:5000"
+    - name: NAMESPACE
+      value: "downstream-llm-d"
+    - name: GUIDELLM_VERSION
+      value: "v0.3.1"
+
+    # Target and model
+    - name: TARGET
+      value: "https://inference-gateway.apps.example.com/downstream-llm-d/my-model"
+    - name: MODEL
+      value: "meta-llama/Llama-3.1-8B"
+    - name: PROCESSOR
+      value: "meta-llama/Llama-3.1-8B"
+
+    # Benchmark configuration
+    - name: BACKEND_TYPE
+      value: "openai_http"
+    - name: RATE_TYPE
+      value: "concurrent"
+    - name: RATE
+      value: "1,50,100"
+    - name: DATA
+      value: "prompt_tokens=1000,output_tokens=1000"
+    - name: MAX_SECONDS
+      value: "180"
+    - name: ACCELERATOR
+      value: "H200"
+
+    # MLflow configuration
+    - name: MLFLOW_ENABLED
+      value: "true"
+    - name: MLFLOW_TRACKING_URI
+      value: "https://mlflow-mlflow.apps.example.com"
+    - name: EXPERIMENT_NAME
+      value: "guidellm-benchmarks"
+    - name: TAGS
+      value: '{"llm-d-version":"RHOAI 3.0","type":"dev-test"}'
+
+    # Visualization configuration
+    - name: VERSION
+      value: "RHOAI-3.0"
+    - name: TP
+      value: "1"
+
+    # Health check
+    - name: SKIP_HEALTH_CHECK
+      value: "false"
+    - name: HEALTH_CHECK_TIMEOUT
+      value: "3600"
+
+  workspaces:
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 5Gi

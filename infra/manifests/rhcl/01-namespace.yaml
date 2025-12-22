@@ -1,6 +1,0 @@
-kind: Namespace
-apiVersion: v1
-metadata:
-  name: kuadrant-system
-  labels:
-    name: kuadrant-system

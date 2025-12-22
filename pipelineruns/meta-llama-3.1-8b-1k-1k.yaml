@@ -1,0 +1,60 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: meta-llama-31-8b-1k-1k-
+  labels:
+    app: llm-d-tekton
+    pipeline: run-benchmark
+    experiment: meta-llama-3.1-8b-1k-1k
+spec:
+  pipelineRef:
+    name: run-benchmark
+
+  params:
+    # Image configuration
+    - name: IMAGE
+      value: "image-registry.openshift-image-registry.svc:5000/downstream-llm-d/guidellm-custom:latest"
+
+    # Target and model
+    - name: TARGET
+      value: "https://inference-gateway.apps.example.com/downstream-llm-d/meta-llama-31-8b"
+    - name: MODEL
+      value: "meta-llama/Llama-3.1-8B"
+    - name: PROCESSOR
+      value: "meta-llama/Llama-3.1-8B"
+
+    # Benchmark configuration
+    - name: BACKEND_TYPE
+      value: "openai_http"
+    - name: RATE_TYPE
+      value: "concurrent"
+    - name: RATE
+      value: "1,50,100,200,300,500,650"
+    - name: DATA
+      value: "prompt_tokens=1000,output_tokens=1000"
+    - name: MAX_SECONDS
+      value: "240"
+    - name: ACCELERATOR
+      value: "H200"
+
+    # MLflow configuration
+    - name: MLFLOW_ENABLED
+      value: "true"
+    - name: MLFLOW_TRACKING_URI
+      value: "https://mlflow-mlflow.apps.aperdomo-lab.ibm.rhperfscale.org"
+    - name: EXPERIMENT_NAME
+      value: "guidellm-benchmarks"
+    - name: TAGS
+      value: '{"llm-d-version":"RHOAI 3.0"}'
+
+    # Visualization configuration
+    - name: VERSION
+      value: "RHOAI-3.0"
+    - name: TP
+      value: "1"
+
+    # Health check
+    - name: SKIP_HEALTH_CHECK
+      value: "false"
+    - name: HEALTH_CHECK_TIMEOUT
+      value: "3600"

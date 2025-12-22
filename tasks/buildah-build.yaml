@@ -1,0 +1,125 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: buildah-build
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "Build Image with Buildah"
+    tekton.dev/tags: image-build, buildah
+    tekton.dev/platforms: "linux/amd64"
+spec:
+  description: >-
+    Build a container image using Buildah. This task builds the custom GuideLLM
+    image with MLflow and benchmark dependencies.
+
+  params:
+    - name: IMAGE_NAME
+      description: Name of the image to build
+      type: string
+      default: "guidellm-custom"
+
+    - name: IMAGE_TAG
+      description: Tag for the built image
+      type: string
+      default: "latest"
+
+    - name: REGISTRY
+      description: Container registry URL
+      type: string
+      default: "image-registry.openshift-image-registry.svc:5000"
+
+    - name: NAMESPACE
+      description: Namespace where image will be pushed
+      type: string
+      default: "downstream-llm-d"
+
+    - name: CONTEXT_DIR
+      description: Directory containing build context
+      type: string
+      default: "build"
+
+    - name: DOCKERFILE
+      description: Path to Dockerfile relative to context
+      type: string
+      default: "Containerfile"
+
+    - name: GUIDELLM_VERSION
+      description: GuideLLM base image version
+      type: string
+      default: "v0.3.1"
+
+    - name: TLSVERIFY
+      description: Verify TLS certificates when pushing
+      type: string
+      default: "false"
+
+    - name: FORMAT
+      description: Format of the built image (oci or docker)
+      type: string
+      default: "oci"
+
+  workspaces:
+    - name: source
+      description: Workspace containing the build context
+
+    - name: dockerconfig
+      description: Docker config for registry authentication (optional)
+      optional: true
+
+  results:
+    - name: IMAGE_DIGEST
+      description: Digest of the built image
+
+    - name: IMAGE_URL
+      description: Full URL of the built image
+
+  steps:
+    - name: build-and-push
+      image: registry.redhat.io/rhel9/buildah:latest
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/bin/bash
+        set -e
+
+        # Construct full image URL
+        IMAGE_URL="$(params.REGISTRY)/$(params.NAMESPACE)/$(params.IMAGE_NAME):$(params.IMAGE_TAG)"
+        echo "Building image: $IMAGE_URL"
+
+        # Build the image
+        buildah --storage-driver=vfs bud \
+          --format=$(params.FORMAT) \
+          --tls-verify=$(params.TLSVERIFY) \
+          --layers \
+          --build-arg IMAGE_VERSION=$(params.GUIDELLM_VERSION) \
+          -f $(params.CONTEXT_DIR)/$(params.DOCKERFILE) \
+          -t "$IMAGE_URL" \
+          $(params.CONTEXT_DIR)
+
+        # Push the image
+        buildah --storage-driver=vfs push \
+          --tls-verify=$(params.TLSVERIFY) \
+          --digestfile /tmp/image-digest \
+          "$IMAGE_URL" \
+          docker://"$IMAGE_URL"
+
+        # Save results
+        cat /tmp/image-digest | tee $(results.IMAGE_DIGEST.path)
+        echo -n "$IMAGE_URL" | tee $(results.IMAGE_URL.path)
+
+        echo "Image built and pushed successfully!"
+        echo "Image URL: $IMAGE_URL"
+        echo "Image Digest: $(cat /tmp/image-digest)"
+
+      securityContext:
+        capabilities:
+          add:
+            - SETFCAP
+
+      volumeMounts:
+        - name: varlibcontainers
+          mountPath: /var/lib/containers
+
+  volumes:
+    - name: varlibcontainers
+      emptyDir: {}
