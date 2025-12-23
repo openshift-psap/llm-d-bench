@@ -43,7 +43,7 @@ spec:
     - name: MLFLOW_TRACKING_URI
       value: "https://mlflow-mlflow.apps.aperdomo-lab.ibm.rhperfscale.org"
     - name: EXPERIMENT_NAME
-      value: "guidellm-benchmarks"
+      value: "redhatai-qwen3-235b-a22b-fp8-dynamic-1k-1k"
     - name: TAGS
       value: '{"llm-d-version":"RHOAI 3.0"}'
 
