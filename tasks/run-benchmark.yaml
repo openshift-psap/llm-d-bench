@@ -153,6 +153,8 @@ spec:
           value: "6000"
         - name: GUIDELLM__LOGGING__CONSOLE_LOG_LEVEL
           value: "INFO"
+        - name: MLFLOW_TRACKING_INSECURE_TLS
+          value: "true"
       script: |
         #!/bin/bash
         set -e
