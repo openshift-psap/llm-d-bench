@@ -95,6 +95,11 @@ spec:
       type: string
       default: "1"
 
+    - name: LOG_LEVEL
+      description: Logging level (DEBUG, INFO, WARNING, ERROR)
+      type: string
+      default: "INFO"
+
   workspaces:
     - name: results
       description: Workspace for storing benchmark results (only used if MLFLOW_ENABLED=false)
@@ -155,6 +160,8 @@ spec:
           value: "INFO"
         - name: MLFLOW_TRACKING_INSECURE_TLS
           value: "true"
+        - name: LOG_LEVEL
+          value: $(params.LOG_LEVEL)
       script: |
         #!/bin/bash
         set -e

@@ -5,13 +5,16 @@ import subprocess
 import sys
 import os
 import requests
+import urllib3
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any
 
 import mlflow
 
-# Import BenchmarkProcessor for visualization
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 try:
     from processor import BenchmarkProcessor
 
@@ -22,9 +25,11 @@ except ImportError:
     logger.warning("BenchmarkProcessor not available - reports will not be generated")
 
 
+# Configure logging level from environment variable
+log_level = os.environ.get("LOG_LEVEL", "INFO").upper()
 logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s",
+    level=getattr(logging, log_level, logging.INFO),
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
 logger = logging.getLogger(__name__)
@@ -622,42 +627,64 @@ def main():
     logger.info(f"Starting benchmark sweep for rates: {args.rate}")
 
     # Log in to HF
+    logger.debug("Attempting HuggingFace authentication...")
+    hf_token = os.environ.get("HF_CLI_TOKEN")
+    if hf_token:
+        logger.debug(f"HF_CLI_TOKEN is set (length: {len(hf_token)})")
+    else:
+        logger.warning("HF_CLI_TOKEN environment variable is not set")
+
     hf_authenticated = False
+
+    # Try 'hf auth login' first
     try:
-        subprocess.run(
-            ["hf", "auth", "login", "--token", os.environ.get("HF_CLI_TOKEN")],
+        logger.debug("Trying: hf auth login --token <token>")
+        result = subprocess.run(
+            ["hf", "auth", "login", "--token", hf_token],
             check=True,
             capture_output=True,
             timeout=30,
+            text=True,
         )
         logger.info("Successfully authenticated with 'hf auth login'")
+        logger.debug(f"Command output: {result.stdout}")
         hf_authenticated = True
-    except (
-        subprocess.CalledProcessError,
-        FileNotFoundError,
-        subprocess.TimeoutExpired,
-    ):
-        pass
+    except FileNotFoundError as e:
+        logger.debug(f"'hf' command not found: {e}")
+    except subprocess.CalledProcessError as e:
+        logger.debug(f"'hf auth login' failed with exit code {e.returncode}")
+        logger.debug(f"stderr: {e.stderr}")
+        logger.debug(f"stdout: {e.stdout}")
+    except subprocess.TimeoutExpired as e:
+        logger.debug(f"'hf auth login' timed out after 30 seconds")
 
+    # Try 'huggingface-cli login' if first attempt failed
     if not hf_authenticated:
         try:
-            subprocess.run(
-                ["huggingface-cli", "login", "--token", os.environ.get("HF_CLI_TOKEN")],
+            logger.debug("Trying: huggingface-cli login --token <token>")
+            result = subprocess.run(
+                ["huggingface-cli", "login", "--token", hf_token],
                 check=True,
                 capture_output=True,
                 timeout=30,
+                text=True,
             )
             logger.info("Successfully authenticated with 'huggingface-cli login'")
+            logger.debug(f"Command output: {result.stdout}")
             hf_authenticated = True
-        except (
-            subprocess.CalledProcessError,
-            FileNotFoundError,
-            subprocess.TimeoutExpired,
-        ):
-            pass
+        except FileNotFoundError as e:
+            logger.debug(f"'huggingface-cli' command not found: {e}")
+        except subprocess.CalledProcessError as e:
+            logger.debug(
+                f"'huggingface-cli login' failed with exit code {e.returncode}"
+            )
+            logger.debug(f"stderr: {e.stderr}")
+            logger.debug(f"stdout: {e.stdout}")
+        except subprocess.TimeoutExpired as e:
+            logger.debug(f"'huggingface-cli login' timed out after 30 seconds")
 
     if not hf_authenticated:
-        logger.info(
+        logger.warning(
             "Could not authenticate with HuggingFace CLI, continuing without authentication"
         )
 
