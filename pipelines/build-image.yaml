@@ -21,7 +21,7 @@ spec:
     - name: GIT_REVISION
       description: Git revision to checkout (branch, tag, sha, ref)
       type: string
-      default: "main"
+      default: "feature/tekton-refactor"
 
     - name: IMAGE_NAME
       description: Name of the image to build

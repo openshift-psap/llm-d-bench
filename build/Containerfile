@@ -12,9 +12,9 @@ RUN pip install --no-warn-script-location -r /tmp/requirements.txt && \
 
 RUN mkdir -p /tmp/.huggingface && chmod -R 777 /tmp/.huggingface
 
-# Copy entire src directory structure
-COPY src/ /usr/local/lib/python3.11/site-packages/
+# Copy src directory
+COPY src/ /opt/benchmark/
 
-ENTRYPOINT ["python3", "-m", "run_benchmark"]
+ENTRYPOINT ["python3", "/opt/benchmark/run_benchmark.py"]
 
 CMD ["--help"]

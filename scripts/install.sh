@@ -97,7 +97,7 @@ echo "Tasks:"
 oc get tasks $NS_FLAG | grep -E 'NAME|buildah-build|wait-for-endpoint|run-benchmark' || true
 echo ""
 echo "Pipelines:"
-oc get pipelines $NS_FLAG | grep -E 'NAME|build-image|run-benchmark|build-and-benchmark' || true
+oc get pipelines $NS_FLAG | grep -E 'NAME|build-image|run-benchmark' || true
 echo ""
 
 if [ "$CREATE_PVCS" = true ]; then

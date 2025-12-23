@@ -96,6 +96,13 @@ spec:
           -t "$IMAGE_URL" \
           $(params.CONTEXT_DIR)
 
+        # Login to internal registry using service account token
+        TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+        buildah login --tls-verify=$(params.TLSVERIFY) \
+          -u serviceaccount \
+          -p "$TOKEN" \
+          $(params.REGISTRY)
+
         # Push the image
         buildah --storage-driver=vfs push \
           --tls-verify=$(params.TLSVERIFY) \

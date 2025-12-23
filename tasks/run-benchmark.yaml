@@ -169,7 +169,7 @@ spec:
         echo ""
 
         # Build the command
-        CMD="python3 /usr/local/bin/run_benchmark.py"
+        CMD="python3 /opt/benchmark/run_benchmark.py"
         CMD="$CMD --target $(params.TARGET)"
         CMD="$CMD --model $(params.MODEL)"
         CMD="$CMD --rate $(params.RATE)"
@@ -213,19 +213,8 @@ spec:
             CMD="$CMD --mlflow-tracking-uri $(params.MLFLOW_TRACKING_URI)"
           fi
 
-          # Parse and add tags from JSON
-          TAGS='$(params.TAGS)'
-          if [ "$TAGS" != "{}" ]; then
-            # Convert JSON to --tag key=value arguments
-            echo "$TAGS" | python3 -c "
-import sys, json
-tags = json.load(sys.stdin)
-for key, value in tags.items():
-    print(f'--tag {key}={value}')
-" | while read -r tag_arg; do
-              CMD="$CMD $tag_arg"
-            done
-          fi
+          # Add tags - simplified approach to avoid YAML parsing issues
+          # Note: For complex tag handling, manually add --tag key=value to command
         fi
 
         echo "Executing command:"

@@ -17,7 +17,7 @@ spec:
 
     # Target and model
     - name: TARGET
-      value: "https://inference-gateway.apps.psap-llmd-h200.ibm-rh-ai.rhperfscale.org/downstream-llm-d/redhatai-llama-33-70b-instruct-fp8-dynamic"
+      value: "https://redhatai-llama-33-70b-instruct-fp8-dynamic-kserve-workload-svc.downstream-llm-d.svc.cluster.local:8000"
     - name: MODEL
       value: "RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic"
     - name: PROCESSOR
@@ -29,7 +29,7 @@ spec:
     - name: RATE_TYPE
       value: "concurrent"
     - name: RATE
-      value: "650,500,300,200,100,50,1"
+      value: "1"
     - name: DATA
       value: "prompt_tokens=1000,output_tokens=1000"
     - name: MAX_SECONDS
@@ -51,7 +51,7 @@ spec:
     - name: VERSION
       value: "RHOAI-3.0"
     - name: TP
-      value: "1"
+      value: "4"
 
     # Health check
     - name: SKIP_HEALTH_CHECK

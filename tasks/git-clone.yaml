@@ -51,7 +51,7 @@ spec:
 
   steps:
     - name: clone
-      image: gcr.io/tekton-releases/github.com/tektoncd/pipeline/cmd/git-init:v0.40.2
+      image: alpine/git:latest
       env:
         - name: HOME
           value: /tmp
@@ -80,7 +80,7 @@ spec:
             # Delete any existing contents of the repo directory if it exists
             if [ -d "${WORKSPACE_OUTPUT_PATH}/${PARAM_SUBDIRECTORY}" ] ; then
               # Delete non-hidden files and directories
-              rm -rf "${WORKSPACE_OUTPUT_PATH}/${PARAM_SUBDIRECTORY:?}"/*
+              rm -rf "${WORKSPACE_OUTPUT_PATH}/${PARAM_SUBDIRECTORY}"/*
               # Delete files and directories starting with . but excluding ..
               rm -rf "${WORKSPACE_OUTPUT_PATH}/${PARAM_SUBDIRECTORY}"/.[!.]*
               # Delete files and directories starting with .. plus any other character
@@ -98,12 +98,11 @@ spec:
         # Clone the repository
         CHECKOUT_DIR="${WORKSPACE_OUTPUT_PATH}/${PARAM_SUBDIRECTORY}"
 
-        /ko-app/git-init \
-          -url="${PARAM_URL}" \
-          -revision="${PARAM_REVISION}" \
-          -path="${CHECKOUT_DIR}"
-
+        git clone "${PARAM_URL}" "${CHECKOUT_DIR}"
         cd "${CHECKOUT_DIR}"
+        git config --global --add safe.directory "${CHECKOUT_DIR}"
+        git checkout "${PARAM_REVISION}"
+
         RESULT_SHA="$(git rev-parse HEAD)"
         EXIT_CODE="$?"
 

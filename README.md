@@ -70,7 +70,6 @@ tkn pipelinerun logs -f -n $NAMESPACE
 |----------|---------|-------|
 | `build-image` | Build custom GuideLLM image | git-clone → buildah-build |
 | `run-benchmark` | Run benchmark | wait-for-endpoint → run-benchmark |
-| `build-and-benchmark` | Build + benchmark | git-clone → buildah-build → wait-for-endpoint → run-benchmark |
 
 ## Custom Benchmarks
 
@@ -119,3 +118,66 @@ oc describe pipelinerun <pipelinerun-name> -n $NAMESPACE
 # Pod logs
 oc logs <pod-name> -c step-run-benchmark -n $NAMESPACE
 ```
+
+## Troubleshooting
+
+### Tekton Controllers Not Starting
+
+<details>
+<summary>Tekton pipeline pods fail to start with SCC violations</summary>
+
+**Symptoms:**
+- PipelineRuns remain in pending state indefinitely
+- Tekton controller pods show status: `0/1`
+- Events show: `unable to validate against any security context constraint`
+
+**Solution:**
+
+Grant the privileged SCC to Tekton service accounts:
+
+```bash
+oc create clusterrolebinding tekton-controller-privileged \
+  --clusterrole=system:openshift:scc:privileged \
+  --serviceaccount=tekton-pipelines:tekton-pipelines-controller
+
+oc create clusterrolebinding tekton-webhook-privileged \
+  --clusterrole=system:openshift:scc:privileged \
+  --serviceaccount=tekton-pipelines:tekton-pipelines-webhook
+
+oc create clusterrolebinding tekton-events-privileged \
+  --clusterrole=system:openshift:scc:privileged \
+  --serviceaccount=tekton-pipelines:tekton-events-controller
+
+oc create clusterrolebinding tekton-resolvers-privileged \
+  --clusterrole=system:openshift:scc:privileged \
+  --serviceaccount=tekton-pipelines-resolvers:tekton-pipelines-remote-resolvers
+```
+
+Verify controllers are running:
+```bash
+oc get pods -n tekton-pipelines
+```
+
+</details>
+
+### Image Build Push Failures
+
+<details>
+<summary>Buildah task fails with "authentication required" when pushing to internal registry</summary>
+
+**Symptoms:**
+- Build completes successfully
+- Push fails with: `authentication required`
+- Error: `writing blob: initiating layer upload to /v2/.../blobs/uploads/`
+
+**Solution:**
+
+Grant the `system:image-builder` role to the service account:
+
+```bash
+oc policy add-role-to-user system:image-builder -z default -n $NAMESPACE
+```
+
+This allows the service account to push images to the internal OpenShift registry.
+
+</details>
