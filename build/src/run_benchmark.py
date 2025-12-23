@@ -622,6 +622,7 @@ def main():
     logger.info(f"Starting benchmark sweep for rates: {args.rate}")
 
     # Log in to HF
+    hf_authenticated = False
     try:
         subprocess.run(
             ["hf", "auth", "login", "--token", os.environ.get("HF_CLI_TOKEN")],
@@ -630,6 +631,7 @@ def main():
             timeout=30,
         )
         logger.info("Successfully authenticated with 'hf auth login'")
+        hf_authenticated = True
     except (
         subprocess.CalledProcessError,
         FileNotFoundError,
@@ -637,24 +639,27 @@ def main():
     ):
         pass
 
-    try:
-        subprocess.run(
-            ["huggingface-cli", "login", "--token", os.environ.get("HF_CLI_TOKEN")],
-            check=True,
-            capture_output=True,
-            timeout=30,
+    if not hf_authenticated:
+        try:
+            subprocess.run(
+                ["huggingface-cli", "login", "--token", os.environ.get("HF_CLI_TOKEN")],
+                check=True,
+                capture_output=True,
+                timeout=30,
+            )
+            logger.info("Successfully authenticated with 'huggingface-cli login'")
+            hf_authenticated = True
+        except (
+            subprocess.CalledProcessError,
+            FileNotFoundError,
+            subprocess.TimeoutExpired,
+        ):
+            pass
+
+    if not hf_authenticated:
+        logger.info(
+            "Could not authenticate with HuggingFace CLI, continuing without authentication"
         )
-        logger.info("Successfully authenticated with 'huggingface-cli login'")
-    except (
-        subprocess.CalledProcessError,
-        FileNotFoundError,
-        subprocess.TimeoutExpired,
-    ):
-        pass
-
-    logger.info(
-        "Could not authenticate with HuggingFace CLI, continuing without authentication"
-    )
 
     # Check if MLflow is enabled via environment variable
     mlflow_enabled = os.environ.get("MLFLOW_ENABLED", "false").lower() == "true"
