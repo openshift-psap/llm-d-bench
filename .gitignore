@@ -3,5 +3,3 @@ results/**
 
 config/secrets/*.yaml
 !config/secrets/*.example.yaml
-
-.DS_Store
