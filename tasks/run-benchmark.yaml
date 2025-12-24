@@ -98,7 +98,7 @@ spec:
     - name: LOG_LEVEL
       description: Logging level (DEBUG, INFO, WARNING, ERROR)
       type: string
-      default: "INFO"
+      default: "DEBUG"
 
   workspaces:
     - name: results
@@ -162,91 +162,37 @@ spec:
           value: "true"
         - name: LOG_LEVEL
           value: $(params.LOG_LEVEL)
+        - name: HF_HOME
+          value: /tmp/.huggingface
       script: |
         #!/bin/bash
         set -e
 
-        echo "========================================="
-        echo "GuideLLM Benchmark Starting"
-        echo "========================================="
-        echo "Target: $(params.TARGET)"
-        echo "Model: $(params.MODEL)"
-        echo "Rate: $(params.RATE)"
-        echo "Rate Type: $(params.RATE_TYPE)"
-        echo "MLflow Enabled: $(params.MLFLOW_ENABLED)"
-        echo "========================================="
-        echo ""
+        ARGS=(
+          --target "$(params.TARGET)"
+          --model "$(params.MODEL)"
+          --rate "$(params.RATE)"
+          --backend-type "$(params.BACKEND_TYPE)"
+          --rate-type "$(params.RATE_TYPE)"
+        )
 
-        # Build the command
-        CMD="python3 /opt/benchmark/run_benchmark.py"
-        CMD="$CMD --target $(params.TARGET)"
-        CMD="$CMD --model $(params.MODEL)"
-        CMD="$CMD --rate $(params.RATE)"
-        CMD="$CMD --backend-type $(params.BACKEND_TYPE)"
-        CMD="$CMD --rate-type $(params.RATE_TYPE)"
+        [ -n "$(params.PROCESSOR)" ] && ARGS+=(--processor "$(params.PROCESSOR)")
+        [ -n "$(params.DATA)" ] && ARGS+=(--data "$(params.DATA)")
+        [ -n "$(params.MAX_SECONDS)" ] && ARGS+=(--max-seconds "$(params.MAX_SECONDS)")
+        [ -n "$(params.MAX_REQUESTS)" ] && ARGS+=(--max-requests "$(params.MAX_REQUESTS)")
+        [ -n "$(params.ACCELERATOR)" ] && ARGS+=(--accelerator "$(params.ACCELERATOR)")
+        [ -n "$(params.VERSION)" ] && ARGS+=(--version "$(params.VERSION)")
+        [ -n "$(params.TP)" ] && ARGS+=(--tp "$(params.TP)")
 
-        # Add optional parameters
-        if [ -n "$(params.PROCESSOR)" ]; then
-          CMD="$CMD --processor $(params.PROCESSOR)"
-        fi
-
-        if [ -n "$(params.DATA)" ]; then
-          CMD="$CMD --data $(params.DATA)"
-        fi
-
-        if [ -n "$(params.MAX_SECONDS)" ]; then
-          CMD="$CMD --max-seconds $(params.MAX_SECONDS)"
-        fi
-
-        if [ -n "$(params.MAX_REQUESTS)" ]; then
-          CMD="$CMD --max-requests $(params.MAX_REQUESTS)"
-        fi
-
-        if [ -n "$(params.ACCELERATOR)" ]; then
-          CMD="$CMD --accelerator $(params.ACCELERATOR)"
-        fi
-
-        if [ -n "$(params.VERSION)" ]; then
-          CMD="$CMD --version $(params.VERSION)"
-        fi
-
-        if [ -n "$(params.TP)" ]; then
-          CMD="$CMD --tp $(params.TP)"
-        fi
-
-        # MLflow parameters
         if [ "$(params.MLFLOW_ENABLED)" = "true" ]; then
-          CMD="$CMD --experiment-name $(params.EXPERIMENT_NAME)"
-
-          if [ -n "$(params.MLFLOW_TRACKING_URI)" ]; then
-            CMD="$CMD --mlflow-tracking-uri $(params.MLFLOW_TRACKING_URI)"
-          fi
-
-          # Add tags - simplified approach to avoid YAML parsing issues
-          # Note: For complex tag handling, manually add --tag key=value to command
+          ARGS+=(--experiment-name "$(params.EXPERIMENT_NAME)")
+          [ -n "$(params.MLFLOW_TRACKING_URI)" ] && ARGS+=(--mlflow-tracking-uri "$(params.MLFLOW_TRACKING_URI)")
         fi
 
-        echo "Executing command:"
-        echo "$CMD"
-        echo ""
+        echo "Starting benchmark with args: ${ARGS[@]}"
 
-        # Execute the benchmark
-        eval "$CMD"
+        exec python3 -m benchmark.main "${ARGS[@]}"
 
-        echo ""
-        echo "========================================="
-        echo "Benchmark Completed Successfully"
-        echo "========================================="
-
-      resources:
-        requests:
-          memory: "8Gi"
-          cpu: "2"
-        limits:
-          memory: "16Gi"
-          cpu: "4"
-
-      # Mount results volume only if MLflow is disabled
       volumeMounts:
         - name: results-volume
           mountPath: /benchmark-results
