@@ -59,10 +59,23 @@ echo "Namespace: $NAMESPACE"
 echo "Create PVCs: $CREATE_PVCS"
 echo ""
 
+echo "Installing RBAC resources..."
+for rbac in "$PROJECT_ROOT"/config/rbac/*.yaml; do
+    if [ -f "$rbac" ]; then
+        echo "  - $(basename "$rbac")"
+        oc apply -f "$rbac" $NS_FLAG
+    fi
+done
+echo "✓ RBAC resources installed"
+echo ""
+
 echo "Installing Tasks..."
-for task in "$PROJECT_ROOT"/tasks/*.yaml; do
+# Find all YAML files in tasks directory and subdirectories
+find "$PROJECT_ROOT/tasks" -type f -name "*.yaml" | while read -r task; do
     if [ -f "$task" ]; then
-        echo "  - $(basename "$task")"
+        # Get relative path from tasks directory for display
+        rel_path="${task#$PROJECT_ROOT/tasks/}"
+        echo "  - $rel_path"
         oc apply -f "$task" $NS_FLAG
     fi
 done
@@ -83,26 +96,36 @@ if [ "$CREATE_PVCS" = true ]; then
     echo "Creating PersistentVolumeClaims..."
     for pvc in "$PROJECT_ROOT"/config/workspaces/*.yaml; do
         if [ -f "$pvc" ]; then
-            echo "  - $(basename "$pvc")"
-            oc apply -f "$pvc" $NS_FLAG
+            # Extract PVC name from the YAML file
+            PVC_NAME=$(grep "^  name:" "$pvc" | head -1 | awk '{print $2}')
+
+            if oc get pvc "$PVC_NAME" $NS_FLAG &>/dev/null; then
+                echo "  - $(basename "$pvc") (already exists, skipping)"
+            else
+                echo "  - $(basename "$pvc") (creating)"
+                oc apply -f "$pvc" $NS_FLAG
+            fi
         fi
     done
-    echo "✓ PVCs created"
+    echo "✓ PVCs processed"
     echo ""
 fi
 
 echo "Verifying installation..."
 echo ""
+echo "ServiceAccounts:"
+oc get serviceaccount $NS_FLAG | grep -E 'NAME|deploy-model' || true
+echo ""
 echo "Tasks:"
-oc get tasks $NS_FLAG | grep -E 'NAME|buildah-build|wait-for-endpoint|run-benchmark' || true
+oc get tasks $NS_FLAG | grep -E 'NAME|buildah-build|wait-for-endpoint|run-benchmark|download-model|deploy-model|cleanup-deployment' || true
 echo ""
 echo "Pipelines:"
-oc get pipelines $NS_FLAG | grep -E 'NAME|build-image|run-benchmark' || true
+oc get pipelines $NS_FLAG | grep -E 'NAME|build-image|run-benchmark|full-benchmark-lifecycle' || true
 echo ""
 
 if [ "$CREATE_PVCS" = true ]; then
     echo "PVCs:"
-    oc get pvc $NS_FLAG | grep -E 'NAME|benchmark' || true
+    oc get pvc $NS_FLAG | grep -E 'NAME|benchmark|models' || true
     echo ""
 fi
 

@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: deploy-model-sa
+  labels:
+    app: llm-d-tekton
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: deploy-model-role
+  labels:
+    app: llm-d-tekton
+rules:
+  # Allow creating, getting, and deleting LLMInferenceService resources
+  - apiGroups:
+      - serving.kserve.io
+    resources:
+      - llminferenceservices
+    verbs:
+      - create
+      - get
+      - list
+      - update
+      - patch
+      - delete
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deploy-model-rolebinding
+  labels:
+    app: llm-d-tekton
+subjects:
+  - kind: ServiceAccount
+    name: deploy-model-sa
+roleRef:
+  kind: Role
+  name: deploy-model-role
+  apiGroup: rbac.authorization.k8s.io

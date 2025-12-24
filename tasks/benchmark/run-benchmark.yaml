@@ -84,6 +84,7 @@ spec:
       description: Additional tags as JSON object (e.g., '{"version":"3.0","team":"ai"}')
       type: string
       default: "{}"
+      # TODO: TAGS parameter is currently not processed in the benchmark script
 
     - name: VERSION
       description: Version identifier for visualization reports (e.g., RHOAI-3.0)

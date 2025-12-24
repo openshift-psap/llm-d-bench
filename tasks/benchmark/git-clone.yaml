@@ -95,9 +95,7 @@ spec:
           fi
         fi
 
-        # Clone the repository
         CHECKOUT_DIR="${WORKSPACE_OUTPUT_PATH}/${PARAM_SUBDIRECTORY}"
-
         git clone "${PARAM_URL}" "${CHECKOUT_DIR}"
         cd "${CHECKOUT_DIR}"
         git config --global --add safe.directory "${CHECKOUT_DIR}"

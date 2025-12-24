@@ -9,6 +9,9 @@ spec:
   pipelineRef:
     name: build-image
 
+  # Automatically clean up completed PipelineRun after 1 hour
+  ttlSecondsAfterFinished: 3600
+
   params:
     - name: GIT_URL
       value: "https://github.com/openshift-psap/llm-d-bench.git"

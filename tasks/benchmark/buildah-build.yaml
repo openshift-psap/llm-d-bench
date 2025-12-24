@@ -82,11 +82,9 @@ spec:
         #!/bin/bash
         set -e
 
-        # Construct full image URL
         IMAGE_URL="$(params.REGISTRY)/$(params.NAMESPACE)/$(params.IMAGE_NAME):$(params.IMAGE_TAG)"
         echo "Building image: $IMAGE_URL"
 
-        # Build the image
         buildah --storage-driver=vfs bud \
           --format=$(params.FORMAT) \
           --tls-verify=$(params.TLSVERIFY) \
@@ -103,14 +101,12 @@ spec:
           -p "$TOKEN" \
           $(params.REGISTRY)
 
-        # Push the image
         buildah --storage-driver=vfs push \
           --tls-verify=$(params.TLSVERIFY) \
           --digestfile /tmp/image-digest \
           "$IMAGE_URL" \
           docker://"$IMAGE_URL"
 
-        # Save results
         cat /tmp/image-digest | tee $(results.IMAGE_DIGEST.path)
         echo -n "$IMAGE_URL" | tee $(results.IMAGE_URL.path)
 

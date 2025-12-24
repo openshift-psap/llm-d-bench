@@ -46,17 +46,14 @@ spec:
         #!/bin/bash
         set -e
 
-        # Construct full target URL
         TARGET="$(params.TARGET_URL)$(params.ENDPOINT_PATH)"
         TIMEOUT=$(params.TIMEOUT_SECONDS)
         RETRY_INTERVAL=$(params.RETRY_INTERVAL)
         VERIFY_TLS=$(params.VERIFY_TLS)
 
-        # Determine curl TLS flag
+        CURL_TLS_FLAG=""
         if [ "$VERIFY_TLS" = "false" ]; then
           CURL_TLS_FLAG="-k"
-        else
-          CURL_TLS_FLAG=""
         fi
 
         echo "Waiting for endpoint to be ready..."
@@ -66,21 +63,17 @@ spec:
         echo "TLS Verification: $VERIFY_TLS"
         echo ""
 
-        # Calculate end time
         START_TIME=$(date +%s)
         END_TIME=$((START_TIME + TIMEOUT))
 
-        # Poll until success or timeout
         while true; do
           CURRENT_TIME=$(date +%s)
 
-          # Check if timeout exceeded
           if [ $CURRENT_TIME -ge $END_TIME ]; then
             echo "ERROR: Timeout of ${TIMEOUT}s exceeded waiting for $TARGET"
             exit 1
           fi
 
-          # Try to reach the endpoint
           echo "[$(date +'%Y-%m-%d %H:%M:%S')] Checking endpoint..."
           if curl $CURL_TLS_FLAG -s -f -o /dev/null "$TARGET"; then
             echo ""

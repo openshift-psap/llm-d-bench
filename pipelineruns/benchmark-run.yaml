@@ -9,6 +9,9 @@ spec:
   pipelineRef:
     name: run-benchmark
 
+  # Automatically clean up completed PipelineRun after 1 hour
+  ttlSecondsAfterFinished: 3600
+
   params:
     # Image configuration
     - name: IMAGE

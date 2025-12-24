@@ -4,26 +4,45 @@ metadata:
   generateName: openai-gpt-oss-120b-1k-1k-
   labels:
     app: llm-d-tekton
-    pipeline: run-benchmark
+    pipeline: full-benchmark-lifecycle
     experiment: openai-gpt-oss-120b-1k-1k
 spec:
   pipelineRef:
-    name: run-benchmark
+    name: full-benchmark-lifecycle
+
+  # Use service account with permissions for LLMInferenceService resources
+  taskRunTemplate:
+    serviceAccountName: deploy-model-sa
+
+  # Automatically clean up completed PipelineRun after 1 hour
+  ttlSecondsAfterFinished: 3600
 
   params:
-    # Image configuration
+    # Model Configuration
+    - name: MODEL_NAME
+      value: "openai/gpt-oss-120b"
+    - name: MODEL_REVISION
+      value: "main"
+
+    # Deployment Configuration
+    - name: DEPLOYMENT_NAME
+      value: "openai-gpt-oss-120b"
+    - name: NAMESPACE
+      value: "downstream-llm-d"
+    - name: VLLM_ARGS
+      value: '[]'
+    - name: ENABLE_AUTH
+      value: "false"
+    - name: REPLICAS
+      value: "1"
+
+    # Benchmark Configuration
     - name: IMAGE
       value: "image-registry.openshift-image-registry.svc:5000/downstream-llm-d/guidellm-custom:latest"
-
-    # Target and model
     - name: TARGET
       value: "https://inference-gateway.apps.psap-llmd-h200.ibm-rh-ai.rhperfscale.org/downstream-llm-d/openai-gpt-oss-120b"
-    - name: MODEL
-      value: "openai/gpt-oss-120b"
     - name: PROCESSOR
       value: "openai/gpt-oss-120b"
-
-    # Benchmark configuration
     - name: BACKEND_TYPE
       value: "openai_http"
     - name: RATE_TYPE
@@ -34,27 +53,40 @@ spec:
       value: "prompt_tokens=1000,output_tokens=1000"
     - name: MAX_SECONDS
       value: "600"
+    - name: MAX_REQUESTS
+      value: ""
     - name: ACCELERATOR
       value: "H200"
-
-    # MLflow configuration
-    - name: MLFLOW_ENABLED
-      value: "true"
-    - name: MLFLOW_TRACKING_URI
-      value: "https://mlflow-mlflow.apps.aperdomo-lab.ibm.rhperfscale.org"
     - name: EXPERIMENT_NAME
       value: "openai-gpt-oss-120b-1k-1k"
-    - name: TAGS
-      value: '{"llm-d-version":"RHOAI 3.0"}'
-
-    # Visualization configuration
     - name: VERSION
       value: "RHOAI-3.0"
     - name: TP
       value: "1"
 
-    # Health check
-    - name: SKIP_HEALTH_CHECK
-      value: "false"
+    # MLflow Configuration
+    - name: MLFLOW_ENABLED
+      value: "true"
+    - name: MLFLOW_TRACKING_URI
+      value: "https://mlflow-mlflow.apps.aperdomo-lab.ibm.rhperfscale.org"
+    - name: TAGS
+      value: '{"llm-d-version":"RHOAI 3.0"}'
+
+    # Health Check Configuration
     - name: HEALTH_CHECK_TIMEOUT
       value: "3600"
+
+    # Stage Control - skip download, enable deploy/benchmark/cleanup
+    - name: SKIP_DOWNLOAD
+      value: "true"
+    - name: SKIP_DEPLOY
+      value: "false"
+    - name: SKIP_BENCHMARK
+      value: "false"
+    - name: SKIP_CLEANUP
+      value: "false"
+
+  workspaces:
+    - name: models-storage
+      persistentVolumeClaim:
+        claimName: models-storage

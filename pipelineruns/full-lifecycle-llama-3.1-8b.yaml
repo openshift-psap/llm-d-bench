@@ -1,11 +1,12 @@
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
-  generateName: redhatai-llama-4-maverick-17b-128e-instruct-fp8-1k-1k-
+  generateName: full-lifecycle-llama-31-8b-
   labels:
     app: llm-d-tekton
     pipeline: full-benchmark-lifecycle
-    experiment: redhatai-llama-4-maverick-17b-128e-instruct-fp8-1k-1k
+    model: llama-3.1-8b
+    experiment: full-lifecycle-demo
 spec:
   pipelineRef:
     name: full-benchmark-lifecycle
@@ -20,17 +21,17 @@ spec:
   params:
     # Model Configuration
     - name: MODEL_NAME
-      value: "RedHatAI/Llama-4-Maverick-17B-128E-Instruct-FP8"
+      value: "meta-llama/Llama-3.1-8B"
     - name: MODEL_REVISION
       value: "main"
 
     # Deployment Configuration
     - name: DEPLOYMENT_NAME
-      value: "RedHatAI-Llama-4-Maverick-17B-128E-Instruct-FP8"
+      value: "llama-31-8b"
     - name: NAMESPACE
       value: "downstream-llm-d"
     - name: VLLM_ARGS
-      value: '[]'
+      value: '["--max-model-len=8192", "--gpu-memory-utilization=0.9"]'
     - name: ENABLE_AUTH
       value: "false"
     - name: REPLICAS
@@ -40,43 +41,43 @@ spec:
     - name: IMAGE
       value: "image-registry.openshift-image-registry.svc:5000/downstream-llm-d/guidellm-custom:latest"
     - name: TARGET
-      value: "https://inference-gateway.apps.example.com/downstream-llm-d/redhatai-llama-4-maverick-17b-128e-instruct-fp8"
+      value: "https://llama-31-8b-kserve-workload-svc.downstream-llm-d.svc.cluster.local:8000"
     - name: PROCESSOR
-      value: "RedHatAI/Llama-4-Maverick-17B-128E-Instruct-FP8"
+      value: ""
     - name: BACKEND_TYPE
       value: "openai_http"
     - name: RATE_TYPE
       value: "concurrent"
     - name: RATE
-      value: "650,500,300,200,100,50,1"
+      value: "1,50,100,200"
     - name: DATA
       value: "prompt_tokens=1000,output_tokens=1000"
     - name: MAX_SECONDS
-      value: "600"
+      value: "240"
     - name: MAX_REQUESTS
       value: ""
     - name: ACCELERATOR
       value: "H200"
     - name: EXPERIMENT_NAME
-      value: "redhatai-llama-4-maverick-17b-128e-instruct-fp8-1k-1k"
+      value: "llama-3.1-8b-full-lifecycle"
     - name: VERSION
-      value: "RHOAI-3.0"
+      value: ""
     - name: TP
       value: "1"
 
     # MLflow Configuration
     - name: MLFLOW_ENABLED
-      value: "true"
+      value: "false"
     - name: MLFLOW_TRACKING_URI
-      value: "https://mlflow-mlflow.apps.aperdomo-lab.ibm.rhperfscale.org"
+      value: ""
     - name: TAGS
-      value: '{"llm-d-version":"RHOAI 3.0"}'
+      value: "{}"
 
     # Health Check Configuration
     - name: HEALTH_CHECK_TIMEOUT
       value: "3600"
 
-    # Stage Control - skip download, enable deploy/benchmark/cleanup
+    # Stage Control (all stages enabled)
     - name: SKIP_DOWNLOAD
       value: "true"
     - name: SKIP_DEPLOY
@@ -90,3 +91,11 @@ spec:
     - name: models-storage
       persistentVolumeClaim:
         claimName: models-storage
+    - name: results
+      persistentVolumeClaim:
+        claimName: benchmark-results
+
+  # Optional: Uncomment to set timeout for the entire pipeline
+  # timeouts:
+  #   pipeline: "2h"
+  #   tasks: "1h"
