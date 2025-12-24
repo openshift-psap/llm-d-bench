@@ -3,6 +3,7 @@ import json
 import logging
 import subprocess
 import sys
+import shutil
 import os
 import requests
 from datetime import datetime
@@ -630,43 +631,21 @@ def main():
 
     # Log in to HF
     hf_token = os.environ.get("HF_CLI_TOKEN")
-    logger.info(
-        f"HF_CLI_TOKEN present: {hf_token is not None}, length: {len(hf_token)}"
-    )
+    if hf_token:
+        if shutil.which("hf"):
+            hf_cmd = ["hf", "auth", "login", "--token", hf_token]
+        elif shutil.which("huggingface-cli"):
+            hf_cmd = ["huggingface-cli", "login", "--token", hf_token]
+        else:
+            logger.error("No Huggingface CLI tool found...")
 
-    hf_authenticated = False
-    try:
         subprocess.run(
-            ["hf", "auth", "login", "--token", hf_token],
+            hf_cmd,
             check=True,
             capture_output=True,
             timeout=30,
         )
         logger.info("Successfully authenticated with HuggingFace")
-        hf_authenticated = True
-    except (
-        subprocess.CalledProcessError,
-        FileNotFoundError,
-        subprocess.TimeoutExpired,
-    ):
-        pass
-
-    if not hf_authenticated:
-        try:
-            subprocess.run(
-                ["huggingface-cli", "login", "--token", hf_token],
-                check=True,
-                capture_output=True,
-                timeout=30,
-            )
-            logger.info("Successfully authenticated with HuggingFace")
-            hf_authenticated = True
-        except (
-            subprocess.CalledProcessError,
-            FileNotFoundError,
-            subprocess.TimeoutExpired,
-        ):
-            pass
 
     # Check if MLflow is enabled via environment variable
     mlflow_enabled = os.environ.get("MLFLOW_ENABLED", "false").lower() == "true"
