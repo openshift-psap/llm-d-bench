@@ -630,14 +630,11 @@ def main():
 
     # Log in to HF
     hf_token = os.environ.get("HF_CLI_TOKEN")
-    if hf_token:
-        logger.debug(
-            f"HF_CLI_TOKEN present: {hf_token is not None}, length: {len(hf_token)}"
-        )
+    logger.info(
+        f"HF_CLI_TOKEN present: {hf_token is not None}, length: {len(hf_token)}"
+    )
 
     hf_authenticated = False
-
-    # Try 'hf auth login' first
     try:
         subprocess.run(
             ["hf", "auth", "login", "--token", hf_token],
@@ -654,7 +651,6 @@ def main():
     ):
         pass
 
-    # Try 'huggingface-cli login' if first attempt failed
     if not hf_authenticated:
         try:
             subprocess.run(
