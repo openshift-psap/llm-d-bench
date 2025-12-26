@@ -83,9 +83,12 @@ echo "✓ Tasks installed"
 echo ""
 
 echo "Installing Pipelines..."
-for pipeline in "$PROJECT_ROOT"/pipelines/*.yaml; do
+# Find all YAML files in pipelines directory and subdirectories
+find "$PROJECT_ROOT/pipelines" -type f -name "*.yaml" | while read -r pipeline; do
     if [ -f "$pipeline" ]; then
-        echo "  - $(basename "$pipeline")"
+        # Get relative path from pipelines directory for display
+        rel_path="${pipeline#$PROJECT_ROOT/pipelines/}"
+        echo "  - $rel_path"
         oc apply -f "$pipeline" $NS_FLAG
     fi
 done
@@ -120,7 +123,7 @@ echo "Tasks:"
 oc get tasks $NS_FLAG | grep -E 'NAME|buildah-build|wait-for-endpoint|run-benchmark|download-model|deploy-model|cleanup-deployment' || true
 echo ""
 echo "Pipelines:"
-oc get pipelines $NS_FLAG | grep -E 'NAME|build-image|run-benchmark|full-benchmark-lifecycle' || true
+oc get pipelines.tekton.dev $NS_FLAG | grep -E 'NAME|build-image|run-benchmark|full-benchmark-lifecycle' || true
 echo ""
 
 if [ "$CREATE_PVCS" = true ]; then

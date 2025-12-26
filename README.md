@@ -4,6 +4,37 @@ Tekton pipelines for running llm-d inference benchmarks using GuideLLM.
 
 > This might work with any other LLM endpoint but has only been tested with `llm-d` endpoints.
 
+## Installation
+
+### Install Tekton Pipelines
+
+```bash
+# Install latest Tekton Pipelines operator
+oc apply -f https://storage.googleapis.com/tekton-releases/pipeline/latest/release.yaml
+
+# Verify installation
+oc get pods -n tekton-pipelines
+```
+
+### Install Tekton CLI (Recommended)
+
+**macOS:**
+```bash
+brew install tektoncd-cli
+```
+
+**Linux:**
+```bash
+# Download latest release
+curl -LO https://github.com/tektoncd/cli/releases/download/v0.38.0/tkn_0.38.0_Linux_x86_64.tar.gz
+tar xvzf tkn_0.38.0_Linux_x86_64.tar.gz -C /usr/local/bin/ tkn
+```
+
+**Verify:**
+```bash
+tkn version
+```
+
 ## Prerequisites
 
 - Tekton Pipelines v0.50+

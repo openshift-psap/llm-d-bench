@@ -33,9 +33,9 @@ spec:
       default: "1"
 
     - name: VLLM_ARGS
-      description: Additional vLLM arguments as JSON array (e.g., '["--max-model-len=8192"]')
-      type: string
-      default: '[]'
+      description: Additional vLLM arguments as array
+      type: array
+      default: []
 
     - name: SKIP_IF_EXISTS
       description: Skip deployment if LLMInferenceService already exists
@@ -65,6 +65,8 @@ spec:
     - name: deploy-model
       image: registry.redhat.io/openshift4/ose-cli:latest
       workingDir: /tmp
+      args:
+        - $(params.VLLM_ARGS[*])
       script: |
         #!/bin/bash
         set -e
@@ -92,16 +94,14 @@ spec:
         echo "  Replicas: $(params.REPLICAS)"
         echo ""
 
-        # Parse VLLM_ARGS JSON array and format as YAML list
-        # Simple parsing without jq (which is not available in ose-cli image)
+        # Format VLLM_ARGS array as YAML list from positional parameters
         VLLM_ARGS_YAML=""
-        if [ "$(params.VLLM_ARGS)" != "[]" ]; then
-          # Remove brackets and quotes, split by comma, trim whitespace, format as YAML
-          VLLM_ARGS_YAML=$(echo '$(params.VLLM_ARGS)' | \
-            sed 's/^\[//;s/\]$//;s/"//g' | \
-            awk -F',' '{for(i=1;i<=NF;i++) {gsub(/^[ \t]+|[ \t]+$/,"",$i); if($i!="") print "        - \"" $i "\""}}'
-          )
-        fi
+        for arg in "$@"; do
+          if [ -n "$arg" ]; then
+            VLLM_ARGS_YAML="${VLLM_ARGS_YAML}
+                - \"${arg}\""
+          fi
+        done
 
         # Generate LLMInferenceService YAML
         cat > /tmp/llm-inference-service.yaml <<EOF

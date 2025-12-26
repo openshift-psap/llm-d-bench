@@ -30,7 +30,13 @@ spec:
     - name: NAMESPACE
       value: "downstream-llm-d"
     - name: VLLM_ARGS
-      value: '[]'
+      value:
+        - "--max-model-len=8192"
+        - "--uvicorn-log-level=debug"
+        - "--trust-remote-code"
+        - "--gpu-memory-utilization=0.92"
+        - "--disable-log-requests"
+        - "--no-enable-prefix-caching"
     - name: ENABLE_AUTH
       value: "false"
     - name: REPLICAS
@@ -40,7 +46,7 @@ spec:
     - name: IMAGE
       value: "image-registry.openshift-image-registry.svc:5000/downstream-llm-d/guidellm-custom:latest"
     - name: TARGET
-      value: "https://inference-gateway.apps.psap-llmd-h200.ibm-rh-ai.rhperfscale.org/downstream-llm-d/openai-gpt-oss-120b"
+      value: "https://openai-gpt-oss-120b-kserve-workload-svc.downstream-llm-d.svc.cluster.local:8000"
     - name: PROCESSOR
       value: "openai/gpt-oss-120b"
     - name: BACKEND_TYPE
@@ -63,6 +69,9 @@ spec:
       value: "RHOAI-3.0"
     - name: TP
       value: "1"
+    - name: BENCHMARK_ENV_VARS
+      value:
+        - "GUIDELLM__MAX_WORKER_PROCESSES=50"
 
     # MLflow Configuration
     - name: MLFLOW_ENABLED
@@ -78,7 +87,7 @@ spec:
 
     # Stage Control - skip download, enable deploy/benchmark/cleanup
     - name: SKIP_DOWNLOAD
-      value: "true"
+      value: "false"
     - name: SKIP_DEPLOY
       value: "false"
     - name: SKIP_BENCHMARK

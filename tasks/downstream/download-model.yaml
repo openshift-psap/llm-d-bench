@@ -38,20 +38,6 @@ spec:
       description: PVC for storing downloaded models
 
   steps:
-    - name: install-hf-cli
-      image: registry.access.redhat.com/ubi9/python-311:latest
-      workingDir: /tmp
-      env:
-        - name: HF_HOME
-          value: /tmp/.huggingface
-      script: |
-        #!/bin/bash
-        set -e
-
-        echo "Installing huggingface-cli..."
-        pip install --quiet --user huggingface_hub[cli]
-        echo "✓ huggingface-cli installed"
-
     - name: download-model
       image: registry.access.redhat.com/ubi9/python-311:latest
       workingDir: /tmp
@@ -64,13 +50,13 @@ spec:
               optional: true
         - name: HF_HOME
           value: /tmp/.huggingface
-        - name: PATH
-          value: /root/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
       script: |
         #!/bin/bash
         set -e
 
-        MODEL_PATH="$(workspaces.models-storage.path)$(params.CACHE_DIR)/$(params.MODEL_NAME)"
+        # Sanitize model name: replace / with - for directory path
+        MODEL_DIR_NAME=$(echo "$(params.MODEL_NAME)" | sed 's/\//-/g')
+        MODEL_PATH="$(workspaces.models-storage.path)$(params.CACHE_DIR)/${MODEL_DIR_NAME}"
 
         echo "Model: $(params.MODEL_NAME)"
         echo "Revision: $(params.MODEL_REVISION)"
@@ -83,17 +69,22 @@ spec:
           exit 0
         fi
 
+        echo "Installing Hugging Face CLI..."
+        curl -LsSf https://hf.co/cli/install.sh | bash
+        export PATH="/opt/app-root/src/.local/bin:$PATH"
+        echo "✓ HF CLI installed"
+        echo ""
+
         mkdir -p "$(workspaces.models-storage.path)$(params.CACHE_DIR)"
 
         echo "Downloading model: $(params.MODEL_NAME)"
         echo "This may take several minutes for large models..."
         echo ""
 
-        huggingface-cli download \
+        hf download \
           "$(params.MODEL_NAME)" \
           --revision "$(params.MODEL_REVISION)" \
-          --local-dir "$MODEL_PATH" \
-          --local-dir-use-symlinks False
+          --local-dir "$MODEL_PATH"
 
         echo ""
         echo "✓ Download complete!"

@@ -36,9 +36,9 @@ spec:
       type: string
 
     - name: VLLM_ARGS
-      description: Additional vLLM arguments as JSON array
-      type: string
-      default: '[]'
+      description: Additional vLLM arguments as array
+      type: array
+      default: []
 
     - name: ENABLE_AUTH
       description: Enable authentication on the service
@@ -131,6 +131,11 @@ spec:
       type: string
       default: "1"
 
+    - name: BENCHMARK_ENV_VARS
+      description: Additional environment variables for the benchmark container as array of name=value pairs
+      type: array
+      default: []
+
     # Health Check Configuration
     - name: HEALTH_CHECK_TIMEOUT
       description: Endpoint health check timeout in seconds
@@ -206,7 +211,7 @@ spec:
         - name: TP
           value: $(params.TP)
         - name: VLLM_ARGS
-          value: $(params.VLLM_ARGS)
+          value: $(params.VLLM_ARGS[*])
         - name: SKIP_IF_EXISTS
           value: "true"
         - name: ENABLE_AUTH
@@ -284,6 +289,8 @@ spec:
           value: $(params.VERSION)
         - name: TP
           value: $(params.TP)
+        - name: BENCHMARK_ENV_VARS
+          value: $(params.BENCHMARK_ENV_VARS[*])
       workspaces:
         - name: results
           workspace: results

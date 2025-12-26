@@ -101,6 +101,11 @@ spec:
       type: string
       default: "DEBUG"
 
+    - name: BENCHMARK_ENV_VARS
+      description: Additional environment variables for the benchmark container as array of name=value pairs
+      type: array
+      default: []
+
   workspaces:
     - name: results
       description: Workspace for storing benchmark results (only used if MLFLOW_ENABLED=false)
@@ -165,9 +170,19 @@ spec:
           value: $(params.LOG_LEVEL)
         - name: HF_HOME
           value: /tmp/.huggingface
+      args:
+        - $(params.BENCHMARK_ENV_VARS[*])
       script: |
         #!/bin/bash
         set -e
+
+        # Export additional environment variables from positional parameters
+        for env_var in "$@"; do
+          if [ -n "$env_var" ]; then
+            export "$env_var"
+            echo "Exported env var: $env_var"
+          fi
+        done
 
         ARGS=(
           --target "$(params.TARGET)"
