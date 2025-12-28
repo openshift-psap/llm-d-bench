@@ -4,12 +4,12 @@ metadata:
   generateName: full-lifecycle-llama-31-8b-
   labels:
     app: llm-d-tekton
-    pipeline: full-benchmark-lifecycle
+    pipeline: downstream-end-to-end-benchmark
     model: llama-3.1-8b
     experiment: full-lifecycle-demo
 spec:
   pipelineRef:
-    name: full-benchmark-lifecycle
+    name: downstream-end-to-end-benchmark
 
   # Use service account with permissions for LLMInferenceService resources
   taskRunTemplate:
@@ -26,8 +26,6 @@ spec:
       value: "main"
 
     # Deployment Configuration
-    - name: DEPLOYMENT_NAME
-      value: "llama-31-8b"
     - name: NAMESPACE
       value: "downstream-llm-d"
     - name: VLLM_ARGS
@@ -68,10 +66,8 @@ spec:
     # MLflow Configuration
     - name: MLFLOW_ENABLED
       value: "false"
-    - name: MLFLOW_TRACKING_URI
-      value: ""
     - name: TAGS
-      value: "{}"
+      value: []
 
     # Health Check Configuration
     - name: HEALTH_CHECK_TIMEOUT
@@ -86,6 +82,10 @@ spec:
       value: "false"
     - name: SKIP_CLEANUP
       value: "false"
+
+  timeouts:
+    pipeline: "2h"
+    tasks: "2h"
 
   workspaces:
     - name: models-storage

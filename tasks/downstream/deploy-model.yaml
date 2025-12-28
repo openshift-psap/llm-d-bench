@@ -19,10 +19,6 @@ spec:
       description: HuggingFace model identifier
       type: string
 
-    - name: DEPLOYMENT_NAME
-      description: Name for the LLMInferenceService resource
-      type: string
-
     - name: NAMESPACE
       description: Namespace for deployment
       type: string
@@ -71,14 +67,18 @@ spec:
         #!/bin/bash
         set -e
 
-        echo "Deployment: $(params.DEPLOYMENT_NAME)"
+        # Generate deployment name from model name
+        # Logic: lowercase | replace / with - | replace . with empty | trim suffix - | truncate to 42 chars
+        DEPLOYMENT_NAME=$(echo "$(params.MODEL_NAME)" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-42)
+
+        echo "Deployment: $DEPLOYMENT_NAME"
         echo "Namespace: $(params.NAMESPACE)"
         echo "Model: $(params.MODEL_NAME)"
         echo ""
 
         if [ "$(params.SKIP_IF_EXISTS)" = "true" ]; then
-          if oc get llminferenceservice "$(params.DEPLOYMENT_NAME)" -n "$(params.NAMESPACE)" 2>/dev/null; then
-            echo "✓ LLMInferenceService $(params.DEPLOYMENT_NAME) already exists - skipping"
+          if oc get llminferenceservice "$DEPLOYMENT_NAME" -n "$(params.NAMESPACE)" 2>/dev/null; then
+            echo "✓ LLMInferenceService $DEPLOYMENT_NAME already exists - skipping"
             echo "  To force update, set SKIP_IF_EXISTS=false"
             exit 0
           fi
@@ -108,7 +108,7 @@ spec:
         apiVersion: serving.kserve.io/v1alpha1
         kind: LLMInferenceService
         metadata:
-          name: $(params.DEPLOYMENT_NAME)
+          name: $DEPLOYMENT_NAME
           namespace: $(params.NAMESPACE)
           annotations:
             security.opendatahub.io/enable-auth: "$(params.ENABLE_AUTH)"
@@ -164,7 +164,7 @@ spec:
 
         echo ""
         echo "✓ Deployment created successfully!"
-        echo "  Service: $(params.DEPLOYMENT_NAME)"
+        echo "  Service: $DEPLOYMENT_NAME"
         echo "  Namespace: $(params.NAMESPACE)"
         echo ""
-        echo "Use 'oc get llminferenceservice $(params.DEPLOYMENT_NAME) -n $(params.NAMESPACE)' to check status"
+        echo "Use 'oc get llminferenceservice $DEPLOYMENT_NAME -n $(params.NAMESPACE)' to check status"

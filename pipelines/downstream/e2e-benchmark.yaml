@@ -1,12 +1,12 @@
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
-  name: full-benchmark-lifecycle
+  name: downstream-end-to-end-benchmark
   labels:
     app.kubernetes.io/version: "0.1"
   annotations:
-    tekton.dev/displayName: "Full Benchmark Lifecycle"
-    tekton.dev/tags: benchmark, llm, lifecycle
+    tekton.dev/displayName: "Downstream End-to-End Benchmark"
+    tekton.dev/tags: benchmark, llm, lifecycle, downstream
 spec:
   description: >-
     Complete model lifecycle pipeline: download model from HuggingFace, deploy
@@ -27,10 +27,6 @@ spec:
       default: "main"
 
     # Deployment Configuration
-    - name: DEPLOYMENT_NAME
-      description: Name for the LLMInferenceService resource
-      type: string
-
     - name: NAMESPACE
       description: Namespace for deployment
       type: string
@@ -110,16 +106,10 @@ spec:
       type: string
       default: "false"
 
-    - name: MLFLOW_TRACKING_URI
-      description: MLflow tracking server URI
-      type: string
-      default: ""
-
     - name: TAGS
-      description: Additional tags as JSON object
-      type: string
-      default: "{}"
-      # TODO: TAGS parameter is currently not processed in the benchmark script
+      description: Additional tags as array of key=value pairs (e.g., ["version=3.0", "team=ai"])
+      type: array
+      default: []
 
     - name: VERSION
       description: Version identifier for visualization reports
@@ -204,8 +194,6 @@ spec:
       params:
         - name: MODEL_NAME
           value: $(params.MODEL_NAME)
-        - name: DEPLOYMENT_NAME
-          value: $(params.DEPLOYMENT_NAME)
         - name: NAMESPACE
           value: $(params.NAMESPACE)
         - name: TP
@@ -252,6 +240,7 @@ spec:
         - input: "$(params.SKIP_BENCHMARK)"
           operator: in
           values: ["false"]
+      timeout: "2h"
       taskRef:
         name: run-benchmark
       params:
@@ -281,10 +270,8 @@ spec:
           value: $(params.EXPERIMENT_NAME)
         - name: MLFLOW_ENABLED
           value: $(params.MLFLOW_ENABLED)
-        - name: MLFLOW_TRACKING_URI
-          value: $(params.MLFLOW_TRACKING_URI)
         - name: TAGS
-          value: $(params.TAGS)
+          value: $(params.TAGS[*])
         - name: VERSION
           value: $(params.VERSION)
         - name: TP
@@ -306,8 +293,8 @@ spec:
       taskRef:
         name: cleanup-deployment
       params:
-        - name: DEPLOYMENT_NAME
-          value: $(params.DEPLOYMENT_NAME)
+        - name: MODEL_NAME
+          value: $(params.MODEL_NAME)
         - name: NAMESPACE
           value: $(params.NAMESPACE)
         - name: WAIT_FOR_DELETION

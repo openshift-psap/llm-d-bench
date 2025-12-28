@@ -42,12 +42,12 @@ spec:
     # MLflow configuration
     - name: MLFLOW_ENABLED
       value: "true"
-    - name: MLFLOW_TRACKING_URI
-      value: "https://mlflow-mlflow.apps.example.com"
     - name: EXPERIMENT_NAME
       value: "guidellm-benchmarks"
     - name: TAGS
-      value: '{"llm-d-version":"RHOAI 3.0","team":"ai"}'
+      value:
+        - "llm-d-version=RHOAI 3.0"
+        - "team=ai"
 
     # Visualization configuration
     - name: VERSION

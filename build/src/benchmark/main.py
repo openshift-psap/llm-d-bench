@@ -453,6 +453,8 @@ def run_benchmark_with_mlflow(
             if accelerator:
                 params["accelerator"] = accelerator
 
+            params["tp"] = tp_size
+
             mlflow.log_params(params)
 
             guidellm_version = os.environ.get("GUIDELLM_VERSION", "unknown")

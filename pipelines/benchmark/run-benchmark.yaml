@@ -13,6 +13,7 @@ spec:
     assumes the custom GuideLLM image already exists. It optionally waits for
     the endpoint to be ready, then executes the benchmark.
 
+
   params:
     - name: IMAGE
       description: Full URL of the GuideLLM custom image
@@ -134,6 +135,7 @@ spec:
     - name: run-benchmark
       runAfter:
         - wait-for-endpoint
+      timeout: "2h"
       taskRef:
         name: run-benchmark
       params:

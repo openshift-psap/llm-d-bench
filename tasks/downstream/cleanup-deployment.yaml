@@ -15,8 +15,8 @@ spec:
     Requires the deploy-model-sa service account to have permissions for LLMInferenceService resources.
 
   params:
-    - name: DEPLOYMENT_NAME
-      description: Name of the LLMInferenceService to delete
+    - name: MODEL_NAME
+      description: HuggingFace model identifier
       type: string
 
     - name: NAMESPACE
@@ -46,24 +46,28 @@ spec:
         #!/bin/bash
         set -e
 
+        # Generate deployment name from model name
+        # Logic: lowercase | replace / with - | replace . with empty | trim suffix - | truncate to 42 chars
+        DEPLOYMENT_NAME=$(echo "$(params.MODEL_NAME)" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-42)
+
         echo "Cleanup target:"
-        echo "  Deployment: $(params.DEPLOYMENT_NAME)"
+        echo "  Deployment: $DEPLOYMENT_NAME"
         echo "  Namespace: $(params.NAMESPACE)"
         echo ""
 
         # Check if deployment exists
-        if ! oc get llminferenceservice "$(params.DEPLOYMENT_NAME)" -n "$(params.NAMESPACE)" 2>/dev/null; then
+        if ! oc get llminferenceservice "$DEPLOYMENT_NAME" -n "$(params.NAMESPACE)" 2>/dev/null; then
           if [ "$(params.SKIP_IF_NOT_EXISTS)" = "true" ]; then
-            echo "✓ LLMInferenceService $(params.DEPLOYMENT_NAME) does not exist - nothing to clean"
+            echo "✓ LLMInferenceService $DEPLOYMENT_NAME does not exist - nothing to clean"
             exit 0
           else
-            echo "ERROR: LLMInferenceService $(params.DEPLOYMENT_NAME) not found in namespace $(params.NAMESPACE)"
+            echo "ERROR: LLMInferenceService $DEPLOYMENT_NAME not found in namespace $(params.NAMESPACE)"
             exit 1
           fi
         fi
 
-        echo "Deleting LLMInferenceService: $(params.DEPLOYMENT_NAME)"
-        oc delete llminferenceservice "$(params.DEPLOYMENT_NAME)" -n "$(params.NAMESPACE)"
+        echo "Deleting LLMInferenceService: $DEPLOYMENT_NAME"
+        oc delete llminferenceservice "$DEPLOYMENT_NAME" -n "$(params.NAMESPACE)"
 
         # Wait for deletion if requested
         if [ "$(params.WAIT_FOR_DELETION)" = "true" ]; then
@@ -73,7 +77,7 @@ spec:
           START_TIME=$(date +%s)
           END_TIME=$((START_TIME + $(params.TIMEOUT_SECONDS)))
 
-          while oc get llminferenceservice "$(params.DEPLOYMENT_NAME)" -n "$(params.NAMESPACE)" 2>/dev/null; do
+          while oc get llminferenceservice "$DEPLOYMENT_NAME" -n "$(params.NAMESPACE)" 2>/dev/null; do
             CURRENT_TIME=$(date +%s)
             if [ $CURRENT_TIME -ge $END_TIME ]; then
               echo ""

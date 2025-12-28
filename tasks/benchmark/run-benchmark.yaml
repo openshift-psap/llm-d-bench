@@ -75,16 +75,10 @@ spec:
       type: string
       default: "false"
 
-    - name: MLFLOW_TRACKING_URI
-      description: MLflow tracking server URI
-      type: string
-      default: ""
-
     - name: TAGS
-      description: Additional tags as JSON object (e.g., '{"version":"3.0","team":"ai"}')
-      type: string
-      default: "{}"
-      # TODO: TAGS parameter is currently not processed in the benchmark script
+      description: Additional tags as array of key=value pairs (e.g., ["version=3.0", "team=ai"])
+      type: array
+      default: []
 
     - name: VERSION
       description: Version identifier for visualization reports (e.g., RHOAI-3.0)
@@ -136,6 +130,12 @@ spec:
               name: mlflow-ui-auth
               key: password
               optional: true
+        - name: MLFLOW_TRACKING_URI
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: tracking-uri
+              optional: true
         - name: AWS_ACCESS_KEY_ID
           valueFrom:
             secretKeyRef:
@@ -172,12 +172,32 @@ spec:
           value: /tmp/.huggingface
       args:
         - $(params.BENCHMARK_ENV_VARS[*])
+        - "---SEPARATOR---"
+        - $(params.TAGS[*])
       script: |
         #!/bin/bash
         set -e
 
-        # Export additional environment variables from positional parameters
-        for env_var in "$@"; do
+        # Separate env vars and tags from positional parameters
+        ENV_VARS=()
+        TAGS_ARRAY=()
+        CURRENT="env"
+
+        for arg in "$@"; do
+          if [ "$arg" = "---SEPARATOR---" ]; then
+            CURRENT="tags"
+            continue
+          fi
+
+          if [ "$CURRENT" = "env" ]; then
+            ENV_VARS+=("$arg")
+          else
+            TAGS_ARRAY+=("$arg")
+          fi
+        done
+
+        # Export additional environment variables
+        for env_var in "${ENV_VARS[@]}"; do
           if [ -n "$env_var" ]; then
             export "$env_var"
             echo "Exported env var: $env_var"
@@ -202,8 +222,15 @@ spec:
 
         if [ "$(params.MLFLOW_ENABLED)" = "true" ]; then
           ARGS+=(--experiment-name "$(params.EXPERIMENT_NAME)")
-          [ -n "$(params.MLFLOW_TRACKING_URI)" ] && ARGS+=(--mlflow-tracking-uri "$(params.MLFLOW_TRACKING_URI)")
+          [ -n "$MLFLOW_TRACKING_URI" ] && ARGS+=(--mlflow-tracking-uri "$MLFLOW_TRACKING_URI")
         fi
+
+        # Add tags to args
+        for tag in "${TAGS_ARRAY[@]}"; do
+          if [ -n "$tag" ]; then
+            ARGS+=(--tag "$tag")
+          fi
+        done
 
         echo "Starting benchmark with args: ${ARGS[@]}"
 

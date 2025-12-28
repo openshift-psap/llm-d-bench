@@ -28,6 +28,10 @@ spec:
     - name: GUIDELLM_VERSION
       value: "v0.3.1"
 
+  timeouts:
+    pipeline: "2h"
+    tasks: "2h"
+
   workspaces:
     - name: source
       volumeClaimTemplate:

@@ -12,6 +12,7 @@ spec:
     Build the custom GuideLLM image with MLflow and benchmark dependencies.
     This pipeline clones the source repository and builds the image.
 
+
   params:
     - name: GIT_URL
       description: Git repository URL

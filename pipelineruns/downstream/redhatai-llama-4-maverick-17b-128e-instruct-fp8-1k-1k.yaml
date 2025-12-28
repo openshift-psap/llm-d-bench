@@ -4,11 +4,11 @@ metadata:
   generateName: redhatai-llama-4-maverick-17b-128e-instruct-fp8-1k-1k-
   labels:
     app: llm-d-tekton
-    pipeline: full-benchmark-lifecycle
+    pipeline: downstream-end-to-end-benchmark
     experiment: redhatai-llama-4-maverick-17b-128e-instruct-fp8-1k-1k
 spec:
   pipelineRef:
-    name: full-benchmark-lifecycle
+    name: downstream-end-to-end-benchmark
 
   # Use service account with permissions for LLMInferenceService resources
   taskRunTemplate:
@@ -25,8 +25,6 @@ spec:
       value: "main"
 
     # Deployment Configuration
-    - name: DEPLOYMENT_NAME
-      value: "RedHatAI-Llama-4-Maverick-17B-128E-Instruct-FP8"
     - name: NAMESPACE
       value: "downstream-llm-d"
     - name: VLLM_ARGS
@@ -67,10 +65,9 @@ spec:
     # MLflow Configuration
     - name: MLFLOW_ENABLED
       value: "true"
-    - name: MLFLOW_TRACKING_URI
-      value: "https://mlflow-mlflow.apps.aperdomo-lab.ibm.rhperfscale.org"
     - name: TAGS
-      value: '{"llm-d-version":"RHOAI 3.0"}'
+      value:
+        - "llm-d-version=RHOAI 3.0"
 
     # Health Check Configuration
     - name: HEALTH_CHECK_TIMEOUT
@@ -85,6 +82,10 @@ spec:
       value: "false"
     - name: SKIP_CLEANUP
       value: "false"
+
+  timeouts:
+    pipeline: "2h"
+    tasks: "2h"
 
   workspaces:
     - name: models-storage

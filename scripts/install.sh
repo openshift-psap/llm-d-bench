@@ -120,10 +120,10 @@ echo "ServiceAccounts:"
 oc get serviceaccount $NS_FLAG | grep -E 'NAME|deploy-model' || true
 echo ""
 echo "Tasks:"
-oc get tasks $NS_FLAG | grep -E 'NAME|buildah-build|wait-for-endpoint|run-benchmark|download-model|deploy-model|cleanup-deployment' || true
+oc get tasks $NS_FLAG | grep -E 'NAME|buildah-build|wait-for-endpoint|run-benchmark|download-model|deploy-model|cleanup-deployment|deploy-helmfile|cleanup-upstream' || true
 echo ""
 echo "Pipelines:"
-oc get pipelines.tekton.dev $NS_FLAG | grep -E 'NAME|build-image|run-benchmark|full-benchmark-lifecycle' || true
+oc get pipelines.tekton.dev $NS_FLAG | grep -E 'NAME|build-image|run-benchmark|downstream-end-to-end-benchmark|upstream-end-to-end-benchmark' || true
 echo ""
 
 if [ "$CREATE_PVCS" = true ]; then
