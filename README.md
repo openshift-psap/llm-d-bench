@@ -4,7 +4,7 @@ Tekton pipelines for running llm-d inference benchmarks using GuideLLM.
 
 > This might work with any other LLM endpoint but has only been tested with `llm-d` endpoints.
 
-For advanced documentation see [docs/ADVANCED.md](docs/ADVANCED/md).
+For advanced documentation see [docs/ADVANCED.md](docs/ADVANCED.md).
 
 ## Prerequisites
 
