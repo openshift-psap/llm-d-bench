@@ -6,7 +6,13 @@ Tekton pipelines for running llm-d inference benchmarks using GuideLLM.
 
 For advanced documentation see [docs/ADVANCED.md](docs/ADVANCED/md).
 
-## Installation
+## Prerequisites
+
+- Tekton Pipelines Operator v0.50+
+- OpenShift 4.14+
+- `oc` CLI
+
+## Quick Start
 
 ### Install Tekton Pipelines
 
@@ -17,33 +23,6 @@ oc apply -f https://storage.googleapis.com/tekton-releases/pipeline/latest/relea
 # Verify installation
 oc get pods -n tekton-pipelines
 ```
-
-### Install Tekton CLI (Recommended)
-
-**macOS:**
-```bash
-brew install tektoncd-cli
-```
-
-**Linux:**
-```bash
-# Download latest release
-curl -LO https://github.com/tektoncd/cli/releases/download/v0.38.0/tkn_0.38.0_Linux_x86_64.tar.gz
-tar xvzf tkn_0.38.0_Linux_x86_64.tar.gz -C /usr/local/bin/ tkn
-```
-
-**Verify:**
-```bash
-tkn version
-```
-
-## Prerequisites
-
-- Tekton Pipelines v0.50+
-- OpenShift 4.14+
-- `oc` CLI
-
-## Quick Start
 
 ### 0. Set Namespace
 
@@ -96,6 +75,37 @@ oc create -f pipelineruns/meta-llama-3.1-8b-1k-1k.yaml -n $NAMESPACE
 
 # Watch logs
 tkn pipelinerun logs -f -n $NAMESPACE
+```
+
+### Install Tekton CLI (Recommended)
+
+**macOS:**
+```bash
+brew install tektoncd-cli
+```
+
+**Linux:**
+```bash
+# Download latest release
+curl -LO https://github.com/tektoncd/cli/releases/download/v0.38.0/tkn_0.38.0_Linux_x86_64.tar.gz
+tar xvzf tkn_0.38.0_Linux_x86_64.tar.gz -C /usr/local/bin/ tkn
+```
+
+**Verify:**
+```bash
+tkn version
+```
+
+### Install Tekton Dashboard (Recommended)
+> [!WARNING]
+> Tekton Dashboard is not secured by default i.e. anyone with the URL can access it. Users might want to secure the dashboard with OAuth.
+
+```bash
+# Install the Dashboard
+oc apply -f https://storage.googleapis.com/tekton-releases/dashboard/latest/release.yaml
+
+# Expose the service
+oc expose svc tekton-dashboard -n tekton-pipelines
 ```
 
 ## Pipelines
