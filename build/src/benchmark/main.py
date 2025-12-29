@@ -455,6 +455,9 @@ def run_benchmark_with_mlflow(
 
             params["tp"] = tp_size
 
+            if version:
+                params["version"] = version
+
             mlflow.log_params(params)
 
             guidellm_version = os.environ.get("GUIDELLM_VERSION", "unknown")
@@ -579,17 +582,310 @@ def run_benchmark_with_mlflow(
             raise
 
 
+def fetch_mlflow_runs(run_ids: list, mlflow_tracking_uri: str = None) -> list:
+    """
+    Fetch MLflow runs by their IDs and download their benchmark JSON artifacts.
+
+    Args:
+        run_ids: List of MLflow run IDs
+        mlflow_tracking_uri: MLflow tracking URI (optional)
+
+    Returns:
+        List of dictionaries containing run metadata and benchmark data
+    """
+    if mlflow_tracking_uri:
+        mlflow.set_tracking_uri(mlflow_tracking_uri)
+
+    runs_data = []
+
+    for run_id in run_ids:
+        try:
+            logger.info(f"Fetching MLflow run: {run_id}")
+            run = mlflow.get_run(run_id)
+
+            params = run.data.params
+
+            # Check if cached version exists
+            cached_path = f"/tmp/mlflow/{run_id}/results/benchmark_sweep.json"
+
+            if Path(cached_path).exists():
+                logger.info(f"Using cached artifact for run {run_id}")
+                artifact_path = cached_path
+            else:
+                # Download from MLflow
+                client = mlflow.tracking.MlflowClient()
+                downloaded_path = client.download_artifacts(
+                    run_id, "results/benchmark_sweep.json"
+                )
+
+                # Create cache directory and copy to cache location
+                Path(cached_path).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy(downloaded_path, cached_path)
+                artifact_path = cached_path
+                logger.info(f"Downloaded and cached artifact for run {run_id}")
+
+            with open(artifact_path, "r") as f:
+                benchmark_data = json.load(f)
+
+            runs_data.append(
+                {
+                    "run_id": run_id,
+                    "params": params,
+                    "benchmark_data": benchmark_data,
+                    "artifact_path": artifact_path,
+                }
+            )
+
+            logger.info(f"Successfully fetched run {run_id}")
+
+        except Exception as e:
+            logger.error(f"Failed to fetch run {run_id}: {e}")
+            raise
+
+    return runs_data
+
+
+def validate_runs_compatibility(runs_data: list) -> tuple:
+    """
+    Validate that runs have compatible configurations for plotting.
+
+    Args:
+        runs_data: List of run data dictionaries
+
+    Returns:
+        Tuple of (model, rate, data_profile) if compatible
+
+    Raises:
+        ValueError if runs are incompatible
+    """
+    if not runs_data:
+        raise ValueError("No runs provided for validation")
+
+    # Extract model, rate, and data from first run
+    first_run = runs_data[0]
+    model = first_run["params"].get("model")
+    rate = first_run["params"].get("rates")
+    prompt_tokens = first_run["params"].get("prompt_tokens")
+    output_tokens = first_run["params"].get("output_tokens")
+
+    # Validate all runs have same configuration
+    for run_data in runs_data[1:]:
+        params = run_data["params"]
+
+        if params.get("model") != model:
+            raise ValueError(
+                f"Model mismatch: {params.get('model')} != {model}. "
+                f"All runs must use the same model."
+            )
+
+        if params.get("rates") != rate:
+            raise ValueError(
+                f"Rate mismatch: {params.get('rates')} != {rate}. "
+                f"All runs must use the same rate configuration."
+            )
+
+        if params.get("prompt_tokens") != prompt_tokens:
+            raise ValueError(
+                f"Prompt tokens mismatch: {params.get('prompt_tokens')} != {prompt_tokens}. "
+                f"All runs must use the same data profile."
+            )
+
+        if params.get("output_tokens") != output_tokens:
+            raise ValueError(
+                f"Output tokens mismatch: {params.get('output_tokens')} != {output_tokens}. "
+                f"All runs must use the same data profile."
+            )
+
+    data_profile = (
+        f"prompt_tokens={prompt_tokens},output_tokens={output_tokens}"
+        if prompt_tokens and output_tokens
+        else None
+    )
+
+    logger.info(f"All runs validated successfully:")
+    logger.info(f"  Model: {model}")
+    logger.info(f"  Rate: {rate}")
+    logger.info(f"  Data profile: {data_profile}")
+
+    return model, rate, data_profile
+
+
+def generate_plot_only_report(
+    runs_data: list,
+    versions: list = None,
+    mlflow_tracking_uri: str = None,
+) -> str:
+    """
+    Generate HTML report from existing MLflow runs without running benchmarks.
+
+    Args:
+        runs_data: List of run data dictionaries
+        versions: List of versions to filter/compare (optional)
+        mlflow_tracking_uri: MLflow tracking URI (optional)
+
+    Returns:
+        Path to generated HTML report
+    """
+    if not PROCESSOR_AVAILABLE:
+        logger.error("BenchmarkProcessor not available - cannot generate report")
+        return None
+
+    # Validate runs compatibility
+    model, rate, data_profile = validate_runs_compatibility(runs_data)
+
+    # Filter runs by version if specified
+    if versions:
+        logger.info(f"Filtering runs by versions: {versions}")
+        filtered_runs = []
+        for run_data in runs_data:
+            run_version = run_data["params"].get("version")
+            if run_version in versions:
+                filtered_runs.append(run_data)
+            else:
+                logger.info(
+                    f"Skipping run {run_data['run_id']} with version {run_version}"
+                )
+
+        if not filtered_runs:
+            raise ValueError(f"No runs found matching versions: {versions}")
+
+        runs_data = filtered_runs
+        logger.info(f"Using {len(runs_data)} runs after version filtering")
+
+    # Process each run's JSON individually to get CSV data, then combine
+    logger.info(f"Processing {len(runs_data)} runs individually to extract CSV data")
+
+    # Get S3 configuration from environment
+    s3_bucket = os.environ.get("S3_BUCKET", "rhaiis-psap")
+    s3_key = os.environ.get("S3_KEY", "Dashboard_csv's/consolidated_dashboard.csv")
+
+    # Download consolidated CSV from S3 once
+    logger.info("Downloading consolidated CSV from S3")
+    from benchmark.processor import BenchmarkProcessor
+    import pandas as pd
+
+    # Create a temporary processor just to download S3 CSV
+    temp_processor = BenchmarkProcessor(
+        json_path=runs_data[0]["artifact_path"],  # dummy, won't use it yet
+        s3_bucket=s3_bucket,
+        s3_key=s3_key,
+        accelerator="dummy",
+        model_name=model,
+        version="dummy",
+        tp_size=1,
+        runtime_args="",
+    )
+    consolidated_df = temp_processor.download_s3_csv()
+    logger.info(f"Downloaded consolidated CSV with {len(consolidated_df)} rows")
+
+    # Process each run to get its CSV data
+    all_run_dataframes = []
+
+    for run_data in runs_data:
+        run_id = run_data["run_id"]
+        params = run_data["params"]
+        artifact_path = run_data["artifact_path"]
+
+        accelerator = params.get("accelerator", "unknown")
+        version = params.get("version", "unknown")
+        tp_size = int(params.get("tp", 1))
+
+        logger.info(f"Processing run {run_id} (version={version}, TP={tp_size})")
+
+        # Create processor for this run
+        processor = BenchmarkProcessor(
+            json_path=artifact_path,
+            s3_bucket=s3_bucket,
+            s3_key=s3_key,
+            accelerator=accelerator,
+            model_name=model,
+            version=version,
+            tp_size=tp_size,
+            runtime_args="",
+        )
+
+        # Parse this run's JSON to DataFrame
+        run_df = processor.parse_guidellm_json()
+        logger.info(f"Extracted {len(run_df)} rows from run {run_id}")
+
+        all_run_dataframes.append(run_df)
+
+    # Combine all run DataFrames using BenchmarkProcessor's merge logic
+    logger.info(f"Combining {len(all_run_dataframes)} DataFrames")
+    combined_runs_df = pd.concat(all_run_dataframes, ignore_index=True)
+    logger.info(f"Combined runs DataFrame has {len(combined_runs_df)} rows")
+
+    # Use BenchmarkProcessor's merge_data logic to properly combine
+    logger.info("Merging with consolidated CSV using processor's merge logic")
+    temp_processor.consolidated_df = consolidated_df
+    temp_processor.new_data_df = combined_runs_df
+    final_df = temp_processor.merge_data()
+    logger.info(f"Final merged DataFrame has {len(final_df)} rows")
+
+    # Filter by versions if specified
+    if versions:
+        logger.info(f"Filtering combined data by versions: {versions}")
+        initial_rows = len(final_df)
+        # Filter to only keep rows where 'version' column matches one of the specified versions
+        final_df = final_df[final_df["version"].isin(versions)]
+        logger.info(
+            f"After version filtering: {len(final_df)} rows (removed {initial_rows - len(final_df)} rows)"
+        )
+
+    # Determine compare_versions from the data
+    compare_versions = sorted(final_df["version"].unique().tolist())
+    logger.info(f"Versions in final data: {compare_versions}")
+
+    # Extract metadata from first run for filename
+    first_run = runs_data[0]
+    params = first_run["params"]
+
+    # Auto-generate output filename
+    model_short = model.split("/")[-1].replace(" ", "_").replace("-", "_").lower()
+    version_str = "_".join(compare_versions).lower().replace(".", "").replace("-", "")
+    html_filename = f"{model_short}_comparison_{version_str}_report.html"
+    html_path = f"/tmp/{html_filename}"
+
+    # Generate report using the combined DataFrame
+    final_processor = BenchmarkProcessor(
+        json_path=first_run["artifact_path"],
+        s3_bucket=s3_bucket,
+        s3_key=s3_key,
+        accelerator=params.get("accelerator", "unknown"),
+        model_name=model,
+        version=params.get("version", "unknown"),
+        tp_size=int(params.get("tp", 1)),
+        runtime_args="",
+        compare_versions=compare_versions,
+        output_html=html_path,
+    )
+
+    # Override with our merged and filtered data
+    final_processor.combined_df = final_df
+    final_processor.config = final_processor.load_config()
+    final_processor.generate_report()
+
+    if Path(html_path).exists():
+        logger.info(f"Comparison report generated: {html_path}")
+        return html_path
+    else:
+        logger.error("Report generation failed - file not found")
+        return None
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="GuideLLM Benchmark with MLflow Logging",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    parser.add_argument("--target", required=True, help="Target URL")
-    parser.add_argument("--model", required=True, help="Model name")
+    parser.add_argument("--target", help="Target URL (required for benchmark mode)")
+    parser.add_argument("--model", help="Model name (required for benchmark mode)")
     parser.add_argument("--backend-type", default="openai_http", help="Backend type")
     parser.add_argument("--rate-type", default="concurrent", help="Rate type")
-    parser.add_argument("--rate", required=True, help="Rate value(s), comma-separated")
+    parser.add_argument(
+        "--rate", help="Rate value(s), comma-separated (required for benchmark mode)"
+    )
     parser.add_argument(
         "--data", help="Data config (e.g., 'prompt_tokens=1000,output_tokens=1000')"
     )
@@ -621,7 +917,73 @@ def main():
         "--tag", action="append", dest="tags", help="Additional tags (key=value)"
     )
 
+    # Plot-only mode arguments
+    parser.add_argument(
+        "--plot-only",
+        action="store_true",
+        help="Generate plots from existing MLflow runs without running benchmarks",
+    )
+    parser.add_argument(
+        "--mlflow-run-ids",
+        help="Comma-separated list of MLflow run IDs to plot (required with --plot-only)",
+    )
+    parser.add_argument(
+        "--versions",
+        help="Comma-separated list of versions to compare (filters runs and sets compare_versions)",
+    )
+
     args = parser.parse_args()
+
+    # Handle plot-only mode
+    if args.plot_only:
+        logger.info("Plot-only mode enabled")
+
+        # Validate required arguments for plot-only mode
+        if not args.mlflow_run_ids:
+            parser.error("--mlflow-run-ids is required when using --plot-only")
+
+        # Parse run IDs and versions
+        run_ids = [rid.strip() for rid in args.mlflow_run_ids.split(",")]
+        versions = (
+            [v.strip() for v in args.versions.split(",")] if args.versions else None
+        )
+
+        logger.info(f"Fetching {len(run_ids)} MLflow runs...")
+
+        try:
+            # Fetch runs from MLflow
+            runs_data = fetch_mlflow_runs(run_ids, args.mlflow_tracking_uri)
+
+            if not runs_data:
+                logger.error("No runs fetched successfully")
+                return 1
+
+            # Generate plot-only report
+            html_report = generate_plot_only_report(
+                runs_data=runs_data,
+                versions=versions,
+                mlflow_tracking_uri=args.mlflow_tracking_uri,
+            )
+
+            if html_report:
+                logger.info("\nPlot generation completed successfully.")
+                logger.info(f"  Report saved to: {html_report}")
+                return 0
+            else:
+                logger.error("Plot generation failed")
+                return 1
+
+        except Exception as e:
+            logger.error(f"Plot generation failed: {e}", exc_info=True)
+            return 1
+
+    # Validate required arguments for benchmark mode
+    if not args.target:
+        parser.error("--target is required for benchmark mode")
+    if not args.model:
+        parser.error("--model is required for benchmark mode")
+    if not args.rate:
+        parser.error("--rate is required for benchmark mode")
 
     tags = {}
     if args.tags:
