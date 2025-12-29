@@ -163,6 +163,26 @@ oc describe pipelinerun <pipelinerun-name> -n $NAMESPACE
 oc logs <pod-name> -c step-run-benchmark -n $NAMESPACE
 ```
 
+## Custom Comparison Report
+
+When using MLFlow, a comparison report will be logged as an artifact. That report is a general one that contains comparison data for a fixed set of versions. In order to get a custom report that contains also results from other MLFlow runs, users can manually execute the script in plot only mode.
+
+Users need to set the MLFlow environment variables needed to rightfully access the runs. To be precise: `MLFLOW_TRACKING_USERNAME`, `MLFLOW_TRACKING_USERNAME` and `MLFLOW_TRACKING_INSECURE_TLS` set to true. Also, AWS CLI or AWS env variables must be configured too.
+
+
+```
+cd build/src/
+
+python3 -m benchmark.main --plot-only \
+  --mlflow-run-ids "abc123,cde456" \
+  --versions "foo,bar" \
+  --mlflow-tracking-uri https://your-mlflow.tracking.uri
+
+```
+
+This will download the benchmark JSON file for each run to `/tmp`, process them and generate a comparison plot report.
+
+
 ## Troubleshooting
 
 ### Tekton Controllers Not Starting

@@ -22,6 +22,49 @@ logging.basicConfig(
 logger = logging.getLogger("benchmark_processor")
 
 
+def _get_nested(d: Dict[str, Any], *keys: str, default: Any = None) -> Any:
+    """Safely get a nested value from a dictionary."""
+    for key in keys:
+        if not isinstance(d, dict):
+            return default
+        d = d.get(key, default)
+    return d
+
+
+def _parse_request_data(requests_data: Any) -> Dict[str, int]:
+    """Parse request data to extract prompt and output tokens."""
+    prompt_tokens = 0
+    output_tokens = 0
+    data_str = ""
+
+    if isinstance(requests_data, str):
+        if "=" in requests_data:
+            data_str = requests_data
+        else:
+            try:
+                evaluated_data = ast.literal_eval(requests_data)
+                if isinstance(evaluated_data, list) and evaluated_data:
+                    data_str = evaluated_data[0]
+            except (ValueError, SyntaxError):
+                pass  # Not a list string, treat as empty
+    elif isinstance(requests_data, list) and requests_data:
+        data_str = requests_data[0]
+
+    if data_str:
+        for part in data_str.split(","):
+            if "=" in part:
+                key, value = part.strip().split("=")
+                try:
+                    if key == "prompt_tokens":
+                        prompt_tokens = int(value)
+                    elif key == "output_tokens":
+                        output_tokens = int(value)
+                except ValueError:
+                    pass  # Ignore non-integer values
+
+    return {"prompt_tokens": prompt_tokens, "output_tokens": output_tokens}
+
+
 class BenchmarkProcessor:
     """
     Main class for processing benchmark JSON files and generating reports.
@@ -143,96 +186,52 @@ class BenchmarkProcessor:
         """
         full_model_name = f"{self.accelerator}-{self.model_name}-{self.tp_size}"
 
-        profile_args = benchmark_run.get("config", {}).get("profile", {})
-        if not profile_args:
-            profile_args = benchmark_run.get("args", {}).get("profile", {})
-
-        uuid = benchmark_run.get("config", {}).get(
-            "run_id", benchmark_run.get("run_id")
+        uuid = _get_nested(benchmark_run, "config", "run_id") or benchmark_run.get(
+            "run_id"
         )
 
-        config_prompt_tokens = 0
-        config_output_tokens = 0
+        requests_data = _get_nested(
+            benchmark_run, "request_loader", "data"
+        ) or _get_nested(benchmark_run, "config", "requests", "data")
 
-        requests_data = benchmark_run.get("request_loader", {}).get("data")
+        token_info = _parse_request_data(requests_data)
+        config_prompt_tokens = token_info["prompt_tokens"]
+        config_output_tokens = token_info["output_tokens"]
 
-        if not requests_data:
-            requests_data = (
-                benchmark_run.get("config", {}).get("requests", {}).get("data")
-            )
-
-        if requests_data:
-            try:
-                if isinstance(requests_data, str):
-                    # Check if it's a string like "prompt_tokens=1000,output_tokens=1000"
-                    if "=" in requests_data:
-                        data_str = requests_data
-                    else:
-                        # It might be "['prompt_tokens=1000,output_tokens=1000']"
-                        requests_data = ast.literal_eval(requests_data)
-                        if isinstance(requests_data, list) and len(requests_data) > 0:
-                            data_str = requests_data[0]
-                        else:
-                            data_str = ""
-                elif isinstance(requests_data, list) and len(requests_data) > 0:
-                    data_str = requests_data[0]
-                else:
-                    data_str = ""
-
-                # Parse string like "prompt_tokens=1000,output_tokens=1000"
-                if data_str:
-                    for part in data_str.split(","):
-                        if "=" in part:
-                            key, value = part.strip().split("=")
-                            if key == "prompt_tokens":
-                                config_prompt_tokens = int(value)
-                            elif key == "output_tokens":
-                                config_output_tokens = int(value)
-            except (ValueError, AttributeError, SyntaxError) as e:
-                logger.warning(f"Could not parse tokens from data: {e}")
-                config_prompt_tokens = 0
-                config_output_tokens = 0
-
+        profile_args = _get_nested(benchmark_run, "config", "profile") or _get_nested(
+            benchmark_run, "args", "profile", default={}
+        )
         streams = profile_args.get("streams", [])
 
-        # Get intended concurrency from streams
         if benchmark_index < len(streams):
             intended_concurrency = streams[benchmark_index]
         else:
             intended_concurrency = streams[0] if streams else None
 
         metrics = benchmark_run.get("metrics", {})
-
-        measured_concurrency_data = metrics.get("request_concurrency", {}).get(
-            "successful", {}
+        successful_metrics = lambda *keys: _get_nested(
+            metrics, *keys, "successful", default={}
         )
-        measured_concurrency = measured_concurrency_data.get("mean")
 
-        measured_rps_data = metrics.get("requests_per_second", {}).get("successful", {})
-        measured_rps = measured_rps_data.get("mean")
+        measured_concurrency = successful_metrics("request_concurrency").get("mean")
+        measured_rps = successful_metrics("requests_per_second").get("mean")
+        output_tok_per_sec = successful_metrics("output_tokens_per_second").get(
+            "mean", 0
+        )
+        total_tok_per_sec = successful_metrics("tokens_per_second").get("mean", 0)
 
-        scheduler_metrics = benchmark_run.get("scheduler_metrics", {})
-        requests_made = scheduler_metrics.get("requests_made", {})
+        requests_made = _get_nested(
+            benchmark_run, "scheduler_metrics", "requests_made", default={}
+        )
         successful_reqs = requests_made.get("successful", 0)
         errored_reqs = requests_made.get("errored", 0)
 
-        output_tps_metrics = metrics.get("output_tokens_per_second", {}).get(
-            "successful", {}
-        )
-        output_tok_per_sec = output_tps_metrics.get("mean", 0)
-
-        total_tps_metrics = metrics.get("tokens_per_second", {}).get("successful", {})
-        total_tok_per_sec = total_tps_metrics.get("mean", 0)
-
-        prompt_tok_metrics = metrics.get("prompt_token_count", {}).get("successful", {})
-        output_tok_metrics = metrics.get("output_token_count", {}).get("successful", {})
-
-        ttft_metrics = metrics.get("time_to_first_token_ms", {}).get("successful", {})
-        tpot_metrics = metrics.get("time_per_output_token_ms", {}).get("successful", {})
-        itl_metrics = metrics.get("inter_token_latency_ms", {}).get("successful", {})
-        request_latency_metrics = metrics.get("request_latency", {}).get(
-            "successful", {}
-        )
+        prompt_tok_metrics = successful_metrics("prompt_token_count")
+        output_tok_metrics = successful_metrics("output_token_count")
+        ttft_metrics = successful_metrics("time_to_first_token_ms")
+        tpot_metrics = successful_metrics("time_per_output_token_ms")
+        itl_metrics = successful_metrics("inter_token_latency_ms")
+        request_latency_metrics = successful_metrics("request_latency")
 
         row = {
             "run": full_model_name,
@@ -248,26 +247,26 @@ class BenchmarkProcessor:
             "output_tok/sec": output_tok_per_sec,
             "total_tok/sec": total_tok_per_sec,
             "prompt_token_count_mean": prompt_tok_metrics.get("mean"),
-            "prompt_token_count_p99": prompt_tok_metrics.get("percentiles", {}).get(
-                "p99"
+            "prompt_token_count_p99": _get_nested(
+                prompt_tok_metrics, "percentiles", "p99"
             ),
             "output_token_count_mean": output_tok_metrics.get("mean"),
-            "output_token_count_p99": output_tok_metrics.get("percentiles", {}).get(
-                "p99"
+            "output_token_count_p99": _get_nested(
+                output_tok_metrics, "percentiles", "p99"
             ),
             "ttft_median": ttft_metrics.get("median"),
-            "ttft_p95": ttft_metrics.get("percentiles", {}).get("p95"),
-            "ttft_p1": ttft_metrics.get("percentiles", {}).get("p01"),
-            "ttft_p999": ttft_metrics.get("percentiles", {}).get("p999"),
+            "ttft_p95": _get_nested(ttft_metrics, "percentiles", "p95"),
+            "ttft_p1": _get_nested(ttft_metrics, "percentiles", "p01"),
+            "ttft_p999": _get_nested(ttft_metrics, "percentiles", "p999"),
             "tpot_median": tpot_metrics.get("median"),
-            "tpot_p95": tpot_metrics.get("percentiles", {}).get("p95"),
-            "tpot_p99": tpot_metrics.get("percentiles", {}).get("p99"),
-            "tpot_p999": tpot_metrics.get("percentiles", {}).get("p999"),
-            "tpot_p1": tpot_metrics.get("percentiles", {}).get("p01"),
+            "tpot_p95": _get_nested(tpot_metrics, "percentiles", "p95"),
+            "tpot_p99": _get_nested(tpot_metrics, "percentiles", "p99"),
+            "tpot_p999": _get_nested(tpot_metrics, "percentiles", "p999"),
+            "tpot_p1": _get_nested(tpot_metrics, "percentiles", "p01"),
             "itl_median": itl_metrics.get("median"),
-            "itl_p95": itl_metrics.get("percentiles", {}).get("p95"),
-            "itl_p999": itl_metrics.get("percentiles", {}).get("p999"),
-            "itl_p1": itl_metrics.get("percentiles", {}).get("p01"),
+            "itl_p95": _get_nested(itl_metrics, "percentiles", "p95"),
+            "itl_p999": _get_nested(itl_metrics, "percentiles", "p999"),
+            "itl_p1": _get_nested(itl_metrics, "percentiles", "p01"),
             "request_latency_median": request_latency_metrics.get("median"),
             "request_latency_min": request_latency_metrics.get("min"),
             "request_latency_max": request_latency_metrics.get("max"),
@@ -275,9 +274,9 @@ class BenchmarkProcessor:
             "errored_requests": errored_reqs,
             "uuid": uuid,
             "ttft_mean": ttft_metrics.get("mean"),
-            "ttft_p99": ttft_metrics.get("percentiles", {}).get("p99"),
+            "ttft_p99": _get_nested(ttft_metrics, "percentiles", "p99"),
             "itl_mean": itl_metrics.get("mean"),
-            "itl_p99": itl_metrics.get("percentiles", {}).get("p99"),
+            "itl_p99": _get_nested(itl_metrics, "percentiles", "p99"),
             "runtime_args": self.runtime_args,
         }
 
@@ -409,46 +408,12 @@ class BenchmarkProcessor:
 
         if data.get("benchmarks"):
             benchmark = data["benchmarks"][0]
-
-            requests_data = benchmark.get("request_loader", {}).get("data")
-
-            if not requests_data:
-                requests_data = (
-                    benchmark.get("config", {}).get("requests", {}).get("data")
-                )
-
-            if requests_data:
-                try:
-                    if isinstance(requests_data, str):
-                        # Check if it's a string like "prompt_tokens=1000,output_tokens=1000"
-                        if "=" in requests_data:
-                            data_str = requests_data
-                        else:
-                            # It might be "['prompt_tokens=1000,output_tokens=1000']"
-                            requests_data = ast.literal_eval(requests_data)
-                            if (
-                                isinstance(requests_data, list)
-                                and len(requests_data) > 0
-                            ):
-                                data_str = requests_data[0]
-                            else:
-                                data_str = ""
-                    elif isinstance(requests_data, list) and len(requests_data) > 0:
-                        data_str = requests_data[0]
-                    else:
-                        data_str = ""
-
-                    # Parse string like "prompt_tokens=1000,output_tokens=1000"
-                    if data_str:
-                        for part in data_str.split(","):
-                            if "=" in part:
-                                key, value = part.strip().split("=")
-                                if key == "prompt_tokens":
-                                    prompt_toks = int(value)
-                                elif key == "output_tokens":
-                                    output_toks = int(value)
-                except Exception as e:
-                    logger.warning(f"Could not parse tokens for config: {e}")
+            requests_data = _get_nested(
+                benchmark, "request_loader", "data"
+            ) or _get_nested(benchmark, "config", "requests", "data")
+            token_info = _parse_request_data(requests_data)
+            prompt_toks = token_info["prompt_tokens"] or prompt_toks
+            output_toks = token_info["output_tokens"] or output_toks
 
         config = {
             "models": [

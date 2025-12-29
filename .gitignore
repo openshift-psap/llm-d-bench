@@ -3,3 +3,10 @@ results/**
 
 config/secrets/*.yaml
 !config/secrets/*.example.yaml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python

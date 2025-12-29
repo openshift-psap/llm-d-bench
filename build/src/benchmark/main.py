@@ -38,26 +38,133 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _get_nested(d: Dict[str, Any], *keys: str, default: Any = None) -> Any:
+    """Safely get a nested value from a dictionary."""
+    for key in keys:
+        if not isinstance(d, dict):
+            return default
+        d = d.get(key, default)
+    return d
+
+
 def extract_metrics_from_benchmark(benchmark: Dict[str, Any]) -> Dict[str, Any]:
     metrics = {}
     try:
-        # Support both v0.3.0 (run_stats) and v0.4.0+ (scheduler_metrics)
+        all_metrics = benchmark.get("metrics", {})
         scheduler_metrics = benchmark.get("scheduler_metrics", {})
         run_stats = benchmark.get("run_stats", {})
-        all_metrics = benchmark.get("metrics", {})
 
-        # Request stats - try v0.4.0 first, fallback to v0.3.0
+        # Fallback from scheduler_metrics to run_stats for older versions
         requests_made = scheduler_metrics.get("requests_made", {}) or run_stats.get(
             "requests_made", {}
         )
-        if "total" in requests_made:
-            metrics["total_requests"] = requests_made["total"]
-        if "successful" in requests_made:
-            metrics["successful_requests"] = requests_made["successful"]
-        if "errored" in requests_made:
-            metrics["failed_requests"] = requests_made["errored"]
 
-        # Error Rate
+        metric_map = {
+            "total_requests": requests_made.get("total"),
+            "successful_requests": requests_made.get("successful"),
+            "failed_requests": requests_made.get("errored"),
+            "throughput_requests_per_sec": _get_nested(
+                all_metrics, "requests_per_second", "successful", "mean"
+            ),
+            "total_tokens_per_second": _get_nested(
+                all_metrics, "tokens_per_second", "successful", "mean"
+            ),
+            "throughput_output_tokens_per_sec": _get_nested(
+                all_metrics, "output_tokens_per_second", "successful", "mean"
+            ),
+            "request_concurrency_mean": _get_nested(
+                all_metrics, "request_concurrency", "successful", "mean"
+            ),
+            "latency_mean_sec": _get_nested(
+                all_metrics, "request_latency", "successful", "mean"
+            ),
+            "latency_median_sec": _get_nested(
+                all_metrics, "request_latency", "successful", "median"
+            ),
+            "latency_p50_sec": _get_nested(
+                all_metrics, "request_latency", "successful", "percentiles", "p50"
+            ),
+            "latency_p90_sec": _get_nested(
+                all_metrics, "request_latency", "successful", "percentiles", "p90"
+            ),
+            "latency_p95_sec": _get_nested(
+                all_metrics, "request_latency", "successful", "percentiles", "p95"
+            ),
+            "latency_p99_sec": _get_nested(
+                all_metrics, "request_latency", "successful", "percentiles", "p99"
+            ),
+            "ttft_mean_ms": _get_nested(
+                all_metrics, "time_to_first_token_ms", "successful", "mean"
+            ),
+            "ttft_median_ms": _get_nested(
+                all_metrics, "time_to_first_token_ms", "successful", "median"
+            ),
+            "ttft_p95_ms": _get_nested(
+                all_metrics,
+                "time_to_first_token_ms",
+                "successful",
+                "percentiles",
+                "p95",
+            ),
+            "ttft_p99_ms": _get_nested(
+                all_metrics,
+                "time_to_first_token_ms",
+                "successful",
+                "percentiles",
+                "p99",
+            ),
+            "itl_mean_ms": _get_nested(
+                all_metrics, "inter_token_latency_ms", "successful", "mean"
+            ),
+            "itl_median_ms": _get_nested(
+                all_metrics, "inter_token_latency_ms", "successful", "median"
+            ),
+            "itl_p95_ms": _get_nested(
+                all_metrics,
+                "inter_token_latency_ms",
+                "successful",
+                "percentiles",
+                "p95",
+            ),
+            "itl_p99_ms": _get_nested(
+                all_metrics,
+                "inter_token_latency_ms",
+                "successful",
+                "percentiles",
+                "p99",
+            ),
+            "tpot_mean_ms": _get_nested(
+                all_metrics, "time_per_output_token_ms", "successful", "mean"
+            ),
+            "tpot_median_ms": _get_nested(
+                all_metrics, "time_per_output_token_ms", "successful", "median"
+            ),
+            "tpot_p95_ms": _get_nested(
+                all_metrics,
+                "time_per_output_token_ms",
+                "successful",
+                "percentiles",
+                "p95",
+            ),
+            "tpot_p99_ms": _get_nested(
+                all_metrics,
+                "time_per_output_token_ms",
+                "successful",
+                "percentiles",
+                "p99",
+            ),
+            "total_input_tokens": _get_nested(
+                all_metrics, "prompt_token_count", "successful", "total_sum"
+            ),
+            "total_output_tokens": _get_nested(
+                all_metrics, "output_token_count", "successful", "total_sum"
+            ),
+        }
+
+        # Add only non-None metrics
+        metrics = {k: v for k, v in metric_map.items() if v is not None}
+
+        # Calculated metrics
         if metrics.get("total_requests", 0) > 0 and "failed_requests" in metrics:
             metrics["error_rate"] = (
                 metrics["failed_requests"] / metrics["total_requests"]
@@ -65,94 +172,8 @@ def extract_metrics_from_benchmark(benchmark: Dict[str, Any]) -> Dict[str, Any]:
         elif "total_requests" in metrics:
             metrics["error_rate"] = 0.0
 
-        # Throughput
-        req_throughput = all_metrics.get("requests_per_second", {}).get(
-            "successful", {}
-        )
-        if "mean" in req_throughput:
-            metrics["throughput_requests_per_sec"] = req_throughput["mean"]
-
-        tok_throughput = all_metrics.get("tokens_per_second", {}).get("successful", {})
-        if "mean" in tok_throughput:
-            metrics["total_tokens_per_second"] = tok_throughput["mean"]
-
-        output_tok_throughput = all_metrics.get("output_tokens_per_second", {}).get(
-            "successful", {}
-        )
-        if "mean" in output_tok_throughput:
-            metrics["throughput_output_tokens_per_sec"] = output_tok_throughput["mean"]
-
-        # Concurrency
-        concurrency = all_metrics.get("request_concurrency", {}).get("successful", {})
-        if "mean" in concurrency:
-            metrics["request_concurrency_mean"] = concurrency["mean"]
-
-        # Latency (Overall Request)
-        latency = all_metrics.get("request_latency", {}).get("successful", {})
-        latency_pct = latency.get("percentiles", {})
-        if "mean" in latency:
-            metrics["latency_mean_sec"] = latency["mean"]
-        if "median" in latency:
-            metrics["latency_median_sec"] = latency["median"]
-        if "p50" in latency_pct:
-            metrics["latency_p50_sec"] = latency_pct["p50"]
-        if "p90" in latency_pct:
-            metrics["latency_p90_sec"] = latency_pct["p90"]
-        if "p95" in latency_pct:
-            metrics["latency_p95_sec"] = latency_pct["p95"]
-        if "p99" in latency_pct:
-            metrics["latency_p99_sec"] = latency_pct["p99"]
-
-        # TTFT
-        ttft = all_metrics.get("time_to_first_token_ms", {}).get("successful", {})
-        ttft_pct = ttft.get("percentiles", {})
-        if "mean" in ttft:
-            metrics["ttft_mean_ms"] = ttft["mean"]
-        if "median" in ttft:
-            metrics["ttft_median_ms"] = ttft["median"]
-        if "p95" in ttft_pct:
-            metrics["ttft_p95_ms"] = ttft_pct["p95"]
-        if "p99" in ttft_pct:
-            metrics["ttft_p99_ms"] = ttft_pct["p99"]
-
-        # ITL
-        itl = all_metrics.get("inter_token_latency_ms", {}).get("successful", {})
-        itl_pct = itl.get("percentiles", {})
-        if "mean" in itl:
-            metrics["itl_mean_ms"] = itl["mean"]
-        if "median" in itl:
-            metrics["itl_median_ms"] = itl["median"]
-        if "p95" in itl_pct:
-            metrics["itl_p95_ms"] = itl_pct["p95"]
-        if "p99" in itl_pct:
-            metrics["itl_p99_ms"] = itl_pct["p99"]
-
-        # TPOT (Time Per Output Token)
-        tpot = all_metrics.get("time_per_output_token_ms", {}).get("successful", {})
-        tpot_pct = tpot.get("percentiles", {})
-        if "mean" in tpot:
-            metrics["tpot_mean_ms"] = tpot["mean"]
-        if "median" in tpot:
-            metrics["tpot_median_ms"] = tpot["median"]
-        if "p95" in tpot_pct:
-            metrics["tpot_p95_ms"] = tpot_pct["p95"]
-        if "p99" in tpot_pct:
-            metrics["tpot_p99_ms"] = tpot_pct["p99"]
-
-        # Tokens
-        input_tokens = all_metrics.get("prompt_token_count", {}).get("successful", {})
-        output_tokens = all_metrics.get("output_token_count", {}).get("successful", {})
-
-        total_input = 0
-        if "total_sum" in input_tokens:
-            total_input = input_tokens["total_sum"]
-            metrics["total_input_tokens"] = total_input
-
-        total_output = 0
-        if "total_sum" in output_tokens:
-            total_output = output_tokens["total_sum"]
-            metrics["total_output_tokens"] = total_output
-
+        total_input = metrics.get("total_input_tokens", 0)
+        total_output = metrics.get("total_output_tokens", 0)
         if total_input > 0 or total_output > 0:
             metrics["total_tokens"] = total_input + total_output
 
@@ -316,6 +337,65 @@ def generate_visualization_report(
         return None
 
 
+def _run_and_process_benchmark(
+    target: str,
+    model: str,
+    rate: str,
+    backend_type: str,
+    rate_type: str,
+    data: str,
+    max_seconds: int,
+    max_requests: int,
+    processor: str,
+    output_dir: str,
+    accelerator: str,
+    version: str,
+    tp_size: int,
+    runtime_args: str,
+) -> tuple:
+    """Helper to run guidellm and process results."""
+    Path(output_dir).mkdir(parents=True, exist_ok=True)
+    output_json = f"{output_dir}/benchmark_output.json"
+
+    json_path, console_log_path = run_guidellm_cli(
+        target=target,
+        model=model,
+        rate=rate,
+        backend_type=backend_type,
+        rate_type=rate_type,
+        data=data,
+        max_seconds=max_seconds,
+        max_requests=max_requests,
+        processor=processor,
+        output_path=output_json,
+    )
+
+    benchmarks = []
+    if Path(json_path).exists():
+        logger.info(f"Benchmark results saved to: {json_path}")
+        with open(json_path, "r") as f:
+            result_json = json.load(f)
+        benchmarks = result_json.get("benchmarks", [])
+        logger.info(f"Found {len(benchmarks)} benchmark results")
+    else:
+        logger.warning(f"Output JSON not found: {json_path}")
+
+    if not Path(console_log_path).exists():
+        logger.warning(f"Console log not found: {console_log_path}")
+
+    html_report = generate_visualization_report(
+        json_path=json_path,
+        model=model,
+        accelerator=accelerator,
+        version=version,
+        tp_size=tp_size,
+        runtime_args=runtime_args,
+        output_dir=output_dir,
+    )
+
+    return json_path, console_log_path, benchmarks, html_report
+
+
 def run_benchmark_without_mlflow(
     target: str,
     model: str,
@@ -333,15 +413,11 @@ def run_benchmark_without_mlflow(
     runtime_args: str = "",
 ) -> str:
     """Run benchmark without MLflow tracking, saving results to specified directory."""
-    logger.info(f"Running benchmark without MLflow tracking")
+    logger.info("Running benchmark without MLflow tracking")
     logger.info(f"Starting benchmark for rates: {rate}")
     logger.info(f"Results will be saved to: {output_dir}")
 
-    # Ensure output directory exists
-    Path(output_dir).mkdir(parents=True, exist_ok=True)
-
-    output_json = f"{output_dir}/benchmark_output.json"
-    json_path, console_log_path = run_guidellm_cli(
+    json_path, console_log_path, benchmarks, html_report = _run_and_process_benchmark(
         target=target,
         model=model,
         rate=rate,
@@ -351,42 +427,20 @@ def run_benchmark_without_mlflow(
         max_seconds=max_seconds,
         max_requests=max_requests,
         processor=processor,
-        output_path=output_json,
-    )
-
-    if Path(json_path).exists():
-        logger.info(f"Benchmark results saved to: {json_path}")
-        with open(json_path, "r") as f:
-            result_json = json.load(f)
-
-        benchmarks = result_json.get("benchmarks", [])
-        logger.info(f"Found {len(benchmarks)} benchmark results")
-
-        # Print summary metrics
-        for i, benchmark in enumerate(benchmarks):
-            metrics = extract_metrics_from_benchmark(benchmark)
-            if metrics:
-                logger.info(
-                    f"Benchmark {i + 1} metrics: {json.dumps(metrics, indent=2)}"
-                )
-    else:
-        logger.warning(f"Output JSON not found: {json_path}")
-
-    if Path(console_log_path).exists():
-        logger.info(f"Console log saved to: {console_log_path}")
-    else:
-        logger.warning(f"Console log not found: {console_log_path}")
-
-    # Generate visualization report (failure-proof)
-    html_report = generate_visualization_report(
-        json_path=json_path,
-        model=model,
+        output_dir=output_dir,
         accelerator=accelerator,
         version=version,
         tp_size=tp_size,
         runtime_args=runtime_args,
-        output_dir=output_dir,
     )
+
+    for i, benchmark in enumerate(benchmarks):
+        metrics = extract_metrics_from_benchmark(benchmark)
+        if metrics:
+            logger.info(f"Benchmark {i + 1} metrics: {json.dumps(metrics, indent=2)}")
+
+    if Path(console_log_path).exists():
+        logger.info(f"Console log saved to: {console_log_path}")
 
     if html_report and Path(html_report).exists():
         logger.info(f"Visualization report saved to: {html_report}")
@@ -435,9 +489,9 @@ def run_benchmark_with_mlflow(
                 "backend_type": backend_type,
                 "rate_type": rate_type,
                 "rates": rate,
+                "tp": tp_size,
             }
             if data:
-                # params["data"] = data  # log data profile splitted
                 params.update(
                     {
                         d.split("=")[0].strip(): d.split("=")[1].strip()
@@ -452,16 +506,12 @@ def run_benchmark_with_mlflow(
                 params["processor"] = processor
             if accelerator:
                 params["accelerator"] = accelerator
-
-            params["tp"] = tp_size
-
             if version:
                 params["version"] = version
 
             mlflow.log_params(params)
 
             guidellm_version = os.environ.get("GUIDELLM_VERSION", "unknown")
-
             try:
                 vllm_version = requests.get(f"{target}/version", verify=False).json()[
                     "version"
@@ -479,11 +529,14 @@ def run_benchmark_with_mlflow(
                 default_tags["accelerator"] = accelerator
             if tags:
                 default_tags.update(tags)
-
             mlflow.set_tags(default_tags)
 
-            output_json = "/tmp/benchmark_sweep.json"
-            json_path, console_log_path = run_guidellm_cli(
+            (
+                json_path,
+                console_log_path,
+                benchmarks,
+                html_report,
+            ) = _run_and_process_benchmark(
                 target=target,
                 model=model,
                 rate=rate,
@@ -493,77 +546,47 @@ def run_benchmark_with_mlflow(
                 max_seconds=max_seconds,
                 max_requests=max_requests,
                 processor=processor,
-                output_path=output_json,
-            )
-
-            if Path(json_path).exists():
-                with open(json_path, "r") as f:
-                    result_json = json.load(f)
-
-                benchmarks = result_json.get("benchmarks", [])
-                if not benchmarks:
-                    logger.warning("No benchmarks found in JSON output")
-
-                logger.info(f"Found {len(benchmarks)} benchmark results in JSON.")
-
-                for benchmark in benchmarks:
-                    concurrency_step = 0
-
-                    # Support both v0.3.0 (args) and v0.4.0+ (config)
-                    config_or_args = benchmark.get("config") or benchmark.get(
-                        "args", {}
-                    )
-
-                    try:
-                        concurrency_step = int(config_or_args["strategy"]["streams"])
-                    except (KeyError, TypeError, IndexError):
-                        try:
-                            # Fallback for other strategies
-                            concurrency_step = int(
-                                config_or_args["profile"]["streams"][0]
-                            )
-                        except (KeyError, TypeError, IndexError):
-                            logger.warning(
-                                "Could not find concurrency 'streams' or 'measured_concurrencies'. "
-                                "Metrics will be logged without a step."
-                            )
-
-                    metrics = extract_metrics_from_benchmark(benchmark)
-
-                    if metrics:
-                        # Add concurrency as a metric for easier comparison
-                        metrics["concurrency"] = concurrency_step
-
-                        # Log each metric with the concurrency as the step
-                        for key, value in metrics.items():
-                            mlflow.log_metric(key, value, step=concurrency_step)
-
-                        logger.info(
-                            f"Logged {len(metrics)} metrics for step "
-                            f"(concurrency={concurrency_step})"
-                        )
-
-                mlflow.log_artifact(json_path, "results")
-                logger.info("Logged full JSON artifact")
-            else:
-                logger.warning(f"Output JSON not found: {json_path}")
-
-            if Path(console_log_path).exists():
-                mlflow.log_artifact(console_log_path, "logs")
-                logger.info("Logged console output")
-            else:
-                logger.warning(f"Console log not found: {console_log_path}")
-
-            # Generate visualization report (failure-proof)
-            html_report = generate_visualization_report(
-                json_path=json_path,
-                model=model,
+                output_dir="/tmp",
                 accelerator=accelerator,
                 version=version,
                 tp_size=tp_size,
                 runtime_args=runtime_args,
-                output_dir="/tmp",
             )
+
+            if not benchmarks:
+                logger.warning("No benchmarks found in JSON output")
+
+            for benchmark in benchmarks:
+                concurrency_step = 0
+                config_or_args = benchmark.get("config") or benchmark.get("args", {})
+                try:
+                    concurrency_step = int(config_or_args["strategy"]["streams"])
+                except (KeyError, TypeError, IndexError):
+                    try:
+                        concurrency_step = int(config_or_args["profile"]["streams"][0])
+                    except (KeyError, TypeError, IndexError):
+                        logger.warning(
+                            "Could not find concurrency 'streams'. "
+                            "Metrics will be logged without a step."
+                        )
+
+                metrics = extract_metrics_from_benchmark(benchmark)
+                if metrics:
+                    metrics["concurrency"] = concurrency_step
+                    for key, value in metrics.items():
+                        mlflow.log_metric(key, value, step=concurrency_step)
+                    logger.info(
+                        f"Logged {len(metrics)} metrics for step "
+                        f"(concurrency={concurrency_step})"
+                    )
+
+            if Path(json_path).exists():
+                mlflow.log_artifact(json_path, "results")
+                logger.info("Logged full JSON artifact")
+
+            if Path(console_log_path).exists():
+                mlflow.log_artifact(console_log_path, "logs")
+                logger.info("Logged console output")
 
             if html_report and Path(html_report).exists():
                 mlflow.log_artifact(html_report, "reports")
@@ -577,7 +600,7 @@ def run_benchmark_with_mlflow(
             return run.info.run_id
 
         except Exception as e:
-            logger.error(f"Benchmark sweep failed: {e}")
+            logger.error(f"Benchmark sweep failed: {e}", exc_info=True)
             mlflow.log_param("error", str(e))
             raise
 
