@@ -5,6 +5,7 @@ This guide covers advanced topics for using, modifying, and extending the llm-d-
 ## Table of Contents
 
 - [Repository Structure](#repository-structure)
+- [Infrastructure Requirements](#infrastructure-requirements)
 - [Tekton Concepts](#tekton-concepts)
 - [Parameter Inheritance and Defaults](#parameter-inheritance-and-defaults)
 - [Using the Tekton CLI](#using-the-tekton-cli)
@@ -61,6 +62,36 @@ llm-d-bench/
 - **`build/`**: Custom container image with MLflow integration
 - **`config/`**: Kubernetes resources (RBAC, secrets, PVCs)
 - **`scripts/`**: Installation and utility automation
+
+---
+
+## Infrastructure Requirements
+
+### Downstream Deployment (LLMInferenceService)
+
+This repository supports **downstream llm-d deployment** using distributed inference through `LLMInferenceService` via RHOAI 3.0. However, infrastructure provisioning is **not yet fully automated** and may require manual adjustments.
+
+**Key Points:**
+
+- **Deployment Mechanism**: Uses KServe's `LLMInferenceService` custom resource for distributed inference
+- **Infrastructure**: Requires RHOAI 3.0 (Red Hat OpenShift AI) or compatible KServe installation
+- **Manual Setup**: Infrastructure components may need manual configuration
+- **Reference Manifests**: See `infra/manifests/rhoai/` and `infra/manifests/rhcl/` for example configurations
+
+**What's Automated:**
+- Model download from HuggingFace
+- `LLMInferenceService` deployment and configuration
+- Benchmark execution
+- Deployment cleanup
+
+**What May Require Manual Setup:**
+- RHOAI/KServe operator installation
+- Service mesh configuration (Istio/OpenShift Service Mesh)
+- GPU node configuration and scheduling
+- Storage class provisioning
+- Network policies and ingress
+
+**Recommendation**: Review the manifests in `infra/manifests/` and adapt them to your cluster's configuration before running downstream e2e pipelines.
 
 ---
 

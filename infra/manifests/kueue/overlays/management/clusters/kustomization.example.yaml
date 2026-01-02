@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# SETUP INSTRUCTIONS AND ADD MORE CLUSTERS:
+#   1. Copy this file: cp kustomization.example.yaml kustomization.yaml
+#   2. Copy cluster example: 99-cluster-dummy.example.yaml 99-cluster-<name>.yaml
+#   3. Edit 99-cluster-<name>.yaml with your kubeconfig
+#   4. Uncomment the resources and patch below
+#   5. Add to resources list: "- 99-cluster-<name>.yaml"
+#   5. Add to patch clusters list: "- cluster-<name>"
+
+resources: []
+# Uncomment after creating 99-cluster-<name>.yaml:
+# - 99-cluster-<name>.yaml
+
+patches:
+- target:
+    kind: MultiKueueConfig
+    name: multikueue-config
+  patch: |-
+    - op: replace
+      path: /spec/clusters
+      value: []
+      # Uncomment and add cluster names:
+      # - cluster-<name>

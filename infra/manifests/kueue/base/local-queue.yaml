@@ -1,0 +1,8 @@
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  name: "llm-d-bench-jobs"
+  namespace: kueue
+spec:
+  clusterQueue: "benchmark-cluster-queue"

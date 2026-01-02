@@ -1,0 +1,94 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: runner-scripts
+  namespace: github-runners
+data:
+  startup.sh: |
+    #!/bin/bash
+    set -e
+
+    GITHUB_OWNER="${GITHUB_OWNER}"
+    GITHUB_REPOSITORY="${GITHUB_REPOSITORY}"
+    RUNNER_NAME="${RUNNER_NAME:-$(hostname)}"
+    RUNNER_WORKDIR="${RUNNER_WORKDIR:-_work}"
+    RUNNER_LABELS="${RUNNER_LABELS:-openshift,self-hosted}"
+    RUNNER_GROUP="${RUNNER_GROUP:-default}"
+
+    if [ -n "${GITHUB_REPOSITORY}" ]; then
+      REGISTRATION_URL="https://github.com/${GITHUB_OWNER}/${GITHUB_REPOSITORY}"
+      echo "Registering runner for repository: ${REGISTRATION_URL}"
+    else
+      REGISTRATION_URL="https://github.com/${GITHUB_OWNER}"
+      echo "Registering runner for organization: ${REGISTRATION_URL}"
+    fi
+
+    # Get registration token
+    if [ -n "${GITHUB_REPOSITORY}" ]; then
+      REGISTRATION_TOKEN=$(curl -sX POST \
+        -H "Authorization: token ${GITHUB_TOKEN}" \
+        -H "Accept: application/vnd.github.v3+json" \
+        "https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPOSITORY}/actions/runners/registration-token" \
+        | jq -r .token)
+    else
+      REGISTRATION_TOKEN=$(curl -sX POST \
+        -H "Authorization: token ${GITHUB_TOKEN}" \
+        -H "Accept: application/vnd.github.v3+json" \
+        "https://api.github.com/orgs/${GITHUB_OWNER}/actions/runners/registration-token" \
+        | jq -r .token)
+    fi
+
+    if [ -z "${REGISTRATION_TOKEN}" ] || [ "${REGISTRATION_TOKEN}" == "null" ]; then
+      echo "Failed to get registration token"
+      exit 1
+    fi
+
+    # Find the actions-runner directory - check common locations
+    echo "Searching for actions-runner directory..."
+    ls -la / || true
+    ls -la /home/ || true
+
+    # Try common paths
+    for path in /actions-runner /home/runner/actions-runner /runner /opt/actions-runner; do
+      if [ -d "$path" ]; then
+        RUNNER_HOME="$path"
+        echo "Found runner at: ${RUNNER_HOME}"
+        break
+      fi
+    done
+
+    if [ -z "${RUNNER_HOME}" ]; then
+      echo "Error: Could not find actions-runner directory in common paths"
+      echo "Attempting full search..."
+      RUNNER_HOME=$(find / -type d -name "actions-runner" -o -name "runner" 2>/dev/null | head -n 1)
+    fi
+
+    if [ -z "${RUNNER_HOME}" ]; then
+      echo "Error: Could not find actions-runner directory anywhere"
+      exit 1
+    fi
+
+    echo "Using runner directory: ${RUNNER_HOME}"
+    cd "${RUNNER_HOME}"
+
+    # Configure the runner
+    ./config.sh \
+      --url "${REGISTRATION_URL}" \
+      --token "${REGISTRATION_TOKEN}" \
+      --name "${RUNNER_NAME}" \
+      --work "${RUNNER_WORKDIR}" \
+      --labels "${RUNNER_LABELS}" \
+      --runnergroup "${RUNNER_GROUP}" \
+      --unattended \
+      --replace
+
+    # Cleanup function
+    cleanup() {
+      echo "Removing runner..."
+      ./config.sh remove --token "${REGISTRATION_TOKEN}"
+    }
+
+    trap cleanup EXIT
+
+    # Start the runner
+    ./run.sh

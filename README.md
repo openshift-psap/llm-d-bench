@@ -108,6 +108,17 @@ oc apply -f https://storage.googleapis.com/tekton-releases/dashboard/latest/rele
 oc expose svc tekton-dashboard -n tekton-pipelines
 ```
 
+### Install Experiments Infra (Recommended)
+
+> [!NOTE]
+> llm-d-bench can be used without deploying this infra, but it is advised for CI/CD integration and experiment tracking, among others.
+
+The deployment of the experiments infrastructure is completely optional and it is inteded to be a persistent environment for automated benchmarking. The infrastructure is composed by MLFlow, Self Hosted GitHub Action Runners and Kueue with MultiCluster capabilities.
+
+In order to deploy it, create the necessary secrets within `infra/manifests/{mlflow,github-runners,kueue}` and then simply run `oc apply -k .` from the `infra/` dir.
+
+Other manifests for deploying RHOAI and configuring Distributed Inference can be found inside `infra/{rhoai,rhcl}` too.
+
 ## Pipelines
 
 | Pipeline | Purpose | Tasks |

@@ -1,0 +1,6 @@
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  # Label for your resources, default-flavor is fine
+  name: "default-flavor"
