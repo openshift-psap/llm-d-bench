@@ -28,7 +28,14 @@ spec:
     - name: NAMESPACE
       value: "downstream-llm-d"
     - name: VLLM_ARGS
-      value: '[]'
+      value:
+        - "--max-model-len=8192"
+        - "--uvicorn-log-level=debug"
+        - "--trust-remote-code"
+        - "--gpu-memory-utilization=0.92"
+        - "--no-enable-prefix-caching"
+        - "--disable-log-requests"
+        - "--kv-cache-dtype=fp8"
     - name: ENABLE_AUTH
       value: "false"
     - name: REPLICAS
@@ -38,7 +45,7 @@ spec:
     - name: IMAGE
       value: "image-registry.openshift-image-registry.svc:5000/downstream-llm-d/guidellm-custom:latest"
     - name: TARGET
-      value: "https://inference-gateway.apps.example.com/downstream-llm-d/redhatai-llama-4-maverick-17b-128e-instruct-fp8"
+      value: "https://redhatai-llama-4-maverick-17b-128e-instruc-kserve-workload-svc.downstream-llm-d.svc.cluster.local:8000"
     - name: PROCESSOR
       value: "RedHatAI/Llama-4-Maverick-17B-128E-Instruct-FP8"
     - name: BACKEND_TYPE
@@ -60,14 +67,14 @@ spec:
     - name: VERSION
       value: "RHOAI-3.0"
     - name: TP
-      value: "1"
+      value: "8"
 
     # MLflow Configuration
     - name: MLFLOW_ENABLED
       value: "true"
     - name: TAGS
       value:
-        - "llm-d-version=RHOAI 3.0"
+        - "llm-d-version=RHOAI-3.0"
 
     # Health Check Configuration
     - name: HEALTH_CHECK_TIMEOUT
