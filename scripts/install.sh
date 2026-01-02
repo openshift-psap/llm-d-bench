@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# install.sh - Install all Tekton resources for llm-d-tekton
+# install.sh - Install all Tekton resources for llm-d-bench
 #
 # This script installs Tasks, Pipelines, and optionally PVCs in the specified namespace.
 #

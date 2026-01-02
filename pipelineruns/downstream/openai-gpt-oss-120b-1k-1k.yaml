@@ -3,7 +3,7 @@ kind: PipelineRun
 metadata:
   generateName: openai-gpt-oss-120b-1k-1k-
   labels:
-    app: llm-d-tekton
+    app: llm-d-bench
     pipeline: downstream-end-to-end-benchmark
     experiment: openai-gpt-oss-120b-1k-1k
 spec:

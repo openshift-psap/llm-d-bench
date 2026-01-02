@@ -3,7 +3,7 @@ kind: PipelineRun
 metadata:
   generateName: benchmark-run-
   labels:
-    app: llm-d-tekton
+    app: llm-d-bench
     pipeline: run-benchmark
 spec:
   pipelineRef:

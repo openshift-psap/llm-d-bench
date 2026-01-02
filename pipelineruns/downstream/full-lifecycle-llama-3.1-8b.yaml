@@ -3,7 +3,7 @@ kind: PipelineRun
 metadata:
   generateName: full-lifecycle-llama-31-8b-
   labels:
-    app: llm-d-tekton
+    app: llm-d-bench
     pipeline: downstream-end-to-end-benchmark
     model: llama-3.1-8b
     experiment: full-lifecycle-demo

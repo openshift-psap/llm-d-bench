@@ -3,14 +3,14 @@ kind: ServiceAccount
 metadata:
   name: deploy-model-sa
   labels:
-    app: llm-d-tekton
+    app: llm-d-bench
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: deploy-model-role
   labels:
-    app: llm-d-tekton
+    app: llm-d-bench
 rules:
   # Allow creating, getting, and deleting LLMInferenceService resources
   - apiGroups:
@@ -30,7 +30,7 @@ kind: RoleBinding
 metadata:
   name: deploy-model-rolebinding
   labels:
-    app: llm-d-tekton
+    app: llm-d-bench
 subjects:
   - kind: ServiceAccount
     name: deploy-model-sa

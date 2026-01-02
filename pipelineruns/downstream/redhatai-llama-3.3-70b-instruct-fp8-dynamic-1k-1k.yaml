@@ -3,7 +3,7 @@ kind: PipelineRun
 metadata:
   generateName: redhatai-llama-33-70b-instruct-fp8-dynamic-1k-1k-
   labels:
-    app: llm-d-tekton
+    app: llm-d-bench
     pipeline: downstream-end-to-end-benchmark
     experiment: redhatai-llama-33-70b-instruct-fp8-dynamic-1k-1k
 spec:

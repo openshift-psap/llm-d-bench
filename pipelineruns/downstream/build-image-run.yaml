@@ -3,7 +3,7 @@ kind: PipelineRun
 metadata:
   generateName: build-guidellm-image-
   labels:
-    app: llm-d-tekton
+    app: llm-d-bench
     pipeline: build-image
 spec:
   pipelineRef:

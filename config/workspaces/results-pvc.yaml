@@ -3,7 +3,7 @@ kind: PersistentVolumeClaim
 metadata:
   name: benchmark-results
   labels:
-    app: llm-d-tekton
+    app: llm-d-bench
     type: workspace
 spec:
   accessModes:

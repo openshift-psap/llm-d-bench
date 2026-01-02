@@ -3,7 +3,7 @@ kind: PipelineRun
 metadata:
   generateName: meta-llama-31-8b-1k-1k-
   labels:
-    app: llm-d-tekton
+    app: llm-d-bench
     pipeline: downstream-end-to-end-benchmark
     experiment: meta-llama-3.1-8b-1k-1k
 spec:

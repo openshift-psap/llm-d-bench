@@ -3,7 +3,7 @@ kind: PipelineRun
 metadata:
   generateName: qwen-qwen3-06b-1k-1k-
   labels:
-    app: llm-d-tekton
+    app: llm-d-bench
     pipeline: downstream-end-to-end-benchmark
     experiment: qwen-qwen3-06b-1k-1k
 spec:
