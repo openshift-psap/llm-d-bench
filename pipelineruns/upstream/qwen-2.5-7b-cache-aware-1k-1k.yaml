@@ -30,8 +30,6 @@ spec:
       value: "qwen25-7b-cache"
     - name: NAMESPACE
       value: "downstream-llm-d"
-    - name: DEPLOYMENT_PROFILE
-      value: "precise-cache"
     - name: GATEWAY_PROVIDER
       value: "istio"
     - name: MODEL_REPLICAS
@@ -47,12 +45,7 @@ spec:
         - "--max-num-batched-tokens=16384"
         - "--kv-cache-dtype=auto"
         - "--disable-log-requests"
-    - name: INFRA_CHART_VERSION
-      value: "v1.3.5"
-    - name: GAIE_CHART_VERSION
-      value: "v1.2.0"
-    - name: MS_CHART_VERSION
-      value: "v0.3.8"
+        - "--enable-prefix-caching"
 
     # Benchmark Configuration
     - name: IMAGE

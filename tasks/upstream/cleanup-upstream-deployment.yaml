@@ -3,7 +3,7 @@ kind: Task
 metadata:
   name: cleanup-upstream-deployment
   labels:
-    app.kubernetes.io/version: "0.1"
+    app.kubernetes.io/version: "0.2"
   annotations:
     tekton.dev/displayName: "Cleanup Upstream Deployment"
     tekton.dev/tags: cleanup, helm, helmfile, upstream
@@ -12,6 +12,7 @@ spec:
   description: >-
     Delete an upstream deployment by removing all Helm releases.
     This task removes the infrastructure, GAIE pool, and model service
+    (pattern: {component}-inference-scheduling-{RELEASE_NAME})
     but preserves models on the PVC.
 
   params:
@@ -54,7 +55,7 @@ spec:
         # Check if any releases exist
         RELEASES_EXIST=false
         for component in ms gaie infra; do
-          if helm list -n $(params.NAMESPACE) | grep -q "${component}-$(params.RELEASE_NAME)"; then
+          if helm list -n $(params.NAMESPACE) | grep -q "${component}-inference-scheduling-$(params.RELEASE_NAME)"; then
             RELEASES_EXIST=true
             break
           fi
@@ -72,7 +73,7 @@ spec:
 
         # Delete releases in reverse order (ms → gaie → infra)
         for component in ms gaie infra; do
-          RELEASE_NAME="${component}-$(params.RELEASE_NAME)"
+          RELEASE_NAME="${component}-inference-scheduling-$(params.RELEASE_NAME)"
 
           if helm list -n $(params.NAMESPACE) | grep -q "$RELEASE_NAME"; then
             echo "Deleting Helm release: $RELEASE_NAME"

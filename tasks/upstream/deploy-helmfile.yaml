@@ -3,20 +3,22 @@ kind: Task
 metadata:
   name: deploy-helmfile
   labels:
-    app.kubernetes.io/version: "0.1"
+    app.kubernetes.io/version: "0.2"
   annotations:
-    tekton.dev/displayName: "Deploy Upstream Model with Helmfile"
-    tekton.dev/tags: model, deploy, helm, helmfile, upstream
+    tekton.dev/displayName: "Deploy Upstream Model with llm-d GitOps"
+    tekton.dev/tags: model, deploy, helm, helmfile, upstream, gitops
     tekton.dev/platforms: "linux/amd64"
 spec:
   description: >-
-    Deploy a model using Helmfile for upstream inference-scheduling.
-    This task deploys the llm-d infrastructure with intelligent scheduling,
-    GAIE inference pool, and model service.
+    Deploy a model using GitOps approach by cloning the official llm-d repository
+    and deploying with the inference-scheduling guide.
+    This task clones https://github.com/llm-d/llm-d, patches values.yaml with yq,
+    and deploys using the upstream helmfile.
 
   params:
+    # Core Model Configuration
     - name: MODEL_NAME
-      description: HuggingFace model identifier
+      description: HuggingFace model identifier (e.g., meta-llama/Llama-3.1-8B)
       type: string
 
     - name: MODEL_REVISION
@@ -24,72 +26,228 @@ spec:
       type: string
       default: "main"
 
+    # Deployment Configuration
     - name: RELEASE_NAME
-      description: Unique release name for this deployment
+      description: Unique release name postfix
       type: string
 
     - name: NAMESPACE
       description: Namespace for deployment
       type: string
 
-    - name: DEPLOYMENT_PROFILE
-      description: "Deployment profile: gaie, standard, or precise-cache"
-      type: string
-      default: "standard"
-
     - name: GATEWAY_PROVIDER
-      description: Gateway provider (istio, gke, or standalone)
+      description: "Gateway provider: istio (default), kgateway, standalone, gke"
       type: string
       default: "istio"
 
+    # Scaling & Resources
     - name: MODEL_REPLICAS
-      description: Number of model replicas
+      description: Number of vLLM worker replicas
       type: string
       default: "1"
 
     - name: TP
-      description: Tensor parallelism size
+      description: Tensor parallelism size (GPUs per pod)
       type: string
       default: "1"
+
+    # Storage & Authentication
+    - name: MODEL_PVC
+      description: PVC name for model storage
+      type: string
+      default: "models-storage"
 
     - name: HF_TOKEN_SECRET
       description: Secret name containing HuggingFace token
       type: string
       default: "huggingface-token"
 
+    # Advanced Configuration
     - name: VLLM_ARGS
       description: Additional vLLM arguments as array
       type: array
       default: []
 
-    - name: INFRA_CHART_VERSION
-      description: Infrastructure chart version
-      type: string
-      default: "v1.3.5"
-
-    - name: GAIE_CHART_VERSION
-      description: GAIE chart version
-      type: string
-      default: "v1.2.0"
-
-    - name: MS_CHART_VERSION
-      description: ModelService chart version
-      type: string
-      default: "v0.3.8"
-
+    # Control Flags
     - name: SKIP_IF_EXISTS
       description: Skip deployment if release already exists
       type: string
       default: "true"
 
+    # llm-d Repository Configuration
+    - name: LLM_D_REPO_URL
+      description: llm-d repository URL (for testing forks)
+      type: string
+      default: "https://github.com/llm-d/llm-d.git"
+
+    - name: LLM_D_REPO_REF
+      description: llm-d repository branch/tag/commit
+      type: string
+      default: "main"
+
   workspaces:
     - name: source
-      description: Workspace containing llm-d-bench repository
+      description: Workspace for cloning llm-d repository
 
   steps:
+    # Step 1: Clone llm-d Repository
+    - name: clone-llm-d-repo
+      image: registry.access.redhat.com/ubi9/ubi:latest
+      workingDir: $(workspaces.source.path)
+      script: |
+        #!/bin/bash
+        set -e
+
+        echo "=== Step 1: Cloning llm-d Repository ==="
+        echo "Repository: $(params.LLM_D_REPO_URL)"
+        echo "Reference: $(params.LLM_D_REPO_REF)"
+        echo ""
+
+        # Install git
+        if ! command -v git &> /dev/null; then
+          echo "Installing git..."
+          dnf install -y git --quiet
+        fi
+
+        # Clone repository
+        echo "Cloning llm-d repository..."
+        if ! git clone --depth 1 --branch "$(params.LLM_D_REPO_REF)" "$(params.LLM_D_REPO_URL)" llm-d-repo; then
+          echo "ERROR: Failed to clone llm-d repository"
+          echo "Repository: $(params.LLM_D_REPO_URL)"
+          echo "Reference: $(params.LLM_D_REPO_REF)"
+          echo "Check network connectivity and repository URL"
+          exit 1
+        fi
+
+        # Verify guide directory exists
+        if [ ! -d "llm-d-repo/guides/inference-scheduling" ]; then
+          echo "ERROR: inference-scheduling guide not found in cloned repository"
+          echo "Expected path: llm-d-repo/guides/inference-scheduling"
+          echo "Repository may be corrupted or structure changed"
+          echo ""
+          echo "Available guides:"
+          ls -la llm-d-repo/guides/
+          exit 1
+        fi
+
+        echo ""
+        echo "✓ Repository cloned successfully"
+        echo "  Path: $(workspaces.source.path)/llm-d-repo"
+        echo "  Guide: guides/inference-scheduling"
+        echo ""
+        echo "Guide contents:"
+        ls -la llm-d-repo/guides/inference-scheduling/
+
+    # Step 2: Patch Values with yq
+    - name: patch-values
+      image: ghcr.io/helmfile/helmfile:latest
+      workingDir: $(workspaces.source.path)/llm-d-repo/guides/inference-scheduling
+      env:
+        - name: HOME
+          value: /tmp
+      args:
+        - $(params.VLLM_ARGS[*])
+      script: |
+        #!/bin/bash
+        set -e
+
+        echo "=== Step 2: Patching Values with yq ==="
+        echo ""
+
+        # Install yq (mikefarah/yq v4.x)
+        echo "Installing yq..."
+        YQ_VERSION="v4.40.5"
+        if ! wget -qO /tmp/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"; then
+          echo "ERROR: Failed to download yq"
+          exit 1
+        fi
+        chmod +x /tmp/yq
+
+        VALUES_FILE="ms-inference-scheduling/values.yaml"
+
+        # Verify values file exists
+        if [ ! -f "$VALUES_FILE" ]; then
+          echo "ERROR: values.yaml not found at $VALUES_FILE"
+          echo "Directory contents:"
+          ls -la ms-inference-scheduling/
+          exit 1
+        fi
+
+        echo "Original values.yaml:"
+        echo "---"
+        cat $VALUES_FILE
+        echo "---"
+        echo ""
+
+        echo "Applying patches..."
+        echo "  Model: $(params.MODEL_NAME)"
+        echo "  Replicas: $(params.MODEL_REPLICAS)"
+        echo "  TP: $(params.TP)"
+        echo "  PVC: $(params.MODEL_PVC)"
+        echo ""
+
+        # Sanitize model name for PVC path (replace / with -)
+        MODEL_NAME_SANITIZED=$(echo "$(params.MODEL_NAME)" | sed 's|/|-|g')
+
+        # 1. Model Artifacts Configuration
+        /tmp/yq -i '.modelArtifacts.name = "$(params.MODEL_NAME)"' $VALUES_FILE
+        /tmp/yq -i '.modelArtifacts.uri = "pvc://$(params.MODEL_PVC)/models/'"$MODEL_NAME_SANITIZED"'"' $VALUES_FILE
+        /tmp/yq -i '.modelArtifacts.authSecretName = "$(params.HF_TOKEN_SECRET)"' $VALUES_FILE
+
+        # 2. Replicas
+        /tmp/yq -i '.decode.replicas = $(params.MODEL_REPLICAS)' $VALUES_FILE
+
+        # 3. Tensor Parallelism and GPU Resources
+        TP=$(params.TP)
+        if [ "$TP" -gt 1 ]; then
+          echo "  Configuring TP=$TP..."
+          /tmp/yq -i '.decode.containers[0].args += ["--tensor-parallel-size", "'"$TP"'"]' $VALUES_FILE
+          /tmp/yq -i '.decode.containers[0].resources.limits."nvidia.com/gpu" = '"$TP" $VALUES_FILE
+          /tmp/yq -i '.decode.containers[0].resources.requests."nvidia.com/gpu" = '"$TP" $VALUES_FILE
+        else
+          echo "  Configuring single GPU..."
+          /tmp/yq -i '.decode.containers[0].resources.limits."nvidia.com/gpu" = 1' $VALUES_FILE
+          /tmp/yq -i '.decode.containers[0].resources.requests."nvidia.com/gpu" = 1' $VALUES_FILE
+        fi
+
+        # 4. Served Model Name
+        /tmp/yq -i '.decode.containers[0].args += ["--served-model-name", "$(params.MODEL_NAME)"]' $VALUES_FILE
+
+        # 5. Model Revision (if not main)
+        if [ "$(params.MODEL_REVISION)" != "main" ]; then
+          echo "  Setting model revision: $(params.MODEL_REVISION)"
+          /tmp/yq -i '.decode.containers[0].args += ["--revision", "$(params.MODEL_REVISION)"]' $VALUES_FILE
+        fi
+
+        # 6. Additional vLLM Args
+        echo "  Processing additional vLLM args..."
+        for arg in "$@"; do
+          if [ -n "$arg" ]; then
+            echo "    Adding arg: $arg"
+            /tmp/yq -i '.decode.containers[0].args += ["'"$arg"'"]' $VALUES_FILE
+          fi
+        done
+
+        # Validate patched YAML
+        if ! /tmp/yq eval '.' $VALUES_FILE > /dev/null; then
+          echo "ERROR: Patched values.yaml is not valid YAML"
+          echo "This may indicate a yq version incompatibility"
+          cat $VALUES_FILE
+          exit 1
+        fi
+
+        echo ""
+        echo "✓ Values patched successfully"
+        echo ""
+        echo "Patched values.yaml:"
+        echo "---"
+        cat $VALUES_FILE
+        echo "---"
+
+    # Step 3: Deploy with Helmfile
     - name: deploy-helmfile
       image: ghcr.io/helmfile/helmfile:latest
-      workingDir: $(workspaces.source.path)/tasks/upstream/config
+      workingDir: $(workspaces.source.path)/llm-d-repo/guides/inference-scheduling
       env:
         - name: HOME
           value: /tmp
@@ -97,102 +255,215 @@ spec:
           value: /tmp/.cache/helm
         - name: HELM_CONFIG_HOME
           value: /tmp/.config/helm
-      args:
-        - $(params.VLLM_ARGS[*])
       script: |
         #!/bin/bash
         set -e
 
-        echo "Upstream Deployment Configuration:"
-        echo "  Release: $(params.RELEASE_NAME)"
-        echo "  Model: $(params.MODEL_NAME)"
-        echo "  Revision: $(params.MODEL_REVISION)"
-        echo "  Namespace: $(params.NAMESPACE)"
-        echo "  Profile: $(params.DEPLOYMENT_PROFILE)"
-        echo "  Gateway: $(params.GATEWAY_PROVIDER)"
-        echo "  TP: $(params.TP)"
-        echo "  Replicas: $(params.MODEL_REPLICAS)"
+        echo "=== Step 3: Deploying with Helmfile ==="
         echo ""
 
-        # Check if release exists
+        NAMESPACE=$(params.NAMESPACE)
+        RELEASE_NAME=$(params.RELEASE_NAME)
+        GATEWAY_PROVIDER=$(params.GATEWAY_PROVIDER)
+
+        echo "Deployment Configuration:"
+        echo "  Namespace: $NAMESPACE"
+        echo "  Release Postfix: $RELEASE_NAME"
+        echo "  Gateway Provider: $GATEWAY_PROVIDER"
+        echo ""
+
+        # Check for existing releases (idempotency)
         if [ "$(params.SKIP_IF_EXISTS)" = "true" ]; then
-          # Check if ms release exists (it's deployed in standard/precise-cache profiles)
-          if [ "$(params.DEPLOYMENT_PROFILE)" != "gaie" ]; then
-            if helm list -n $(params.NAMESPACE) | grep -q "ms-$(params.RELEASE_NAME)"; then
-              echo "✓ Release ms-$(params.RELEASE_NAME) already exists - skipping"
-              exit 0
-            fi
-          else
-            # For gaie-only profile, check gaie release
-            if helm list -n $(params.NAMESPACE) | grep -q "gaie-$(params.RELEASE_NAME)"; then
-              echo "✓ Release gaie-$(params.RELEASE_NAME) already exists - skipping"
-              exit 0
-            fi
+          if helm list -n $NAMESPACE 2>/dev/null | grep -q "ms-.*$RELEASE_NAME"; then
+            echo "✓ Release already exists - skipping deployment"
+            echo ""
+            echo "Existing releases:"
+            helm list -n $NAMESPACE | grep "$RELEASE_NAME" || true
+            exit 0
           fi
         fi
 
-        # Build VLLM args from positional parameters
-        VLLM_ARGS_LIST=""
-        for arg in "$@"; do
-          if [ -n "$arg" ]; then
-            VLLM_ARGS_LIST="${VLLM_ARGS_LIST}${arg},"
-          fi
-        done
-        # Remove trailing comma
-        VLLM_ARGS_LIST="${VLLM_ARGS_LIST%,}"
+        # Check helm is accessible
+        if ! helm version; then
+          echo "ERROR: helm command not available"
+          echo "Container image may be incorrect"
+          exit 1
+        fi
 
-        # Export environment variables for helmfile templating
-        export NAMESPACE=$(params.NAMESPACE)
-        export RELEASE_NAME=$(params.RELEASE_NAME)
-        export MODEL_NAME=$(params.MODEL_NAME)
-        export MODEL_REVISION=$(params.MODEL_REVISION)
-        export TP=$(params.TP)
-        export MODEL_PVC="models-storage"
-        export HF_TOKEN_SECRET=$(params.HF_TOKEN_SECRET)
-        export GATEWAY_PROVIDER=$(params.GATEWAY_PROVIDER)
-        export DEPLOYMENT_PROFILE=$(params.DEPLOYMENT_PROFILE)
-        export MODEL_REPLICAS=$(params.MODEL_REPLICAS)
-        export VLLM_ARGS="$VLLM_ARGS_LIST"
-        export INFRA_CHART_VERSION=$(params.INFRA_CHART_VERSION)
-        export GAIE_CHART_VERSION=$(params.GAIE_CHART_VERSION)
-        export MS_CHART_VERSION=$(params.MS_CHART_VERSION)
+        # Initialize helmfile plugins
+        echo "Initializing helmfile..."
+        if ! helmfile init --force; then
+          echo "ERROR: Failed to initialize helmfile"
+          exit 1
+        fi
 
-        echo "Helmfile environment variables:"
-        echo "  NAMESPACE=$NAMESPACE"
-        echo "  RELEASE_NAME=$RELEASE_NAME"
-        echo "  MODEL_NAME=$MODEL_NAME"
-        echo "  MODEL_REVISION=$MODEL_REVISION"
-        echo "  DEPLOYMENT_PROFILE=$DEPLOYMENT_PROFILE"
-        echo "  GATEWAY_PROVIDER=$GATEWAY_PROVIDER"
-        echo "  TP=$TP"
-        echo "  MODEL_REPLICAS=$MODEL_REPLICAS"
-        echo "  VLLM_ARGS=$VLLM_ARGS"
-        echo ""
-
-        echo "Working directory: $(pwd)"
-        echo "Config files:"
-        ls -la
-        echo ""
-
-        echo "Initializing helmfile plugins..."
-        helmfile init --force
-        echo ""
-
-        echo "Applying helmfile..."
-        helmfile apply --namespace "$NAMESPACE" --skip-deps=false --suppress-secrets
-
-        echo ""
-        echo "✓ Upstream deployment complete!"
-        case "$(params.DEPLOYMENT_PROFILE)" in
-          gaie)
-            echo "  Infrastructure: infra-$(params.RELEASE_NAME)"
-            echo "  GAIE Pool: gaie-$(params.RELEASE_NAME)"
+        # Determine environment flag based on gateway provider
+        ENV_FLAG=""
+        case "$GATEWAY_PROVIDER" in
+          istio)
+            ENV_FLAG=""  # Default is istio
             ;;
-          standard|precise-cache)
-            echo "  Infrastructure: infra-$(params.RELEASE_NAME)"
-            echo "  GAIE Pool: gaie-$(params.RELEASE_NAME)"
-            echo "  Model Service: ms-$(params.RELEASE_NAME)"
+          kgateway)
+            ENV_FLAG="-e kgateway"
+            ;;
+          standalone)
+            ENV_FLAG="-e standalone"
+            ;;
+          gke)
+            ENV_FLAG="-e gke"
+            ;;
+          *)
+            echo "WARNING: Unknown gateway provider: $GATEWAY_PROVIDER, using default (istio)"
             ;;
         esac
+
+        # Set release name postfix environment variable for helmfile
+        export RELEASE_NAME_POSTFIX="$RELEASE_NAME"
+
+        # Deploy with helmfile
+        echo "Running helmfile apply..."
+        echo "  Command: helmfile apply $ENV_FLAG -n $NAMESPACE --skip-deps=false --suppress-secrets"
         echo ""
-        echo "Use 'helm list -n $(params.NAMESPACE)' to check releases"
+
+        set +e
+        helmfile apply $ENV_FLAG -n $NAMESPACE --skip-deps=false --suppress-secrets
+        HELMFILE_EXIT_CODE=$?
+        set -e
+
+        if [ $HELMFILE_EXIT_CODE -ne 0 ]; then
+          echo "ERROR: helmfile apply failed with exit code $HELMFILE_EXIT_CODE"
+          echo ""
+          echo "Checking Helm releases:"
+          helm list -n $NAMESPACE || true
+          echo ""
+          echo "Checking namespace resources:"
+          kubectl get all -n $NAMESPACE || true
+          exit $HELMFILE_EXIT_CODE
+        fi
+
+        echo ""
+        echo "✓ Deployment complete!"
+        echo "  Infrastructure: infra-inference-scheduling-$RELEASE_NAME"
+        echo "  GAIE Pool: gaie-inference-scheduling-$RELEASE_NAME"
+        echo "  Model Service: ms-inference-scheduling-$RELEASE_NAME"
+        echo ""
+        echo "Deployed releases:"
+        helm list -n $NAMESPACE | grep "$RELEASE_NAME" || true
+
+    # Step 4: Verify Deployment
+    - name: verify-deployment
+      image: registry.access.redhat.com/ubi9/ubi:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        echo "=== Step 4: Verifying Deployment ==="
+        echo ""
+
+        NAMESPACE=$(params.NAMESPACE)
+        RELEASE_NAME=$(params.RELEASE_NAME)
+        TIMEOUT=600  # 10 minutes
+        INTERVAL=10  # Check every 10 seconds
+
+        echo "Verification Configuration:"
+        echo "  Namespace: $NAMESPACE"
+        echo "  Release: $RELEASE_NAME"
+        echo "  Timeout: ${TIMEOUT}s"
+        echo ""
+
+        # Function to check pod status
+        check_pods() {
+          local label=$1
+          local component_name=$2
+
+          local ready_count=$(kubectl get pods -n $NAMESPACE -l "$label" -o jsonpath='{.items[*].status.containerStatuses[*].ready}' 2>/dev/null | grep -o "true" | wc -l || echo 0)
+          local total_count=$(kubectl get pods -n $NAMESPACE -l "$label" --no-headers 2>/dev/null | wc -l || echo 0)
+
+          echo "  $component_name: $ready_count/$total_count ready"
+
+          if [ "$total_count" -gt 0 ] && [ "$ready_count" -eq "$total_count" ]; then
+            return 0
+          fi
+          return 1
+        }
+
+        START_TIME=$(date +%s)
+        END_TIME=$((START_TIME + TIMEOUT))
+
+        echo "Waiting for pods to be ready (timeout: ${TIMEOUT}s)..."
+        echo ""
+
+        while true; do
+          CURRENT_TIME=$(date +%s)
+
+          if [ $CURRENT_TIME -ge $END_TIME ]; then
+            echo "ERROR: Timeout waiting for deployment to be ready"
+            echo ""
+            echo "=== Diagnostic Information ==="
+            echo ""
+            echo "Helm Releases:"
+            helm list -n $NAMESPACE || true
+            echo ""
+            echo "Pods:"
+            kubectl get pods -n $NAMESPACE -o wide || true
+            echo ""
+            echo "Recent Events:"
+            kubectl get events -n $NAMESPACE --sort-by='.lastTimestamp' | tail -20 || true
+            echo ""
+            echo "Gateway Status:"
+            kubectl get gateway -n $NAMESPACE -o yaml || echo "No gateway found"
+            echo ""
+            echo "InferencePool Status:"
+            kubectl get inferencepool -n $NAMESPACE -o yaml || echo "No inferencepool found"
+            exit 1
+          fi
+
+          # Check EPP (External Processing Pod) - GAIE
+          EPP_READY=false
+          if check_pods "app.kubernetes.io/name=epp" "EPP"; then
+            EPP_READY=true
+          fi
+
+          # Check Gateway
+          GATEWAY_READY=false
+          if kubectl get gateway -n $NAMESPACE inference-gateway &>/dev/null; then
+            GATEWAY_READY=true
+            echo "  Gateway: Found"
+          else
+            echo "  Gateway: Not found"
+          fi
+
+          # Check ModelService pods
+          MS_READY=false
+          if check_pods "llm-d.ai/inferenceServing=true" "ModelService"; then
+            MS_READY=true
+          fi
+
+          echo ""
+
+          # Check if all components are ready
+          if [ "$EPP_READY" = "true" ] && [ "$GATEWAY_READY" = "true" ] && [ "$MS_READY" = "true" ]; then
+            ELAPSED=$((CURRENT_TIME - START_TIME))
+            echo "✓ All components ready! (${ELAPSED}s)"
+            echo ""
+            echo "=== Deployment Summary ==="
+            echo ""
+            echo "Pods:"
+            kubectl get pods -n $NAMESPACE || true
+            echo ""
+            echo "Services:"
+            kubectl get svc -n $NAMESPACE || true
+            echo ""
+            echo "Gateway:"
+            kubectl get gateway -n $NAMESPACE || true
+            echo ""
+            echo "InferencePool:"
+            kubectl get inferencepool -n $NAMESPACE || true
+            exit 0
+          fi
+
+          ELAPSED=$((CURRENT_TIME - START_TIME))
+          REMAINING=$((TIMEOUT - ELAPSED))
+          echo "Waiting for all components (${ELAPSED}s elapsed, ${REMAINING}s remaining)..."
+          sleep $INTERVAL
+        done

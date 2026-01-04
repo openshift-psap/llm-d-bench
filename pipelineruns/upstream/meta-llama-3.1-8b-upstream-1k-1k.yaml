@@ -29,8 +29,6 @@ spec:
       value: "llama-31-8b-test"
     - name: NAMESPACE
       value: "downstream-llm-d"
-    - name: DEPLOYMENT_PROFILE
-      value: "standard"
     - name: GATEWAY_PROVIDER
       value: "istio"
     - name: MODEL_REPLICAS
@@ -41,12 +39,6 @@ spec:
       value:
         - "--max-model-len=8192"
         - "--gpu-memory-utilization=0.9"
-    - name: INFRA_CHART_VERSION
-      value: "v1.3.5"
-    - name: GAIE_CHART_VERSION
-      value: "v1.2.0"
-    - name: MS_CHART_VERSION
-      value: "v0.3.8"
 
     # Benchmark Configuration
     - name: IMAGE

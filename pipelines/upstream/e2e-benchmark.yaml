@@ -3,7 +3,7 @@ kind: Pipeline
 metadata:
   name: upstream-end-to-end-benchmark
   labels:
-    app.kubernetes.io/version: "0.1"
+    app.kubernetes.io/version: "0.2"
   annotations:
     tekton.dev/displayName: "Upstream End-to-End Benchmark"
     tekton.dev/tags: benchmark, llm, lifecycle, upstream, helmfile
@@ -28,17 +28,6 @@ spec:
       type: string
       default: "main"
 
-    # Repository Configuration
-    - name: GIT_URL
-      description: Git repository URL containing helmfile config
-      type: string
-      default: "https://github.com/openshift-psap/llm-d-bench.git"
-
-    - name: GIT_REVISION
-      description: Git revision to checkout
-      type: string
-      default: "feature/tekton-refactor"
-
     # Deployment Configuration
     - name: RELEASE_NAME
       description: Unique release name for this deployment
@@ -48,13 +37,8 @@ spec:
       description: Namespace for deployment
       type: string
 
-    - name: DEPLOYMENT_PROFILE
-      description: "Deployment profile: gaie, standard, or precise-cache"
-      type: string
-      default: "standard"
-
     - name: GATEWAY_PROVIDER
-      description: Gateway provider (istio, gke, or standalone)
+      description: "Gateway provider: istio (default), kgateway, standalone, gke"
       type: string
       default: "istio"
 
@@ -72,21 +56,6 @@ spec:
       description: Additional vLLM arguments as array
       type: array
       default: []
-
-    - name: INFRA_CHART_VERSION
-      description: Infrastructure chart version
-      type: string
-      default: "v1.3.5"
-
-    - name: GAIE_CHART_VERSION
-      description: GAIE chart version
-      type: string
-      default: "v1.2.0"
-
-    - name: MS_CHART_VERSION
-      description: ModelService chart version
-      type: string
-      default: "v0.3.8"
 
     # Benchmark Configuration
     - name: IMAGE
@@ -200,31 +169,14 @@ spec:
       description: PVC for model storage (required for download stage)
 
     - name: source
-      description: Workspace containing llm-d-bench repository (required for deploy stage)
+      description: Workspace for cloning llm-d repository (required for deploy stage)
 
     - name: results
       description: PVC for benchmark results (optional, only for non-MLflow mode)
       optional: true
 
   tasks:
-    # Stage 1a: Clone Repository
-    - name: git-clone
-      when:
-        - input: "$(params.SKIP_DEPLOY)"
-          operator: in
-          values: ["false"]
-      taskRef:
-        name: git-clone
-      params:
-        - name: URL
-          value: $(params.GIT_URL)
-        - name: REVISION
-          value: $(params.GIT_REVISION)
-      workspaces:
-        - name: output
-          workspace: source
-
-    # Stage 1b: Download Model
+    # Stage 1: Download Model
     - name: download-model
       when:
         - input: "$(params.SKIP_DOWNLOAD)"
@@ -243,10 +195,9 @@ spec:
         - name: models-storage
           workspace: models-storage
 
-    # Stage 2: Deploy with Helmfile
+    # Stage 2: Deploy with Helmfile (GitOps)
     - name: deploy-helmfile
       runAfter:
-        - git-clone
         - download-model
       when:
         - input: "$(params.SKIP_DEPLOY)"
@@ -263,8 +214,6 @@ spec:
           value: $(params.RELEASE_NAME)
         - name: NAMESPACE
           value: $(params.NAMESPACE)
-        - name: DEPLOYMENT_PROFILE
-          value: $(params.DEPLOYMENT_PROFILE)
         - name: GATEWAY_PROVIDER
           value: $(params.GATEWAY_PROVIDER)
         - name: MODEL_REPLICAS
@@ -275,12 +224,6 @@ spec:
           value: $(params.HF_TOKEN_SECRET)
         - name: VLLM_ARGS
           value: $(params.VLLM_ARGS[*])
-        - name: INFRA_CHART_VERSION
-          value: $(params.INFRA_CHART_VERSION)
-        - name: GAIE_CHART_VERSION
-          value: $(params.GAIE_CHART_VERSION)
-        - name: MS_CHART_VERSION
-          value: $(params.MS_CHART_VERSION)
         - name: SKIP_IF_EXISTS
           value: "true"
       workspaces:

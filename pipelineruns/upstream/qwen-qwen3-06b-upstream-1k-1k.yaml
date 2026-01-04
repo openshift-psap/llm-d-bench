@@ -29,8 +29,6 @@ spec:
       value: "qwen-qwen3-06b-test"
     - name: NAMESPACE
       value: "llm-d"
-    - name: DEPLOYMENT_PROFILE
-      value: "standard"
     - name: GATEWAY_PROVIDER
       value: "istio"
     - name: MODEL_REPLICAS
@@ -39,12 +37,6 @@ spec:
       value: "huggingface-token"
     - name: VLLM_ARGS
       value: []
-    - name: INFRA_CHART_VERSION
-      value: "v1.3.5"
-    - name: GAIE_CHART_VERSION
-      value: "v1.2.0"
-    - name: MS_CHART_VERSION
-      value: "v0.3.8"
 
     # Benchmark Configuration
     - name: IMAGE

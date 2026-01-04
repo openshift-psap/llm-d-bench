@@ -30,8 +30,6 @@ spec:
       value: "scheduler-test"
     - name: NAMESPACE
       value: "downstream-llm-d"
-    - name: DEPLOYMENT_PROFILE
-      value: "gaie"
     - name: GATEWAY_PROVIDER
       value: "istio"
     - name: MODEL_REPLICAS
@@ -40,12 +38,6 @@ spec:
       value: "huggingface-token"
     - name: VLLM_ARGS
       value: []
-    - name: INFRA_CHART_VERSION
-      value: "v1.3.5"
-    - name: GAIE_CHART_VERSION
-      value: "v1.2.0"
-    - name: MS_CHART_VERSION
-      value: "v0.3.8"
 
     # Benchmark Configuration (skipped for GAIE-only)
     - name: IMAGE
