@@ -1,0 +1,83 @@
+{{- $namespace := env "NAMESPACE" | default "llm-d" }}
+{{- $releasePostfix := env "RELEASE_NAME" | default "" }}
+{{- $modelName := env "MODEL_NAME" | default "Qwen/Qwen3-0.6B" }}
+{{- $modelRevision := env "MODEL_REVISION" | default "main" }}
+{{- $tp := env "TP" | default "1" }}
+{{- $modelPvc := env "MODEL_PVC" | default "models-storage" }}
+{{- $hfToken := env "HF_TOKEN_SECRET" | default "huggingface-token" }}
+{{- $gatewayProvider := env "GATEWAY_PROVIDER" | default "istio" }}
+{{- $deploymentProfile := env "DEPLOYMENT_PROFILE" | default "standard" }}
+{{- $replicas := env "MODEL_REPLICAS" | default "1" }}
+
+helmDefaults:
+  wait: true
+  timeout: 600
+  createNamespace: false
+  atomic: false
+
+repositories:
+  - name: llm-d-modelservice
+    url: https://llm-d-incubation.github.io/llm-d-modelservice/
+  - name: llm-d-infra
+    url: https://llm-d-incubation.github.io/llm-d-infra/
+
+releases:
+  # Infrastructure components (Gateway)
+  - name: infra{{ if $releasePostfix }}-{{ $releasePostfix }}{{ end }}
+    namespace: {{ $namespace }}
+    chart: llm-d-infra/llm-d-infra
+    version: {{ env "INFRA_CHART_VERSION" | default "v1.3.5" }}
+    installed: true
+    labels:
+      type: infrastructure
+      kind: inference-stack
+    values:
+      - {{ "{{" }} readFile "infra/values.yaml" {{ "}}" }}
+
+  # Gateway API Inference Extension (EPP/Scheduler)
+  {{- if or (eq $deploymentProfile "gaie") (eq $deploymentProfile "standard") (eq $deploymentProfile "precise-cache") }}
+  - name: gaie{{ if $releasePostfix }}-{{ $releasePostfix }}{{ end }}
+    namespace: {{ $namespace }}
+    chart: oci://registry.k8s.io/gateway-api-inference-extension/charts/inferencepool
+    version: {{ env "GAIE_CHART_VERSION" | default "v1.2.0" }}
+    installed: true
+    needs:
+      - {{ $namespace }}/infra{{ if $releasePostfix }}-{{ $releasePostfix }}{{ end }}
+    labels:
+      kind: inference-stack
+    values:
+      - {{ "{{" }} readFile "gaie/values.yaml" {{ "}}" }}
+      - deploymentProfile: {{ $deploymentProfile }}
+        modelName: {{ $modelName }}
+        tp: {{ $tp }}
+        releasePostfix: {{ $releasePostfix }}
+  {{- end }}
+
+  # Model Service (vLLM deployment)
+  {{- if or (eq $deploymentProfile "standard") (eq $deploymentProfile "precise-cache") }}
+  - name: ms{{ if $releasePostfix }}-{{ $releasePostfix }}{{ end }}
+    namespace: {{ $namespace }}
+    chart: llm-d-modelservice/llm-d-modelservice
+    version: {{ env "MS_CHART_VERSION" | default "v0.3.8" }}
+    installed: true
+    needs:
+      - {{ $namespace }}/infra{{ if $releasePostfix }}-{{ $releasePostfix }}{{ end }}
+      - {{ $namespace }}/gaie{{ if $releasePostfix }}-{{ $releasePostfix }}{{ end }}
+    labels:
+      kind: inference-stack
+    values:
+      {{- if eq $deploymentProfile "standard" }}
+      - {{ "{{" }} readFile "modelservice/standard-values.yaml" {{ "}}" }}
+      {{- else if eq $deploymentProfile "precise-cache" }}
+      - {{ "{{" }} readFile "modelservice/precise-cache-values.yaml" {{ "}}" }}
+      {{- end }}
+      - modelName: {{ $modelName }}
+        modelRevision: {{ $modelRevision }}
+        tp: {{ $tp }}
+        replicas: {{ $replicas }}
+        {{- if $modelPvc }}
+        modelPvc: {{ $modelPvc }}
+        {{- end }}
+        hfTokenSecret: {{ $hfToken }}
+        releasePostfix: {{ $releasePostfix }}
+  {{- end }}

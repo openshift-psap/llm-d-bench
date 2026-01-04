@@ -69,9 +69,25 @@ done
 echo "✓ RBAC resources installed"
 echo ""
 
+echo "Installing Secrets..."
+SECRET_COUNT=0
+for secret in "$PROJECT_ROOT"/config/secrets/*.yaml; do
+    # Skip .example.yaml files and check if file exists (not just glob pattern)
+    if [ -f "$secret" ] && [[ ! "$secret" =~ \.example\.yaml$ ]]; then
+        echo "  - $(basename "$secret")"
+        oc apply -f "$secret" $NS_FLAG
+        SECRET_COUNT=$((SECRET_COUNT + 1))
+    fi
+done
+if [ $SECRET_COUNT -eq 0 ]; then
+    echo "  No secrets found to install"
+fi
+echo "✓ Secrets processed"
+echo ""
+
 echo "Installing Tasks..."
-# Find all YAML files in tasks directory and subdirectories
-find "$PROJECT_ROOT/tasks" -type f -name "*.yaml" | while read -r task; do
+# Find all YAML files in tasks directory and subdirectories, excluding config directories
+find "$PROJECT_ROOT/tasks" -type f -name "*.yaml" ! -path "*/config/*" | while read -r task; do
     if [ -f "$task" ]; then
         # Get relative path from tasks directory for display
         rel_path="${task#$PROJECT_ROOT/tasks/}"
@@ -120,7 +136,7 @@ echo "ServiceAccounts:"
 oc get serviceaccount $NS_FLAG | grep -E 'NAME|deploy-model' || true
 echo ""
 echo "Tasks:"
-oc get tasks $NS_FLAG | grep -E 'NAME|buildah-build|wait-for-endpoint|run-benchmark|download-model|deploy-model|cleanup-deployment|deploy-helmfile|cleanup-upstream' || true
+oc get tasks $NS_FLAG | grep -E 'NAME|buildah-build|wait-for-endpoint|run-benchmark|download-model|deploy-model|cleanup-deployment|deploy-helmfile|cleanup-upstream|git-clone' || true
 echo ""
 echo "Pipelines:"
 oc get pipelines.tekton.dev $NS_FLAG | grep -E 'NAME|build-image|run-benchmark|downstream-end-to-end-benchmark|upstream-end-to-end-benchmark' || true

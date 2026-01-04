@@ -38,6 +38,8 @@ export NAMESPACE=downstream-llm-d
 
 ### 2. Create Secrets
 
+You can create the necessary secrets manually:
+
 ```bash
 # HuggingFace token (required)
 oc create secret generic huggingface-token \
@@ -58,6 +60,8 @@ oc create secret generic mlflow-s3-secret \
   --from-literal=region=us-east-1 \
   -n $NAMESPACE
 ```
+
+or you can create your secret file by copying the templates present in the `config/secrets/` dir and removing the .example, so the install script will apply them.
 
 See [config/secrets/](config/secrets/) for YAML templates.
 
@@ -203,35 +207,34 @@ This will download the benchmark JSON file for each run to `/tmp`, process them 
 
 **Symptoms:**
 - PipelineRuns remain in pending state indefinitely
-- Tekton controller pods show status: `0/1`
-- Events show: `unable to validate against any security context constraint`
+- Tekton controller pods show status: `0/1` or `Deployment` shows `ReplicaFailure`
+- Events show: `unable to validate against any security context constraint: provider "anyuid": Forbidden: not usable by user or serviceaccount`
+- Error message: `provider restricted-v2: .containers[0].runAsUser: Invalid value: 65532: must be in the ranges`
 
 **Solution:**
 
-Grant the privileged SCC to Tekton service accounts:
+Grant the `anyuid` SCC to Tekton service accounts:
 
 ```bash
-oc create clusterrolebinding tekton-controller-privileged \
-  --clusterrole=system:openshift:scc:privileged \
-  --serviceaccount=tekton-pipelines:tekton-pipelines-controller
+oc adm policy add-scc-to-user anyuid -z tekton-pipelines-controller -n tekton-pipelines
+oc adm policy add-scc-to-user anyuid -z tekton-pipelines-webhook -n tekton-pipelines
+oc adm policy add-scc-to-user anyuid -z tekton-events-controller -n tekton-pipelines
+```
 
-oc create clusterrolebinding tekton-webhook-privileged \
-  --clusterrole=system:openshift:scc:privileged \
-  --serviceaccount=tekton-pipelines:tekton-pipelines-webhook
+If deployments don't automatically restart, trigger a rollout:
 
-oc create clusterrolebinding tekton-events-privileged \
-  --clusterrole=system:openshift:scc:privileged \
-  --serviceaccount=tekton-pipelines:tekton-events-controller
-
-oc create clusterrolebinding tekton-resolvers-privileged \
-  --clusterrole=system:openshift:scc:privileged \
-  --serviceaccount=tekton-pipelines-resolvers:tekton-pipelines-remote-resolvers
+```bash
+oc rollout restart deployment/tekton-pipelines-controller -n tekton-pipelines
+oc rollout restart deployment/tekton-pipelines-webhook -n tekton-pipelines
+oc rollout restart deployment/tekton-events-controller -n tekton-pipelines
 ```
 
 Verify controllers are running:
 ```bash
 oc get pods -n tekton-pipelines
 ```
+
+All pods should show `1/1 Running` status.
 
 </details>
 

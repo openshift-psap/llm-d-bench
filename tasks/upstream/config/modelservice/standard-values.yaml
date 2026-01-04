@@ -1,0 +1,86 @@
+# Standard ModelService Configuration
+deployment:
+  name: "llm-d-modelservice"
+  replicas: 1
+
+  image:
+    repository: "vllm/vllm-openai"
+    tag: "v0.6.3"
+    pullPolicy: IfNotPresent
+
+  resources:
+    requests:
+      cpu: "4"
+      memory: "16Gi"
+      nvidia.com/gpu: "1"
+    limits:
+      cpu: "8"
+      memory: "32Gi"
+      nvidia.com/gpu: "1"
+
+model:
+  name: "Qwen/Qwen3-0.6B"
+  revision: "main"
+
+  # Model storage configuration
+  volumeClaim:
+    enabled: false
+    name: ""
+    mountPath: "/models"
+
+  # HuggingFace configuration
+  huggingface:
+    tokenSecret: "huggingface-token"
+
+vllm:
+  # Base arguments
+  args:
+    - "--host"
+    - "0.0.0.0"
+    - "--port"
+    - "8000"
+    - "--model"
+    - "{{ .Values.model.name }}"
+    - "--tensor-parallel-size"
+    - "{{ .Values.tp | default 1 }}"
+    - "--trust-remote-code"
+    - "--max-num-seqs"
+    - "256"
+    - "--max-num-batched-tokens"
+    - "8192"
+
+  # Extra args can be added via pipeline parameters
+  extraArgs: []
+
+service:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000
+    - name: metrics
+      port: 8001
+      targetPort: 8001
+
+serviceMonitor:
+  enabled: true
+  interval: 30s
+  path: /metrics
+
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+              - key: app
+                operator: In
+                values:
+                  - llm-d-modelservice
+          topologyKey: kubernetes.io/hostname
+
+tolerations:
+  - key: "nvidia.com/gpu"
+    operator: "Exists"
+    effect: "NoSchedule"

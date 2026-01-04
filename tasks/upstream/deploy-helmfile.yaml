@@ -1,0 +1,191 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: deploy-helmfile
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "Deploy Upstream Model with Helmfile"
+    tekton.dev/tags: model, deploy, helm, helmfile, upstream
+    tekton.dev/platforms: "linux/amd64"
+spec:
+  description: >-
+    Deploy a model using Helmfile for upstream inference-scheduling.
+    This task deploys the llm-d infrastructure with intelligent scheduling,
+    GAIE inference pool, and model service.
+
+  params:
+    - name: MODEL_NAME
+      description: HuggingFace model identifier
+      type: string
+
+    - name: MODEL_REVISION
+      description: Model revision/branch to deploy
+      type: string
+      default: "main"
+
+    - name: RELEASE_NAME
+      description: Unique release name for this deployment
+      type: string
+
+    - name: NAMESPACE
+      description: Namespace for deployment
+      type: string
+
+    - name: DEPLOYMENT_PROFILE
+      description: "Deployment profile: gaie, standard, or precise-cache"
+      type: string
+      default: "standard"
+
+    - name: GATEWAY_PROVIDER
+      description: Gateway provider (istio, gke, or standalone)
+      type: string
+      default: "istio"
+
+    - name: MODEL_REPLICAS
+      description: Number of model replicas
+      type: string
+      default: "1"
+
+    - name: TP
+      description: Tensor parallelism size
+      type: string
+      default: "1"
+
+    - name: HF_TOKEN_SECRET
+      description: Secret name containing HuggingFace token
+      type: string
+      default: "huggingface-token"
+
+    - name: VLLM_ARGS
+      description: Additional vLLM arguments as array
+      type: array
+      default: []
+
+    - name: INFRA_CHART_VERSION
+      description: Infrastructure chart version
+      type: string
+      default: "v1.3.5"
+
+    - name: GAIE_CHART_VERSION
+      description: GAIE chart version
+      type: string
+      default: "v1.2.0"
+
+    - name: MS_CHART_VERSION
+      description: ModelService chart version
+      type: string
+      default: "v0.3.8"
+
+    - name: SKIP_IF_EXISTS
+      description: Skip deployment if release already exists
+      type: string
+      default: "true"
+
+  workspaces:
+    - name: source
+      description: Workspace containing llm-d-bench repository
+
+  steps:
+    - name: deploy-helmfile
+      image: ghcr.io/helmfile/helmfile:latest
+      workingDir: $(workspaces.source.path)/tasks/upstream/config
+      args:
+        - $(params.VLLM_ARGS[*])
+      script: |
+        #!/bin/bash
+        set -e
+
+        echo "Upstream Deployment Configuration:"
+        echo "  Release: $(params.RELEASE_NAME)"
+        echo "  Model: $(params.MODEL_NAME)"
+        echo "  Revision: $(params.MODEL_REVISION)"
+        echo "  Namespace: $(params.NAMESPACE)"
+        echo "  Profile: $(params.DEPLOYMENT_PROFILE)"
+        echo "  Gateway: $(params.GATEWAY_PROVIDER)"
+        echo "  TP: $(params.TP)"
+        echo "  Replicas: $(params.MODEL_REPLICAS)"
+        echo ""
+
+        # Check if release exists
+        if [ "$(params.SKIP_IF_EXISTS)" = "true" ]; then
+          # Check if ms release exists (it's deployed in standard/precise-cache profiles)
+          if [ "$(params.DEPLOYMENT_PROFILE)" != "gaie" ]; then
+            if helm list -n $(params.NAMESPACE) | grep -q "ms-$(params.RELEASE_NAME)"; then
+              echo "✓ Release ms-$(params.RELEASE_NAME) already exists - skipping"
+              exit 0
+            fi
+          else
+            # For gaie-only profile, check gaie release
+            if helm list -n $(params.NAMESPACE) | grep -q "gaie-$(params.RELEASE_NAME)"; then
+              echo "✓ Release gaie-$(params.RELEASE_NAME) already exists - skipping"
+              exit 0
+            fi
+          fi
+        fi
+
+        # Build VLLM args from positional parameters
+        VLLM_ARGS_LIST=""
+        for arg in "$@"; do
+          if [ -n "$arg" ]; then
+            VLLM_ARGS_LIST="${VLLM_ARGS_LIST}${arg},"
+          fi
+        done
+        # Remove trailing comma
+        VLLM_ARGS_LIST="${VLLM_ARGS_LIST%,}"
+
+        # Export environment variables for helmfile templating
+        export NAMESPACE=$(params.NAMESPACE)
+        export RELEASE_NAME=$(params.RELEASE_NAME)
+        export MODEL_NAME=$(params.MODEL_NAME)
+        export MODEL_REVISION=$(params.MODEL_REVISION)
+        export TP=$(params.TP)
+        export MODEL_PVC="models-storage"
+        export HF_TOKEN_SECRET=$(params.HF_TOKEN_SECRET)
+        export GATEWAY_PROVIDER=$(params.GATEWAY_PROVIDER)
+        export DEPLOYMENT_PROFILE=$(params.DEPLOYMENT_PROFILE)
+        export MODEL_REPLICAS=$(params.MODEL_REPLICAS)
+        export VLLM_ARGS="$VLLM_ARGS_LIST"
+        export INFRA_CHART_VERSION=$(params.INFRA_CHART_VERSION)
+        export GAIE_CHART_VERSION=$(params.GAIE_CHART_VERSION)
+        export MS_CHART_VERSION=$(params.MS_CHART_VERSION)
+
+        echo "Helmfile environment variables:"
+        echo "  NAMESPACE=$NAMESPACE"
+        echo "  RELEASE_NAME=$RELEASE_NAME"
+        echo "  MODEL_NAME=$MODEL_NAME"
+        echo "  MODEL_REVISION=$MODEL_REVISION"
+        echo "  DEPLOYMENT_PROFILE=$DEPLOYMENT_PROFILE"
+        echo "  GATEWAY_PROVIDER=$GATEWAY_PROVIDER"
+        echo "  TP=$TP"
+        echo "  MODEL_REPLICAS=$MODEL_REPLICAS"
+        echo "  VLLM_ARGS=$VLLM_ARGS"
+        echo ""
+
+        echo "Working directory: $(pwd)"
+        echo "Config files:"
+        ls -la
+        echo ""
+
+        echo "Initializing helmfile plugins..."
+        helmfile init --force
+        echo ""
+
+        echo "Applying helmfile..."
+        helmfile apply --namespace "$NAMESPACE" --skip-deps=false --suppress-secrets
+
+        echo ""
+        echo "✓ Upstream deployment complete!"
+        case "$(params.DEPLOYMENT_PROFILE)" in
+          gaie)
+            echo "  Infrastructure: infra-$(params.RELEASE_NAME)"
+            echo "  GAIE Pool: gaie-$(params.RELEASE_NAME)"
+            ;;
+          standard|precise-cache)
+            echo "  Infrastructure: infra-$(params.RELEASE_NAME)"
+            echo "  GAIE Pool: gaie-$(params.RELEASE_NAME)"
+            echo "  Model Service: ms-$(params.RELEASE_NAME)"
+            ;;
+        esac
+        echo ""
+        echo "Use 'helm list -n $(params.NAMESPACE)' to check releases"
