@@ -90,6 +90,13 @@ spec:
     - name: deploy-helmfile
       image: ghcr.io/helmfile/helmfile:latest
       workingDir: $(workspaces.source.path)/tasks/upstream/config
+      env:
+        - name: HOME
+          value: /tmp
+        - name: HELM_CACHE_HOME
+          value: /tmp/.cache/helm
+        - name: HELM_CONFIG_HOME
+          value: /tmp/.config/helm
       args:
         - $(params.VLLM_ARGS[*])
       script: |

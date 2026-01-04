@@ -1,34 +1,17 @@
 # Infrastructure (Gateway) Configuration
 gateway:
   enabled: true
-
-  replicas: 1
-
-  resources:
-    requests:
-      cpu: "500m"
-      memory: "512Mi"
-    limits:
-      cpu: "2"
-      memory: "2Gi"
-
-# Istio Gateway Configuration
-istio:
-  enabled: true
-  gateway:
-    name: "llm-d-gateway"
-    selector:
-      istio: ingressgateway
-    servers:
-      - port:
-          number: 80
-          name: http
-          protocol: HTTP
-        hosts:
-          - "*"
-
-monitoring:
-  enabled: true
-  serviceMonitor:
-    enabled: true
-    interval: 30s
+  gatewayClassName: istio
+  service:
+    type: ClusterIP
+  listeners:
+    - name: default
+      port: 8000
+      protocol: HTTPS
+      allowedRoutes:
+        namespaces:
+          from: All
+      tls:
+        mode: Terminate
+        certificateRef:
+          name: inference-gateway-cert

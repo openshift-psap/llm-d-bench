@@ -71,13 +71,10 @@ releases:
       {{- else if eq $deploymentProfile "precise-cache" }}
       - modelservice/precise-cache-values.yaml
       {{- end }}
-      - modelName: {{ $modelName }}
-        modelRevision: {{ $modelRevision }}
-        tp: {{ $tp }}
-        replicas: {{ $replicas }}
-        {{- if $modelPvc }}
-        modelPvc: {{ $modelPvc }}
-        {{- end }}
-        hfTokenSecret: {{ $hfToken }}
-        releasePostfix: {{ $releasePostfix }}
+      - modelName: "{{ $modelName }}"
+        modelRevision: "{{ $modelRevision }}"
+        tp: "{{ $tp }}"
+        replicas: "{{ $replicas }}"
+        modelPvc: "{{ $modelPvc }}"
+        hfTokenSecret: "{{ $hfToken }}"
   {{- end }}

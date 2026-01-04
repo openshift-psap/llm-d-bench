@@ -1,106 +1,45 @@
 # Precise Cache-Aware ModelService Configuration
-deployment:
-  name: "llm-d-modelservice"
-  replicas: 1
+# Model artifacts configuration
+modelArtifacts:
+  name: "{{ .Values.modelName }}"
+  labels:
+    llm-d.ai/inferenceServing: "true"
+    llm-d.ai/model: "{{ .Values.modelName | replace \"/\" \"_\" }}"
+  uri: "pvc://{{ .Values.modelPvc }}/models/{{ .Values.modelName | replace \"/\" \"-\" }}"
+  authSecretName: "{{ .Values.hfTokenSecret }}"
+  mountPath: /model-cache
 
-  image:
-    repository: "vllm/vllm-openai"
-    tag: "v0.6.3"
-    pullPolicy: IfNotPresent
-
-  # Sidecar for KV cache events
-  sidecars:
-    - name: kv-cache-events
-      image: "ghcr.io/llm-d/llm-d-kv-cache:v0.4.0"
-      ports:
-        - containerPort: 54321
-          name: cache-events
-      env:
-        - name: VLLM_METRICS_PORT
-          value: "8001"
+# Decode pod configuration with prefix caching enabled
+decode:
+  create: true
+  replicas: "{{ .Values.replicas }}"
+  containers:
+    - name: vllm
+      image: vllm/vllm-openai:v0.6.3
+      modelCommand: vllmServe
+      args:
+        - "--model"
+        - "/model-cache"
+        - "--tensor-parallel-size"
+        - "{{ .Values.tp }}"
+        - "--served-model-name"
+        - "{{ .Values.modelName }}"
+        - "--enable-prefix-caching"
+        - "--kv-cache-dtype"
+        - "auto"
+      mountModelVolume: true
       resources:
-        requests:
-          cpu: "100m"
-          memory: "128Mi"
         limits:
-          cpu: "500m"
-          memory: "512Mi"
+          nvidia.com/gpu: "{{ .Values.tp }}"
+        requests:
+          nvidia.com/gpu: "{{ .Values.tp }}"
 
-  resources:
-    requests:
-      cpu: "4"
-      memory: "16Gi"
-      nvidia.com/gpu: "1"
-    limits:
-      cpu: "8"
-      memory: "32Gi"
-      nvidia.com/gpu: "1"
+# Prefill pod configuration (disabled for this profile)
+prefill:
+  create: false
 
-model:
-  name: "Qwen/Qwen3-0.6B"
-  revision: "main"
-
-  volumeClaim:
-    enabled: false
-    name: ""
-    mountPath: "/models"
-
-  huggingface:
-    tokenSecret: "huggingface-token"
-
-vllm:
-  args:
-    - "--host"
-    - "0.0.0.0"
-    - "--port"
-    - "8000"
-    - "--model"
-    - "{{ .Values.model.name }}"
-    - "--tensor-parallel-size"
-    - "{{ .Values.tp | default 1 }}"
-    - "--trust-remote-code"
-    - "--enable-prefix-caching"  # Enable prefix caching
-    - "--max-num-seqs"
-    - "256"
-    - "--max-num-batched-tokens"
-    - "8192"
-    - "--kv-cache-dtype"
-    - "auto"
-
-  extraArgs: []
-
-service:
-  type: ClusterIP
-  ports:
-    - name: http
-      port: 8000
-      targetPort: 8000
-    - name: metrics
-      port: 8001
-      targetPort: 8001
-    - name: cache-events
-      port: 54321
-      targetPort: 54321
-
-serviceMonitor:
-  enabled: true
-  interval: 30s
-  path: /metrics
-
-affinity:
-  podAntiAffinity:
-    preferredDuringSchedulingIgnoredDuringExecution:
-      - weight: 100
-        podAffinityTerm:
-          labelSelector:
-            matchExpressions:
-              - key: app
-                operator: In
-                values:
-                  - llm-d-modelservice
-          topologyKey: kubernetes.io/hostname
-
-tolerations:
-  - key: "nvidia.com/gpu"
-    operator: "Exists"
-    effect: "NoSchedule"
+# Routing configuration
+routing:
+  servicePort: 8000
+  proxy:
+    enabled: true

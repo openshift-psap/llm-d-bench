@@ -1,86 +1,43 @@
 # Standard ModelService Configuration
-deployment:
-  name: "llm-d-modelservice"
-  replicas: 1
+# Model artifacts configuration
+modelArtifacts:
+  # Will be populated from helmfile template
+  name: "{{ .Values.modelName }}"
+  labels:
+    llm-d.ai/inferenceServing: "true"
+    llm-d.ai/model: "{{ .Values.modelName | replace \"/\" \"_\" }}"
+  uri: "pvc://{{ .Values.modelPvc }}/models/{{ .Values.modelName | replace \"/\" \"-\" }}"
+  authSecretName: "{{ .Values.hfTokenSecret }}"
+  mountPath: /model-cache
 
-  image:
-    repository: "vllm/vllm-openai"
-    tag: "v0.6.3"
-    pullPolicy: IfNotPresent
+# Decode pod configuration
+decode:
+  create: true
+  replicas: "{{ .Values.replicas }}"
+  containers:
+    - name: vllm
+      image: vllm/vllm-openai:v0.6.3
+      modelCommand: vllmServe
+      args:
+        - "--model"
+        - "/model-cache"
+        - "--tensor-parallel-size"
+        - "{{ .Values.tp }}"
+        - "--served-model-name"
+        - "{{ .Values.modelName }}"
+      mountModelVolume: true
+      resources:
+        limits:
+          nvidia.com/gpu: "{{ .Values.tp }}"
+        requests:
+          nvidia.com/gpu: "{{ .Values.tp }}"
 
-  resources:
-    requests:
-      cpu: "4"
-      memory: "16Gi"
-      nvidia.com/gpu: "1"
-    limits:
-      cpu: "8"
-      memory: "32Gi"
-      nvidia.com/gpu: "1"
+# Prefill pod configuration (disabled for standard profile)
+prefill:
+  create: false
 
-model:
-  name: "Qwen/Qwen3-0.6B"
-  revision: "main"
-
-  # Model storage configuration
-  volumeClaim:
-    enabled: false
-    name: ""
-    mountPath: "/models"
-
-  # HuggingFace configuration
-  huggingface:
-    tokenSecret: "huggingface-token"
-
-vllm:
-  # Base arguments
-  args:
-    - "--host"
-    - "0.0.0.0"
-    - "--port"
-    - "8000"
-    - "--model"
-    - "{{ .Values.model.name }}"
-    - "--tensor-parallel-size"
-    - "{{ .Values.tp | default 1 }}"
-    - "--trust-remote-code"
-    - "--max-num-seqs"
-    - "256"
-    - "--max-num-batched-tokens"
-    - "8192"
-
-  # Extra args can be added via pipeline parameters
-  extraArgs: []
-
-service:
-  type: ClusterIP
-  ports:
-    - name: http
-      port: 8000
-      targetPort: 8000
-    - name: metrics
-      port: 8001
-      targetPort: 8001
-
-serviceMonitor:
-  enabled: true
-  interval: 30s
-  path: /metrics
-
-affinity:
-  podAntiAffinity:
-    preferredDuringSchedulingIgnoredDuringExecution:
-      - weight: 100
-        podAffinityTerm:
-          labelSelector:
-            matchExpressions:
-              - key: app
-                operator: In
-                values:
-                  - llm-d-modelservice
-          topologyKey: kubernetes.io/hostname
-
-tolerations:
-  - key: "nvidia.com/gpu"
-    operator: "Exists"
-    effect: "NoSchedule"
+# Routing configuration
+routing:
+  servicePort: 8000
+  proxy:
+    enabled: true

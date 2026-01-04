@@ -1,65 +1,21 @@
-# GAIE (Gateway API Inference Extension) - EPP Configuration
+# GAIE (Gateway API Inference Extension) Configuration
 inferenceExtension:
-  image:
-    repository: ghcr.io/llm-d/llm-d-inference-scheduler
-    tag: "v0.4.0"
-    pullPolicy: IfNotPresent
-
   replicas: 1
-
-  resources:
-    requests:
-      cpu: "500m"
-      memory: "512Mi"
-    limits:
-      cpu: "2"
-      memory: "2Gi"
-
-  ports:
-    extProcPort: 9002
-    metricsPort: 9090
-
-  # Plugin configuration
-  pluginsConfigFile: "endpoint-picker-config.yaml"
-  pluginsCustomConfig:
-    endpoint-picker-config.yaml: |
-      apiVersion: gateway.networking.k8s.io/v1alpha1
-      kind: EndpointPickerConfig
-      plugins:
-        filter:
-          - name: "readiness"
-            weight: 100
-          - name: "load-aware"
-            weight: 90
-            config:
-              maxQueueDepth: 100
-
-        score:
-          - name: "least-load"
-            weight: 80
-          - name: "prefix-cache-aware"
-            weight: 70
-            config:
-              mode: "approximate"
-
-  serviceMonitor:
-    enabled: true
-    interval: 30s
+  image:
+    hub: registry.k8s.io/gateway-api-inference-extension
+    name: epp
+    tag: v1.2.0
+    pullPolicy: Always
 
 inferencePool:
-  enabled: true
-  name: "llm-d-pool"
+  # REQUIRED: Labels to match model server pods
+  modelServers:
+    matchLabels:
+      llm-d.ai/inferenceServing: "true"
+  targetPorts:
+    - number: 8000
+  modelServerType: vllm
 
-  spec:
-    targetRef:
-      group: apps
-      kind: Deployment
-      name: "ms-llm-d-modelservice-decode"
-
-    model:
-      name: "{{ .Values.modelName }}"
-      version: "latest"
-
-    accelerator:
-      type: "nvidia.com/gpu"
-      count: "{{ .Values.tp }}"
+# Gateway provider configuration
+provider:
+  name: istio
