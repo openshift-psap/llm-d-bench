@@ -32,7 +32,7 @@ releases:
       type: infrastructure
       kind: inference-stack
     values:
-      - {{ "{{" }} readFile "infra/values.yaml" {{ "}}" }}
+      - infra/values.yaml
 
   # Gateway API Inference Extension (EPP/Scheduler)
   {{- if or (eq $deploymentProfile "gaie") (eq $deploymentProfile "standard") (eq $deploymentProfile "precise-cache") }}
@@ -46,7 +46,7 @@ releases:
     labels:
       kind: inference-stack
     values:
-      - {{ "{{" }} readFile "gaie/values.yaml" {{ "}}" }}
+      - gaie/values.yaml
       - deploymentProfile: {{ $deploymentProfile }}
         modelName: {{ $modelName }}
         tp: {{ $tp }}
@@ -67,9 +67,9 @@ releases:
       kind: inference-stack
     values:
       {{- if eq $deploymentProfile "standard" }}
-      - {{ "{{" }} readFile "modelservice/standard-values.yaml" {{ "}}" }}
+      - modelservice/standard-values.yaml
       {{- else if eq $deploymentProfile "precise-cache" }}
-      - {{ "{{" }} readFile "modelservice/precise-cache-values.yaml" {{ "}}" }}
+      - modelservice/precise-cache-values.yaml
       {{- end }}
       - modelName: {{ $modelName }}
         modelRevision: {{ $modelRevision }}
