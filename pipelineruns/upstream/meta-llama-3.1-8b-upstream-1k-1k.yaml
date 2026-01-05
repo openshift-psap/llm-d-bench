@@ -26,7 +26,7 @@ spec:
 
     # Deployment Configuration
     - name: RELEASE_NAME
-      value: "llama-31-8b-test"
+      value: "llama-31-8b"
     - name: NAMESPACE
       value: "downstream-llm-d"
     - name: GATEWAY_PROVIDER
@@ -38,7 +38,7 @@ spec:
     - name: VLLM_ARGS
       value:
         - "--max-model-len=8192"
-        - "--gpu-memory-utilization=0.9"
+        - "--gpu-memory-utilization=0.92"
 
     # Benchmark Configuration
     - name: IMAGE
@@ -88,9 +88,9 @@ spec:
     - name: SKIP_DEPLOY
       value: "false"
     - name: SKIP_BENCHMARK
-      value: "false"
+      value: "true"
     - name: SKIP_CLEANUP
-      value: "false"
+      value: "true"
 
   timeouts:
     pipeline: "2h"

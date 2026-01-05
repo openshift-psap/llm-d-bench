@@ -57,6 +57,17 @@ spec:
       type: array
       default: []
 
+    # llm-d Repository Configuration
+    - name: LLM_D_REPO_URL
+      description: llm-d repository URL (for testing forks)
+      type: string
+      default: "https://github.com/llm-d/llm-d.git"
+
+    - name: LLM_D_REPO_REF
+      description: llm-d repository branch/tag/commit
+      type: string
+      default: "main"
+
     # Benchmark Configuration
     - name: IMAGE
       description: Full URL of the GuideLLM custom image
@@ -195,10 +206,30 @@ spec:
         - name: models-storage
           workspace: models-storage
 
-    # Stage 2: Deploy with Helmfile (GitOps)
+    # Stage 2a: Clone llm-d Repository
+    - name: git-clone-llm-d
+      when:
+        - input: "$(params.SKIP_DEPLOY)"
+          operator: in
+          values: ["false"]
+      taskRef:
+        name: git-clone
+      params:
+        - name: URL
+          value: $(params.LLM_D_REPO_URL)
+        - name: REVISION
+          value: $(params.LLM_D_REPO_REF)
+        - name: SUBDIRECTORY
+          value: "llm-d-repo"
+      workspaces:
+        - name: output
+          workspace: source
+
+    # Stage 2b: Deploy with Helmfile (GitOps)
     - name: deploy-helmfile
       runAfter:
         - download-model
+        - git-clone-llm-d
       when:
         - input: "$(params.SKIP_DEPLOY)"
           operator: in

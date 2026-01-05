@@ -3,17 +3,17 @@ kind: Task
 metadata:
   name: deploy-helmfile
   labels:
-    app.kubernetes.io/version: "0.2"
+    app.kubernetes.io/version: "0.7"
   annotations:
     tekton.dev/displayName: "Deploy Upstream Model with llm-d GitOps"
     tekton.dev/tags: model, deploy, helm, helmfile, upstream, gitops
     tekton.dev/platforms: "linux/amd64"
 spec:
   description: >-
-    Deploy a model using GitOps approach by cloning the official llm-d repository
-    and deploying with the inference-scheduling guide.
-    This task clones https://github.com/llm-d/llm-d, patches values.yaml with yq,
-    and deploys using the upstream helmfile.
+    Deploy a model using GitOps approach with the llm-d inference-scheduling guide.
+    This task expects the llm-d repository to be already cloned in the workspace,
+    patches values.yaml with yq, deploys using the upstream helmfile, and creates
+    the HTTPRoute. Use with git-clone task to clone https://github.com/llm-d/llm-d first.
 
   params:
     # Core Model Configuration
@@ -74,71 +74,12 @@ spec:
       type: string
       default: "true"
 
-    # llm-d Repository Configuration
-    - name: LLM_D_REPO_URL
-      description: llm-d repository URL (for testing forks)
-      type: string
-      default: "https://github.com/llm-d/llm-d.git"
-
-    - name: LLM_D_REPO_REF
-      description: llm-d repository branch/tag/commit
-      type: string
-      default: "main"
-
   workspaces:
     - name: source
-      description: Workspace for cloning llm-d repository
+      description: Workspace containing cloned llm-d repository (at llm-d-repo/)
 
   steps:
-    # Step 1: Clone llm-d Repository
-    - name: clone-llm-d-repo
-      image: registry.access.redhat.com/ubi9/ubi:latest
-      workingDir: $(workspaces.source.path)
-      script: |
-        #!/bin/bash
-        set -e
-
-        echo "=== Step 1: Cloning llm-d Repository ==="
-        echo "Repository: $(params.LLM_D_REPO_URL)"
-        echo "Reference: $(params.LLM_D_REPO_REF)"
-        echo ""
-
-        # Install git
-        if ! command -v git &> /dev/null; then
-          echo "Installing git..."
-          dnf install -y git --quiet
-        fi
-
-        # Clone repository
-        echo "Cloning llm-d repository..."
-        if ! git clone --depth 1 --branch "$(params.LLM_D_REPO_REF)" "$(params.LLM_D_REPO_URL)" llm-d-repo; then
-          echo "ERROR: Failed to clone llm-d repository"
-          echo "Repository: $(params.LLM_D_REPO_URL)"
-          echo "Reference: $(params.LLM_D_REPO_REF)"
-          echo "Check network connectivity and repository URL"
-          exit 1
-        fi
-
-        # Verify guide directory exists
-        if [ ! -d "llm-d-repo/guides/inference-scheduling" ]; then
-          echo "ERROR: inference-scheduling guide not found in cloned repository"
-          echo "Expected path: llm-d-repo/guides/inference-scheduling"
-          echo "Repository may be corrupted or structure changed"
-          echo ""
-          echo "Available guides:"
-          ls -la llm-d-repo/guides/
-          exit 1
-        fi
-
-        echo ""
-        echo "✓ Repository cloned successfully"
-        echo "  Path: $(workspaces.source.path)/llm-d-repo"
-        echo "  Guide: guides/inference-scheduling"
-        echo ""
-        echo "Guide contents:"
-        ls -la llm-d-repo/guides/inference-scheduling/
-
-    # Step 2: Patch Values with yq
+    # Step 1: Patch Values with yq
     - name: patch-values
       image: ghcr.io/helmfile/helmfile:latest
       workingDir: $(workspaces.source.path)/llm-d-repo/guides/inference-scheduling
@@ -151,7 +92,20 @@ spec:
         #!/bin/bash
         set -e
 
-        echo "=== Step 2: Patching Values with yq ==="
+        echo "=== Step 1: Patching Values with yq ==="
+        echo ""
+
+        # Verify llm-d repository was cloned
+        if [ ! -d "$(workspaces.source.path)/llm-d-repo/guides/inference-scheduling" ]; then
+          echo "ERROR: llm-d repository not found or incomplete"
+          echo "Expected path: $(workspaces.source.path)/llm-d-repo/guides/inference-scheduling"
+          echo ""
+          echo "Contents of workspace:"
+          ls -la $(workspaces.source.path)/
+          exit 1
+        fi
+
+        echo "✓ Found llm-d repository at $(workspaces.source.path)/llm-d-repo"
         echo ""
 
         # Install yq (mikefarah/yq v4.x)
@@ -244,7 +198,7 @@ spec:
         cat $VALUES_FILE
         echo "---"
 
-    # Step 3: Deploy with Helmfile
+    # Step 2: Deploy with Helmfile
     - name: deploy-helmfile
       image: ghcr.io/helmfile/helmfile:latest
       workingDir: $(workspaces.source.path)/llm-d-repo/guides/inference-scheduling
@@ -259,7 +213,7 @@ spec:
         #!/bin/bash
         set -e
 
-        echo "=== Step 3: Deploying with Helmfile ==="
+        echo "=== Step 2: Deploying with Helmfile ==="
         echo ""
 
         NAMESPACE=$(params.NAMESPACE)
@@ -336,8 +290,8 @@ spec:
           echo "Checking Helm releases:"
           helm list -n $NAMESPACE || true
           echo ""
-          echo "Checking namespace resources:"
-          kubectl get all -n $NAMESPACE || true
+          echo "Checking pods:"
+          kubectl get pods -n $NAMESPACE || true
           exit $HELMFILE_EXIT_CODE
         fi
 
@@ -350,9 +304,59 @@ spec:
         echo "Deployed releases:"
         helm list -n $NAMESPACE | grep "$RELEASE_NAME" || true
 
+    # Step 3: Create HTTPRoute
+    - name: create-httproute
+      image: ghcr.io/helmfile/helmfile:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        echo "=== Step 3: Creating HTTPRoute ==="
+        echo ""
+
+        NAMESPACE=$(params.NAMESPACE)
+        RELEASE_NAME=$(params.RELEASE_NAME)
+
+        echo "HTTPRoute Configuration:"
+        echo "  Name: llm-d-$RELEASE_NAME"
+        echo "  Gateway: infra-$RELEASE_NAME-inference-gateway"
+        echo "  InferencePool: gaie-$RELEASE_NAME"
+        echo ""
+
+        # Create HTTPRoute
+        cat <<EOF | kubectl apply -f - -n $NAMESPACE
+        apiVersion: gateway.networking.k8s.io/v1
+        kind: HTTPRoute
+        metadata:
+          name: llm-d-$RELEASE_NAME
+        spec:
+          parentRefs:
+          - group: gateway.networking.k8s.io
+            kind: Gateway
+            name: infra-$RELEASE_NAME-inference-gateway
+          rules:
+            - backendRefs:
+              - group: inference.networking.k8s.io
+                kind: InferencePool
+                name: gaie-$RELEASE_NAME
+                port: 8000
+                weight: 1
+              timeouts:
+                backendRequest: 0s
+                request: 0s
+              matches:
+              - path:
+                  type: PathPrefix
+                  value: /
+        EOF
+
+        echo ""
+        echo "✓ HTTPRoute created successfully"
+        echo ""
+
     # Step 4: Verify Deployment
     - name: verify-deployment
-      image: registry.access.redhat.com/ubi9/ubi:latest
+      image: ghcr.io/helmfile/helmfile:latest
       script: |
         #!/bin/bash
         set -e
@@ -405,16 +409,13 @@ spec:
             helm list -n $NAMESPACE || true
             echo ""
             echo "Pods:"
-            kubectl get pods -n $NAMESPACE -o wide || true
-            echo ""
-            echo "Recent Events:"
-            kubectl get events -n $NAMESPACE --sort-by='.lastTimestamp' | tail -20 || true
+            kubectl get pods -n $NAMESPACE || true
             echo ""
             echo "Gateway Status:"
-            kubectl get gateway -n $NAMESPACE -o yaml || echo "No gateway found"
+            kubectl get gateway -n $NAMESPACE || echo "No gateway found"
             echo ""
             echo "InferencePool Status:"
-            kubectl get inferencepool -n $NAMESPACE -o yaml || echo "No inferencepool found"
+            kubectl get inferencepool -n $NAMESPACE || echo "No inferencepool found"
             exit 1
           fi
 
@@ -450,9 +451,6 @@ spec:
             echo ""
             echo "Pods:"
             kubectl get pods -n $NAMESPACE || true
-            echo ""
-            echo "Services:"
-            kubectl get svc -n $NAMESPACE || true
             echo ""
             echo "Gateway:"
             kubectl get gateway -n $NAMESPACE || true

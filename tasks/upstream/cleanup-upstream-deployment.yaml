@@ -3,15 +3,15 @@ kind: Task
 metadata:
   name: cleanup-upstream-deployment
   labels:
-    app.kubernetes.io/version: "0.2"
+    app.kubernetes.io/version: "0.3"
   annotations:
     tekton.dev/displayName: "Cleanup Upstream Deployment"
     tekton.dev/tags: cleanup, helm, helmfile, upstream
     tekton.dev/platforms: "linux/amd64"
 spec:
   description: >-
-    Delete an upstream deployment by removing all Helm releases.
-    This task removes the infrastructure, GAIE pool, and model service
+    Delete an upstream deployment by removing all Helm releases and HTTPRoute.
+    This task removes the HTTPRoute, infrastructure, GAIE pool, and model service
     (pattern: {component}-inference-scheduling-{RELEASE_NAME})
     but preserves models on the PVC.
 
@@ -69,6 +69,18 @@ spec:
             echo "ERROR: No releases found for $(params.RELEASE_NAME)"
             exit 1
           fi
+        fi
+
+        # Delete HTTPRoute first
+        HTTPROUTE_NAME="llm-d-$(params.RELEASE_NAME)"
+        if kubectl get httproute "$HTTPROUTE_NAME" -n $(params.NAMESPACE) &>/dev/null; then
+          echo "Deleting HTTPRoute: $HTTPROUTE_NAME"
+          kubectl delete httproute "$HTTPROUTE_NAME" -n $(params.NAMESPACE)
+          echo "✓ HTTPRoute deleted"
+          echo ""
+        else
+          echo "ℹ HTTPRoute $HTTPROUTE_NAME not found, skipping"
+          echo ""
         fi
 
         # Delete releases in reverse order (ms → gaie → infra)
