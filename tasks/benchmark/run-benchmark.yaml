@@ -112,11 +112,11 @@ spec:
       env:
         - name: MLFLOW_ENABLED
           value: $(params.MLFLOW_ENABLED)
-        - name: HF_CLI_TOKEN
+        - name: HF_TOKEN
           valueFrom:
             secretKeyRef:
               name: huggingface-token
-              key: HF_CLI_TOKEN
+              key: HF_TOKEN
               optional: true
         - name: MLFLOW_TRACKING_USERNAME
           valueFrom:

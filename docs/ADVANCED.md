@@ -723,12 +723,12 @@ oc describe nodes | grep -A 5 "Allocated resources"
 oc get secret huggingface-token -n downstream-llm-d
 
 # Check token value
-oc get secret huggingface-token -n downstream-llm-d -o jsonpath='{.data.HF_CLI_TOKEN}' | base64 -d
+oc get secret huggingface-token -n downstream-llm-d -o jsonpath='{.data.HF_TOKEN}' | base64 -d
 
 # Recreate with valid token
 oc delete secret huggingface-token -n downstream-llm-d
 oc create secret generic huggingface-token \
-  --from-literal=HF_CLI_TOKEN=hf_xxxxxxxxxxxxx \
+  --from-literal=HF_TOKEN=hf_xxxxxxxxxxxxx \
   -n downstream-llm-d
 ```
 

@@ -1017,7 +1017,7 @@ def main():
     logger.info(f"Starting benchmark sweep for rates: {args.rate}")
 
     # Log in to HF
-    hf_token = os.environ.get("HF_CLI_TOKEN")
+    hf_token = os.environ.get("HF_TOKEN")
     if hf_token:
         if shutil.which("hf"):
             hf_cmd = ["hf", "auth", "login", "--token", hf_token]

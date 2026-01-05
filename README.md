@@ -43,7 +43,7 @@ You can create the necessary secrets manually:
 ```bash
 # HuggingFace token (required)
 oc create secret generic huggingface-token \
-  --from-literal=HF_CLI_TOKEN=hf_xxxxxxxxxxxxx \
+  --from-literal=HF_TOKEN=hf_xxxxxxxxxxxxx \
   -n $NAMESPACE
 
 # MLflow credentials (optional - only if using MLflow)

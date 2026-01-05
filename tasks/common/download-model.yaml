@@ -46,7 +46,7 @@ spec:
           valueFrom:
             secretKeyRef:
               name: huggingface-token
-              key: HF_CLI_TOKEN
+              key: HF_TOKEN
               optional: true
         - name: HF_HOME
           value: /tmp/.huggingface
