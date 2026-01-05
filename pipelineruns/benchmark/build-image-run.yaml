@@ -24,7 +24,7 @@ spec:
     - name: REGISTRY
       value: "image-registry.openshift-image-registry.svc:5000"
     - name: NAMESPACE
-      value: "downstream-llm-d"
+      value: "llm-d"
     - name: GUIDELLM_VERSION
       value: "v0.3.1"
 
@@ -36,6 +36,7 @@ spec:
     - name: source
       volumeClaimTemplate:
         spec:
+          storageClassName: nfs-storage
           accessModes:
             - ReadWriteOnce
           resources:

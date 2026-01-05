@@ -48,9 +48,13 @@ spec:
 
     # Benchmark Configuration
     - name: IMAGE
-      description: Full URL of the GuideLLM custom image
+      description: |
+        Full URL of the GuideLLM custom image.
+        The namespace portion (/llm-d/) should match the namespace where the image was built.
+        If building in a different namespace, override this parameter accordingly.
+        Example: image-registry.openshift-image-registry.svc:5000/<your-namespace>/guidellm-custom:latest
       type: string
-      default: "image-registry.openshift-image-registry.svc:5000/downstream-llm-d/guidellm-custom:latest"
+      default: "image-registry.openshift-image-registry.svc:5000/llm-d/guidellm-custom:latest"
 
     - name: TARGET
       description: Target inference endpoint URL

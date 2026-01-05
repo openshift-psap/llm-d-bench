@@ -40,9 +40,9 @@ spec:
 
     # Benchmark Configuration
     - name: IMAGE
-      value: "image-registry.openshift-image-registry.svc:5000/downstream-llm-d/guidellm-custom:latest"
+      value: "image-registry.openshift-image-registry.svc:5000/llm-d/guidellm-custom:latest"
     - name: TARGET
-      value: "https://qwen-qwen3-06b-test-gateway.downstream-llm-d.svc.cluster.local:8000"
+      value: "https://qwen-qwen3-06b-test-gateway.llm-d.svc.cluster.local:8000"
     - name: PROCESSOR
       value: "Qwen/Qwen3-0.6B"
     - name: BACKEND_TYPE

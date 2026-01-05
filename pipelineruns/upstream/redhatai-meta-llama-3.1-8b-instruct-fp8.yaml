@@ -1,11 +1,11 @@
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
-  generateName: meta-llama-31-8b-upstream-1k-1k-
+  generateName: redhatai-meta-llama-31-8b-instruct-fp8-
   labels:
     app: llm-d-bench
     pipeline: upstream-end-to-end-benchmark
-    experiment: meta-llama-31-8b-upstream-1k-1k
+    experiment: redhatai-meta-llama-31-8b-instruct-fp8
 spec:
   pipelineRef:
     name: upstream-end-to-end-benchmark
@@ -20,13 +20,13 @@ spec:
   params:
     # Model Configuration
     - name: MODEL_NAME
-      value: "meta-llama/Llama-3.1-8B"
+      value: "RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8"
     - name: MODEL_REVISION
       value: "main"
 
     # Deployment Configuration
     - name: RELEASE_NAME
-      value: "llama-31-8b"
+      value: "llama-31-8b-instruct-fp8"
     - name: NAMESPACE
       value: "llm-d"
     - name: GATEWAY_PROVIDER
@@ -46,7 +46,7 @@ spec:
     - name: TARGET
       value: "https://llama-31-8b-test-gateway.llm-d.svc.cluster.local:8000"
     - name: PROCESSOR
-      value: "meta-llama/Llama-3.1-8B"
+      value: "RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8"
     - name: BACKEND_TYPE
       value: "openai_http"
     - name: RATE_TYPE
@@ -62,7 +62,7 @@ spec:
     - name: ACCELERATOR
       value: "H200"
     - name: EXPERIMENT_NAME
-      value: "meta-llama-31-8b-upstream-1k-1k"
+      value: "redhatai-meta-llama-31-8b-instruct-fp8-1k-1k"
     - name: VERSION
       value: "RHOAI-3.0"
     - name: TP
@@ -76,7 +76,7 @@ spec:
     - name: TAGS
       value:
         - "deployment=upstream"
-        - "llm-d-version=RHOAI 3.0"
+        - "llm-d-version=latest"
 
     # Health Check Configuration
     - name: HEALTH_CHECK_TIMEOUT
@@ -84,7 +84,7 @@ spec:
 
     # Stage Control - skip download, enable deploy/benchmark/cleanup
     - name: SKIP_DOWNLOAD
-      value: "true"
+      value: "false"
     - name: SKIP_DEPLOY
       value: "false"
     - name: SKIP_BENCHMARK

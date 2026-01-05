@@ -29,7 +29,7 @@ spec:
     - name: RELEASE_NAME
       value: "scheduler-test"
     - name: NAMESPACE
-      value: "downstream-llm-d"
+      value: "llm-d"
     - name: GATEWAY_PROVIDER
       value: "istio"
     - name: MODEL_REPLICAS
@@ -41,9 +41,9 @@ spec:
 
     # Benchmark Configuration (skipped for GAIE-only)
     - name: IMAGE
-      value: "image-registry.openshift-image-registry.svc:5000/downstream-llm-d/guidellm-custom:latest"
+      value: "image-registry.openshift-image-registry.svc:5000/llm-d/guidellm-custom:latest"
     - name: TARGET
-      value: "https://scheduler-test-gateway.downstream-llm-d.svc.cluster.local:8000"
+      value: "https://scheduler-test-gateway.llm-d.svc.cluster.local:8000"
     - name: PROCESSOR
       value: ""
     - name: BACKEND_TYPE
