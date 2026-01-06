@@ -4,6 +4,8 @@ Tekton pipelines for running llm-d inference benchmarks using GuideLLM.
 
 > This might work with any other LLM endpoint but has only been tested with `llm-d` endpoints.
 
+> **Note:** Upstream deployment (using the official llm-d repository with Helmfile) is experimental and may require additional manual configuration.
+
 For advanced documentation see [docs/ADVANCED.md](docs/ADVANCED.md).
 
 ## Prerequisites
