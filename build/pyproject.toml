@@ -1,0 +1,22 @@
+[project]
+name = "benchmark"
+version = "0.1.0"
+dependencies = [
+    "boto3>=1.26.0",
+    "pandas>=1.5.0",
+    "plotly>=5.11.0",
+    "PyYAML>=6.0",
+    "mlflow==3.7.0",
+    "certifi==2025.7.9",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.package-data]
+myapp = ["processor/config/*.yaml"]
+

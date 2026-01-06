@@ -1,0 +1,93 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: openai-gpt-oss-20b-1k-1k-
+  labels:
+    app: llm-d-bench
+    pipeline: downstream-end-to-end-benchmark
+    experiment: openai-gpt-oss-20b-1k-1k
+spec:
+  pipelineRef:
+    name: downstream-end-to-end-benchmark
+
+  # Use service account with permissions for LLMInferenceService resources
+  taskRunTemplate:
+    serviceAccountName: deploy-model-sa
+
+  # Automatically clean up completed PipelineRun after 1 hour
+  ttlSecondsAfterFinished: 3600
+
+  params:
+    # Model Configuration
+    - name: MODEL_NAME
+      value: "openai/gpt-oss-20b"
+    - name: MODEL_REVISION
+      value: "main"
+
+    # Deployment Configuration
+    - name: NAMESPACE
+      value: "downstream-llm-d"
+    - name: VLLM_ARGS
+      value: '[]'
+    - name: ENABLE_AUTH
+      value: "false"
+    - name: REPLICAS
+      value: "1"
+
+    # Benchmark Configuration
+    - name: IMAGE
+      value: "image-registry.openshift-image-registry.svc:5000/downstream-llm-d/guidellm-custom:latest"
+    - name: TARGET
+      value: "https://inference-gateway.apps.example.com/downstream-llm-d/openai-gpt-oss-20b"
+    - name: PROCESSOR
+      value: "openai/gpt-oss-20b"
+    - name: BACKEND_TYPE
+      value: "openai_http"
+    - name: RATE_TYPE
+      value: "concurrent"
+    - name: RATE
+      value: "1,50,100,200,300,500,650"
+    - name: DATA
+      value: "prompt_tokens=1000,output_tokens=1000"
+    - name: MAX_SECONDS
+      value: "240"
+    - name: MAX_REQUESTS
+      value: ""
+    - name: ACCELERATOR
+      value: "H200"
+    - name: EXPERIMENT_NAME
+      value: "openai-gpt-oss-20b-1k-1k"
+    - name: VERSION
+      value: "RHOAI-3.0"
+    - name: TP
+      value: "1"
+
+    # MLflow Configuration
+    - name: MLFLOW_ENABLED
+      value: "true"
+    - name: TAGS
+      value:
+        - "llm-d-version=RHOAI 3.0"
+
+    # Health Check Configuration
+    - name: HEALTH_CHECK_TIMEOUT
+      value: "3600"
+
+    # Stage Control - skip download, enable deploy/benchmark/cleanup
+    - name: SKIP_DOWNLOAD
+      value: "true"
+    - name: SKIP_DEPLOY
+      value: "false"
+    - name: SKIP_BENCHMARK
+      value: "false"
+    - name: SKIP_CLEANUP
+      value: "false"
+
+  timeouts:
+    pipeline: "2h"
+    tasks: "2h"
+
+  workspaces:
+    - name: models-storage
+      persistentVolumeClaim:
+        claimName: models-storage

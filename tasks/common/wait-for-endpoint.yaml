@@ -1,0 +1,91 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: wait-for-endpoint
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "Wait for HTTP Endpoint"
+    tekton.dev/tags: health-check, http
+    tekton.dev/platforms: "linux/amd64"
+spec:
+  description: >-
+    Wait for an HTTP endpoint to become available by polling until it returns
+    a successful response. This task replicates the init container pattern used
+    in the Helm-based benchmark jobs.
+
+  params:
+    - name: TARGET_URL
+      description: Base URL of the endpoint to check
+      type: string
+
+    - name: ENDPOINT_PATH
+      description: Path to append to the base URL for health check
+      type: string
+      default: "/v1/models"
+
+    - name: TIMEOUT_SECONDS
+      description: Maximum time to wait for endpoint (in seconds)
+      type: string
+      default: "3600"
+
+    - name: RETRY_INTERVAL
+      description: Time to wait between retries (in seconds)
+      type: string
+      default: "10"
+
+    - name: VERIFY_TLS
+      description: Verify TLS certificates
+      type: string
+      default: "false"
+
+  steps:
+    - name: wait-for-ready
+      image: registry.access.redhat.com/ubi9/ubi:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        TARGET="$(params.TARGET_URL)$(params.ENDPOINT_PATH)"
+        TIMEOUT=$(params.TIMEOUT_SECONDS)
+        RETRY_INTERVAL=$(params.RETRY_INTERVAL)
+        VERIFY_TLS=$(params.VERIFY_TLS)
+
+        CURL_TLS_FLAG=""
+        if [ "$VERIFY_TLS" = "false" ]; then
+          CURL_TLS_FLAG="-k"
+        fi
+
+        echo "Waiting for endpoint to be ready..."
+        echo "Target URL: $TARGET"
+        echo "Timeout: ${TIMEOUT}s"
+        echo "Retry Interval: ${RETRY_INTERVAL}s"
+        echo "TLS Verification: $VERIFY_TLS"
+        echo ""
+
+        START_TIME=$(date +%s)
+        END_TIME=$((START_TIME + TIMEOUT))
+
+        while true; do
+          CURRENT_TIME=$(date +%s)
+
+          if [ $CURRENT_TIME -ge $END_TIME ]; then
+            echo "ERROR: Timeout of ${TIMEOUT}s exceeded waiting for $TARGET"
+            exit 1
+          fi
+
+          echo "[$(date +'%Y-%m-%d %H:%M:%S')] Checking endpoint..."
+          if curl $CURL_TLS_FLAG -s -f -o /dev/null "$TARGET"; then
+            echo ""
+            echo "SUCCESS: Endpoint is ready!"
+            echo "Target URL: $TARGET"
+            ELAPSED=$((CURRENT_TIME - START_TIME))
+            echo "Time elapsed: ${ELAPSED}s"
+            exit 0
+          else
+            ELAPSED=$((CURRENT_TIME - START_TIME))
+            REMAINING=$((TIMEOUT - ELAPSED))
+            echo "Endpoint not ready yet (${ELAPSED}s elapsed, ${REMAINING}s remaining). Retrying in ${RETRY_INTERVAL}s..."
+            sleep "$RETRY_INTERVAL"
+          fi
+        done

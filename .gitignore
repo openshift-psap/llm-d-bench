@@ -1,7 +1,12 @@
 .DS_Store
 results/**
 
-99-*.yaml
-!99-*.example.yaml
+config/secrets/*.yaml
+!config/secrets/*.example.yaml
 
-infra/manifests/kueue/overlays/management/clusters/kustomization.yaml
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python

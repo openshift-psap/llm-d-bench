@@ -1,0 +1,101 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: full-lifecycle-llama-31-8b-
+  labels:
+    app: llm-d-bench
+    pipeline: downstream-end-to-end-benchmark
+    model: llama-3.1-8b
+    experiment: full-lifecycle-demo
+spec:
+  pipelineRef:
+    name: downstream-end-to-end-benchmark
+
+  # Use service account with permissions for LLMInferenceService resources
+  taskRunTemplate:
+    serviceAccountName: deploy-model-sa
+
+  # Automatically clean up completed PipelineRun after 1 hour
+  ttlSecondsAfterFinished: 3600
+
+  params:
+    # Model Configuration
+    - name: MODEL_NAME
+      value: "meta-llama/Llama-3.1-8B"
+    - name: MODEL_REVISION
+      value: "main"
+
+    # Deployment Configuration
+    - name: NAMESPACE
+      value: "downstream-llm-d"
+    - name: VLLM_ARGS
+      value: '["--max-model-len=8192", "--gpu-memory-utilization=0.9"]'
+    - name: ENABLE_AUTH
+      value: "false"
+    - name: REPLICAS
+      value: "1"
+
+    # Benchmark Configuration
+    - name: IMAGE
+      value: "image-registry.openshift-image-registry.svc:5000/downstream-llm-d/guidellm-custom:latest"
+    - name: TARGET
+      value: "https://llama-31-8b-kserve-workload-svc.downstream-llm-d.svc.cluster.local:8000"
+    - name: PROCESSOR
+      value: ""
+    - name: BACKEND_TYPE
+      value: "openai_http"
+    - name: RATE_TYPE
+      value: "concurrent"
+    - name: RATE
+      value: "1,50,100,200"
+    - name: DATA
+      value: "prompt_tokens=1000,output_tokens=1000"
+    - name: MAX_SECONDS
+      value: "240"
+    - name: MAX_REQUESTS
+      value: ""
+    - name: ACCELERATOR
+      value: "H200"
+    - name: EXPERIMENT_NAME
+      value: "llama-3.1-8b-full-lifecycle"
+    - name: VERSION
+      value: ""
+    - name: TP
+      value: "1"
+
+    # MLflow Configuration
+    - name: MLFLOW_ENABLED
+      value: "false"
+    - name: TAGS
+      value: []
+
+    # Health Check Configuration
+    - name: HEALTH_CHECK_TIMEOUT
+      value: "3600"
+
+    # Stage Control (all stages enabled)
+    - name: SKIP_DOWNLOAD
+      value: "true"
+    - name: SKIP_DEPLOY
+      value: "false"
+    - name: SKIP_BENCHMARK
+      value: "false"
+    - name: SKIP_CLEANUP
+      value: "false"
+
+  timeouts:
+    pipeline: "2h"
+    tasks: "2h"
+
+  workspaces:
+    - name: models-storage
+      persistentVolumeClaim:
+        claimName: models-storage
+    - name: results
+      persistentVolumeClaim:
+        claimName: benchmark-results
+
+  # Optional: Uncomment to set timeout for the entire pipeline
+  # timeouts:
+  #   pipeline: "2h"
+  #   tasks: "1h"

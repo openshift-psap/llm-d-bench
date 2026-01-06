@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: benchmark-results
+  labels:
+    app: llm-d-bench
+    type: workspace
+spec:
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 50Gi
+  # Optional: specify storage class (must support RWX)
+  # storageClassName: nfs-provisioner
+---
+# This PVC is only needed when running benchmarks without MLflow (MLFLOW_ENABLED=false)
+#
+# Results will be stored in subdirectories by experiment:
+#   /benchmark-results/<experiment-name>-<timestamp>/
+#     ├── benchmark_output.json
+#     └── benchmark_output_console.log
+#
+# To access results:
+#   1. Create a pod with the PVC mounted
+#   2. Use oc cp to retrieve files
+#   3. Or use oc rsh to browse the filesystem
+#
+# Example:
+#   oc run -it --rm view-results --image=registry.access.redhat.com/ubi9/ubi:latest \
+#     --overrides='{"spec":{"volumes":[{"name":"results","persistentVolumeClaim":{"claimName":"benchmark-results"}}],"containers":[{"name":"view-results","image":"registry.access.redhat.com/ubi9/ubi:latest","command":["sh"],"volumeMounts":[{"name":"results","mountPath":"/results"}]}]}}'

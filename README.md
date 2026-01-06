@@ -1,95 +1,263 @@
 # llm-d-bench
 
-Automated [llm-d](https://llm-d.ai/) inference benchmarking on OpenShift with optional MLflow tracking and GitHub Actions integration, by using [GuideLLM](https://github.com/vllm-project/guidellm).
+Tekton pipelines for running llm-d inference benchmarks using GuideLLM.
 
 > This might work with any other LLM endpoint but has only been tested with `llm-d` endpoints.
 
-This repo can handle downstream llm-d deployment (distributed inference through `LLInferenceService` via RHOAI 3.0), but infrastructure provisioning is not yet fully automated and it may require manual adjustments. See `infra/manifests/{rhoai,rhcl}`.
+> **Note:** Upstream deployment (using the official llm-d repository with Helmfile) is experimental and may require additional manual configuration.
 
-## Quick Setup
+For advanced documentation see [docs/ADVANCED.md](docs/ADVANCED.md).
 
-This project expects the following to be installed and correctly configured when using the provided `infra/`: 
+## Prerequisites
 
-  - [Reflector](https://github.com/emberstack/kubernetes-reflector) - Secret and ConfigMap mirroring across namespaces, can be omitted if the user manually creates the secrets in each namespace.
-  - Red Hat OpenShift AI 3.0 requirements, refer to the official documents.
+- Tekton Pipelines Operator v0.50+
+- OpenShift 4.14+
+- `oc` CLI
 
-The secrets needed to launch a benchmark can be created via CLI: 
+## Quick Start
+
+### Install Tekton Pipelines
 
 ```bash
-# HuggingFace Token Secret - Download models
-oc create secret generic huggingface-token \
-  --from-literal=HF_CLI_TOKEN=<your-huggingface-token> \
-  -n <namespace>
+# Install latest Tekton Pipelines operator
+oc apply -f https://storage.googleapis.com/tekton-releases/pipeline/latest/release.yaml
 
-# MLFlow Auth (required when mlflow.enabled: true) - Auth to MLFLow API
-oc create secret generic mlflow-auth \
-  --from-literal=admin-username=<username> \
-  --from-literal=admin-password=<password> \
-  -n <namespace>
-
-# MLFlow s3 credentials (required when mlflow.enabled: true) - Artifacts logging to s3
-oc create secret generic mlflow-s3-creds \
-  --from-literal=AWS_ACCESS_KEY_ID=<access-key> \
-  --from-literal=AWS_SECRET_ACCESS_KEY=<secret-key> \
-  --from-literal=bucket-name=<bucket-name> \
-  --from-literal=region=<region> \
-  -n <namespace>
+# Verify installation
+oc get pods -n tekton-pipelines
 ```
 
-### Deploy Infrastructure (Optional)
+### 0. Set Namespace
+
+```bash
+export NAMESPACE=downstream-llm-d
+```
+
+### 1. Install Tekton Resources
+
+```bash
+./scripts/install.sh -n $NAMESPACE
+```
+
+### 2. Create Secrets
+
+You can create the necessary secrets manually:
+
+```bash
+# HuggingFace token (required)
+oc create secret generic huggingface-token \
+  --from-literal=HF_TOKEN=hf_xxxxxxxxxxxxx \
+  -n $NAMESPACE
+
+# MLflow credentials (optional - only if using MLflow)
+oc create secret generic mlflow-ui-auth \
+  --from-literal=username=admin \
+  --from-literal=password=your-password \
+  --from-literal=tracking-uri=https://mlflow-server.example.com \
+  -n $NAMESPACE
+
+oc create secret generic mlflow-s3-secret \
+  --from-literal=access-key=your-access-key \
+  --from-literal=secret-key=your-secret-key \
+  --from-literal=bucket-name=mlflow-artifacts \
+  --from-literal=region=us-east-1 \
+  -n $NAMESPACE
+```
+
+or you can create your secret file by copying the templates present in the `config/secrets/` dir and removing the .example, so the install script will apply them.
+
+See [config/secrets/](config/secrets/) for YAML templates.
+
+### 3. Build Custom Image
+
+```bash
+oc create -f pipelineruns/build-image-run.yaml -n $NAMESPACE
+```
+
+### 4. Run Benchmark
+
+```bash
+# Use a pre-configured experiment
+oc create -f pipelineruns/meta-llama-3.1-8b-1k-1k.yaml -n $NAMESPACE
+
+# Watch logs
+tkn pipelinerun logs -f -n $NAMESPACE
+```
+
+### Install Tekton CLI (Recommended)
+
+**macOS:**
+```bash
+brew install tektoncd-cli
+```
+
+**Linux:**
+```bash
+# Download latest release
+curl -LO https://github.com/tektoncd/cli/releases/download/v0.38.0/tkn_0.38.0_Linux_x86_64.tar.gz
+tar xvzf tkn_0.38.0_Linux_x86_64.tar.gz -C /usr/local/bin/ tkn
+```
+
+**Verify:**
+```bash
+tkn version
+```
+
+### Install Tekton Dashboard (Recommended)
+> [!WARNING]
+> Tekton Dashboard is not secured by default i.e. anyone with the URL can access it. Users might want to secure the dashboard with OAuth.
+
+```bash
+# Install the Dashboard
+oc apply -f https://storage.googleapis.com/tekton-releases/dashboard/latest/release.yaml
+
+# Expose the service
+oc expose svc tekton-dashboard -n tekton-pipelines
+```
+
+### Install Experiments Infra (Recommended)
 
 > [!NOTE]
-> llm-d-bench can be used without deploying this infra, but it is advised for CI/CD integration or experiment tracking, among others.
+> llm-d-bench can be used without deploying this infra, but it is advised for CI/CD integration and experiment tracking, among others.
 
 The deployment of the experiments infrastructure is completely optional and it is inteded to be a persistent environment for automated benchmarking. The infrastructure is composed by MLFlow, Self Hosted GitHub Action Runners and Kueue with MultiCluster capabilities.
 
 In order to deploy it, create the necessary secrets within `infra/manifests/{mlflow,github-runners,kueue}` and then simply run `oc apply -k .` from the `infra/` dir.
 
-Other manifests for deploying RHOAI and configuring Distributed Inference can be found inside `infra/` too.
+Other manifests for deploying RHOAI and configuring Distributed Inference can be found inside `infra/{rhoai,rhcl}` too.
 
-#### Runing Benchmarks Via Helm
-> Needs building the benchmark image in the given namespace. See [Build and Push Custom Guidellm Image using OpenShift Builds](./build/README.md)
+## Pipelines
 
-> [!WARNING]
-> If using MLFlow, the user is responsible for creating the needed secrets in the appropriate namespace and configuring the given experiment.
+| Pipeline | Purpose | Tasks |
+|----------|---------|-------|
+| `build-image` | Build custom GuideLLM image | git-clone → buildah-build |
+| `run-benchmark` | Run benchmark | wait-for-endpoint → run-benchmark |
+
+## Custom Benchmarks
+
+Copy an experiment and edit parameters:
 
 ```bash
-helm install <your_deployment_name> ./llm-d-bench \
-  -f llm-d-bench/experiments/qwen-0.6b-baseline.yaml \
-  -n <your_namespace>
+cp pipelineruns/meta-llama-3.1-8b-1k-1k.yaml pipelineruns/my-benchmark.yaml
+vi pipelineruns/my-benchmark.yaml  # Edit TARGET, MODEL, RATE, etc.
+oc create -f pipelineruns/my-benchmark.yaml -n $NAMESPACE
 ```
 
-#### Runing Benchmarks Via GitHub Actions (if `infra` deployed)
+Or use `tkn` CLI:
 
-> Needs building the benchmark image in the given namespace. See [Build and Push Custom Guidellm Image using OpenShift Builds](./build/README.md) and GHA setup.
-
-For more information, refer to the `.github/` directory.
-
-```
-# Comment on any PR:
-/benchmark qwen-0.6b-baseline
-
-# With parameter overrides:
-/benchmark qwen-0.6b-baseline
-benchmark.maxSeconds=600
+```bash
+tkn pipeline start run-benchmark \
+  -p TARGET=https://my-model.example.com \
+  -p MODEL=meta-llama/Llama-3.1-8B \
+  -p RATE="1,50,100" \
+  -n $NAMESPACE \
+  --showlog
 ```
 
-## Adding Benchmarks
+## Storage Modes
 
-See [`llm-d-bench/ADDING_BENCHMARKS.md`](llm-d-bench/ADDING_BENCHMARKS.md) for adding new benchmark tools.
+**MLflow** (set `MLFLOW_ENABLED=true`):
+- Results logged to MLflow tracking server
+- Requires: `mlflow-ui-auth` and `mlflow-s3-secret` secrets
 
-**Quick summary:**
-1. Add benchmark implementation to `llm-d-bench/templates/benchmarks/<tool-name>/`
-2. Create experiment config in `llm-d-bench/experiments/`
-3. Trigger via `/benchmark <experiment-name>` in PR comments or manually via CLI
+**PVC** (set `MLFLOW_ENABLED=false`):
+- Results saved to PVC at `/benchmark-results/`
+- Files: `benchmark_output.json`, `benchmark_output_console.log` and HTML reports.
 
-For new experiments, add them in `llm-d-bench/experiments`. **Experiment names cannot include `.` for security reasons.**
+## Debugging
 
-## Results
+```bash
+# View logs
+tkn pipelinerun logs <pipelinerun-name> -f -n $NAMESPACE
 
-- **MLflow** - Experiments tracked if `mlflow.enabled=true` and other config values.
-- **PVC** - If `mlflow.enabled=false` (default), benchmark results will be in a PVC named `<benchmark name>-results`.
+# View specific task
+tkn pipelinerun logs <pipelinerun-name> -t run-benchmark -n $NAMESPACE
 
-## Utils
+# Check status
+oc get pipelinerun -n $NAMESPACE
+oc describe pipelinerun <pipelinerun-name> -n $NAMESPACE
 
-There is a collection of utility scripts in the `utils/` dirs. None is mandatory to use but they can come in handy.
+# Pod logs
+oc logs <pod-name> -c step-run-benchmark -n $NAMESPACE
+```
+
+## Custom Comparison Report
+
+When using MLFlow, a comparison report will be logged as an artifact. That report is a general one that contains comparison data for a fixed set of versions. In order to get a custom report that contains also results from other MLFlow runs, users can manually execute the script in plot only mode.
+
+Users need to set the MLFlow environment variables needed to rightfully access the runs. To be precise: `MLFLOW_TRACKING_USERNAME`, `MLFLOW_TRACKING_USERNAME` and `MLFLOW_TRACKING_INSECURE_TLS` set to true. Also, AWS CLI or AWS env variables must be configured too.
+
+
+```
+cd build/src/
+
+python3 -m benchmark.main --plot-only \
+  --mlflow-run-ids "abc123,cde456" \
+  --versions "foo,bar" \
+  --mlflow-tracking-uri https://your-mlflow.tracking.uri
+
+```
+
+This will download the benchmark JSON file for each run to `/tmp`, process them and generate a comparison plot report.
+
+
+## Troubleshooting
+
+### Tekton Controllers Not Starting
+
+<details>
+<summary>Tekton pipeline pods fail to start with SCC violations</summary>
+
+**Symptoms:**
+- PipelineRuns remain in pending state indefinitely
+- Tekton controller pods show status: `0/1` or `Deployment` shows `ReplicaFailure`
+- Events show: `unable to validate against any security context constraint: provider "anyuid": Forbidden: not usable by user or serviceaccount`
+- Error message: `provider restricted-v2: .containers[0].runAsUser: Invalid value: 65532: must be in the ranges`
+
+**Solution:**
+
+Grant the `anyuid` SCC to Tekton service accounts:
+
+```bash
+oc adm policy add-scc-to-user anyuid -z tekton-pipelines-controller -n tekton-pipelines
+oc adm policy add-scc-to-user anyuid -z tekton-pipelines-webhook -n tekton-pipelines
+oc adm policy add-scc-to-user anyuid -z tekton-events-controller -n tekton-pipelines
+```
+
+If deployments don't automatically restart, trigger a rollout:
+
+```bash
+oc rollout restart deployment/tekton-pipelines-controller -n tekton-pipelines
+oc rollout restart deployment/tekton-pipelines-webhook -n tekton-pipelines
+oc rollout restart deployment/tekton-events-controller -n tekton-pipelines
+```
+
+Verify controllers are running:
+```bash
+oc get pods -n tekton-pipelines
+```
+
+All pods should show `1/1 Running` status.
+
+</details>
+
+### Image Build Push Failures
+
+<details>
+<summary>Buildah task fails with "authentication required" when pushing to internal registry</summary>
+
+**Symptoms:**
+- Build completes successfully
+- Push fails with: `authentication required`
+- Error: `writing blob: initiating layer upload to /v2/.../blobs/uploads/`
+
+**Solution:**
+
+Grant the `system:image-builder` role to the service account:
+
+```bash
+oc policy add-role-to-user system:image-builder -z default -n $NAMESPACE
+```
+
+This allows the service account to push images to the internal OpenShift registry.
+
+</details>

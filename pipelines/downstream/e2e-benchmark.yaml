@@ -1,0 +1,307 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: downstream-end-to-end-benchmark
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "Downstream End-to-End Benchmark"
+    tekton.dev/tags: benchmark, llm, lifecycle, downstream
+spec:
+  description: >-
+    Complete model lifecycle pipeline: download model from HuggingFace, deploy
+    as LLMInferenceService, run benchmark, and cleanup deployment. Each stage
+    can be optionally skipped via parameters.
+
+  serviceAccountName: deploy-model-sa
+
+  params:
+    # Model Configuration
+    - name: MODEL_NAME
+      description: HuggingFace model identifier (e.g., meta-llama/Llama-3.1-8B)
+      type: string
+
+    - name: MODEL_REVISION
+      description: Model revision to download (git branch/tag/commit)
+      type: string
+      default: "main"
+
+    # Deployment Configuration
+    - name: NAMESPACE
+      description: Namespace for deployment
+      type: string
+
+    - name: VLLM_ARGS
+      description: Additional vLLM arguments as array
+      type: array
+      default: []
+
+    - name: ENABLE_AUTH
+      description: Enable authentication on the service
+      type: string
+      default: "false"
+
+    - name: REPLICAS
+      description: Number of replicas
+      type: string
+      default: "1"
+
+    # Benchmark Configuration
+    - name: IMAGE
+      description: |
+        Full URL of the GuideLLM custom image.
+        The namespace portion (/llm-d/) should match the namespace where the image was built.
+        If building in a different namespace, override this parameter accordingly.
+        Example: image-registry.openshift-image-registry.svc:5000/<your-namespace>/guidellm-custom:latest
+      type: string
+      default: "image-registry.openshift-image-registry.svc:5000/llm-d/guidellm-custom:latest"
+
+    - name: TARGET
+      description: Target inference endpoint URL
+      type: string
+
+    - name: PROCESSOR
+      description: Tokenizer/processor model name (optional)
+      type: string
+      default: ""
+
+    - name: BACKEND_TYPE
+      description: Backend type for the inference server
+      type: string
+      default: "openai_http"
+
+    - name: RATE_TYPE
+      description: Rate strategy (concurrent or synchronous)
+      type: string
+      default: "concurrent"
+
+    - name: RATE
+      description: Comma-separated list of rates to test
+      type: string
+      default: "1,50,100"
+
+    - name: DATA
+      description: Request data profile
+      type: string
+      default: "prompt_tokens=1000,output_tokens=1000"
+
+    - name: MAX_SECONDS
+      description: Maximum duration per rate in seconds
+      type: string
+      default: "600"
+
+    - name: MAX_REQUESTS
+      description: Maximum number of requests per rate (optional)
+      type: string
+      default: ""
+
+    - name: ACCELERATOR
+      description: Accelerator type tag
+      type: string
+      default: ""
+
+    - name: EXPERIMENT_NAME
+      description: MLflow experiment name
+      type: string
+      default: "guidellm-benchmarks"
+
+    - name: MLFLOW_ENABLED
+      description: Enable MLflow tracking
+      type: string
+      default: "false"
+
+    - name: TAGS
+      description: Additional tags as array of key=value pairs (e.g., ["version=3.0", "team=ai"])
+      type: array
+      default: []
+
+    - name: VERSION
+      description: Version identifier for visualization reports
+      type: string
+      default: ""
+
+    - name: TP
+      description: Tensor parallelism size (number of GPUs for deployment and benchmark)
+      type: string
+      default: "1"
+
+    - name: BENCHMARK_ENV_VARS
+      description: Additional environment variables for the benchmark container as array of name=value pairs
+      type: array
+      default: []
+
+    # Health Check Configuration
+    - name: HEALTH_CHECK_TIMEOUT
+      description: Endpoint health check timeout in seconds
+      type: string
+      default: "3600"
+
+    # Stage Control Parameters
+    - name: SKIP_DOWNLOAD
+      description: Skip model download stage
+      type: string
+      default: "false"
+
+    - name: SKIP_DEPLOY
+      description: Skip model deployment stage
+      type: string
+      default: "false"
+
+    - name: SKIP_BENCHMARK
+      description: Skip benchmark execution stage
+      type: string
+      default: "false"
+
+    - name: SKIP_CLEANUP
+      description: Skip deployment cleanup stage
+      type: string
+      default: "false"
+
+  workspaces:
+    - name: models-storage
+      description: PVC for model storage (required for download and deploy stages)
+
+    - name: results
+      description: PVC for benchmark results (optional, only for non-MLflow mode)
+      optional: true
+
+  tasks:
+    # Stage 1: Download Model
+    - name: download-model
+      when:
+        - input: "$(params.SKIP_DOWNLOAD)"
+          operator: in
+          values: ["false"]
+      taskRef:
+        name: download-model
+      params:
+        - name: MODEL_NAME
+          value: $(params.MODEL_NAME)
+        - name: MODEL_REVISION
+          value: $(params.MODEL_REVISION)
+        - name: SKIP_IF_EXISTS
+          value: "true"
+      workspaces:
+        - name: models-storage
+          workspace: models-storage
+
+    # Stage 2: Deploy Model
+    - name: deploy-model
+      runAfter:
+        - download-model
+      when:
+        - input: "$(params.SKIP_DEPLOY)"
+          operator: in
+          values: ["false"]
+      taskRef:
+        name: deploy-model
+      params:
+        - name: MODEL_NAME
+          value: $(params.MODEL_NAME)
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: TP
+          value: $(params.TP)
+        - name: VLLM_ARGS
+          value: $(params.VLLM_ARGS[*])
+        - name: SKIP_IF_EXISTS
+          value: "true"
+        - name: ENABLE_AUTH
+          value: $(params.ENABLE_AUTH)
+        - name: REPLICAS
+          value: $(params.REPLICAS)
+      workspaces:
+        - name: models-storage
+          workspace: models-storage
+
+    # Stage 3: Wait for Endpoint
+    - name: wait-for-endpoint
+      runAfter:
+        - deploy-model
+      when:
+        - input: "$(params.SKIP_BENCHMARK)"
+          operator: in
+          values: ["false"]
+      taskRef:
+        name: wait-for-endpoint
+      params:
+        - name: TARGET_URL
+          value: $(params.TARGET)
+        - name: ENDPOINT_PATH
+          value: "/v1/models"
+        - name: TIMEOUT_SECONDS
+          value: $(params.HEALTH_CHECK_TIMEOUT)
+        - name: RETRY_INTERVAL
+          value: "10"
+        - name: VERIFY_TLS
+          value: "false"
+
+    # Stage 4: Run Benchmark
+    - name: run-benchmark
+      runAfter:
+        - wait-for-endpoint
+      when:
+        - input: "$(params.SKIP_BENCHMARK)"
+          operator: in
+          values: ["false"]
+      timeout: "2h"
+      taskRef:
+        name: run-benchmark
+      params:
+        - name: IMAGE
+          value: $(params.IMAGE)
+        - name: TARGET
+          value: $(params.TARGET)
+        - name: MODEL
+          value: $(params.MODEL_NAME)
+        - name: PROCESSOR
+          value: $(params.PROCESSOR)
+        - name: BACKEND_TYPE
+          value: $(params.BACKEND_TYPE)
+        - name: RATE_TYPE
+          value: $(params.RATE_TYPE)
+        - name: RATE
+          value: $(params.RATE)
+        - name: DATA
+          value: $(params.DATA)
+        - name: MAX_SECONDS
+          value: $(params.MAX_SECONDS)
+        - name: MAX_REQUESTS
+          value: $(params.MAX_REQUESTS)
+        - name: ACCELERATOR
+          value: $(params.ACCELERATOR)
+        - name: EXPERIMENT_NAME
+          value: $(params.EXPERIMENT_NAME)
+        - name: MLFLOW_ENABLED
+          value: $(params.MLFLOW_ENABLED)
+        - name: TAGS
+          value: $(params.TAGS[*])
+        - name: VERSION
+          value: $(params.VERSION)
+        - name: TP
+          value: $(params.TP)
+        - name: BENCHMARK_ENV_VARS
+          value: $(params.BENCHMARK_ENV_VARS[*])
+      workspaces:
+        - name: results
+          workspace: results
+
+    # Stage 5: Cleanup Deployment
+    - name: cleanup-deployment
+      runAfter:
+        - run-benchmark
+      when:
+        - input: "$(params.SKIP_CLEANUP)"
+          operator: in
+          values: ["false"]
+      taskRef:
+        name: cleanup-deployment
+      params:
+        - name: MODEL_NAME
+          value: $(params.MODEL_NAME)
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: WAIT_FOR_DELETION
+          value: "true"
+        - name: SKIP_IF_NOT_EXISTS
+          value: "true"
