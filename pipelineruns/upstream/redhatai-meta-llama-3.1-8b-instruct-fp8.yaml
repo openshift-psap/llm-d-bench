@@ -44,7 +44,7 @@ spec:
     - name: IMAGE
       value: "image-registry.openshift-image-registry.svc:5000/llm-d/guidellm-custom:latest"
     - name: TARGET
-      value: "https://llama-31-8b-test-gateway.llm-d.svc.cluster.local:8000"
+      value: "http://infra-llama-31-8b-instruct-fp8-inference-gateway-istio.llm-d.svc.cluster.local:80"
     - name: PROCESSOR
       value: "RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8"
     - name: BACKEND_TYPE
