@@ -171,6 +171,45 @@ class BenchmarkProcessor:
             else:
                 raise
 
+    def load_additional_csvs(self, csv_file_paths: List[str]) -> pd.DataFrame:
+        """
+        Load additional CSV files and merge them with the consolidated data.
+
+        Args:
+            csv_file_paths: List of paths to additional CSV files
+
+        Returns:
+            DataFrame containing all data merged (S3 CSV + additional CSVs)
+        """
+        if not csv_file_paths:
+            logger.info("No additional CSV files to load")
+            return self.consolidated_df
+
+        logger.info(f"Loading {len(csv_file_paths)} additional CSV file(s)")
+        additional_dfs = []
+
+        for csv_file in csv_file_paths:
+            logger.info(f"Loading additional CSV: {csv_file}")
+            try:
+                additional_df = pd.read_csv(csv_file)
+                logger.info(f"Loaded {len(additional_df)} rows from {csv_file}")
+                additional_dfs.append(additional_df)
+            except Exception as e:
+                logger.error(f"Failed to load {csv_file}: {e}")
+                raise ValueError(f"Could not load additional CSV file {csv_file}: {e}")
+
+        # Merge additional CSVs with consolidated CSV
+        if additional_dfs:
+            logger.info(
+                f"Merging {len(additional_dfs)} additional CSV(s) with consolidated data"
+            )
+            all_csvs = [self.consolidated_df] + additional_dfs
+            merged_df = pd.concat(all_csvs, ignore_index=True)
+            logger.info(f"After merging: {len(merged_df)} total rows")
+            return merged_df
+
+        return self.consolidated_df
+
     def process_benchmark_section(
         self, benchmark_run: Dict[str, Any], benchmark_index: int
     ) -> Dict[str, Any]:

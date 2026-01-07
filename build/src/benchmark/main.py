@@ -737,6 +737,7 @@ def generate_plot_only_report(
     runs_data: list,
     versions: list = None,
     mlflow_tracking_uri: str = None,
+    additional_csv_files: list = None,
 ) -> str:
     """
     Generate HTML report from existing MLflow runs without running benchmarks.
@@ -745,6 +746,7 @@ def generate_plot_only_report(
         runs_data: List of run data dictionaries
         versions: List of versions to filter/compare (optional)
         mlflow_tracking_uri: MLflow tracking URI (optional)
+        additional_csv_files: List of additional CSV file paths to include (optional)
 
     Returns:
         Path to generated HTML report
@@ -800,6 +802,11 @@ def generate_plot_only_report(
     )
     consolidated_df = temp_processor.download_s3_csv()
     logger.info(f"Downloaded consolidated CSV with {len(consolidated_df)} rows")
+
+    # Load and merge additional CSV files using processor method
+    if additional_csv_files:
+        temp_processor.consolidated_df = consolidated_df
+        consolidated_df = temp_processor.load_additional_csvs(additional_csv_files)
 
     # Process each run to get its CSV data
     all_run_dataframes = []
@@ -954,6 +961,12 @@ def main():
         "--versions",
         help="Comma-separated list of versions to compare (filters runs and sets compare_versions)",
     )
+    parser.add_argument(
+        "--additional-csv",
+        action="append",
+        dest="additional_csv_files",
+        help="Additional CSV file(s) to include in comparison plots (only for --plot-only mode). Can be specified multiple times.",
+    )
 
     args = parser.parse_args()
 
@@ -964,6 +977,15 @@ def main():
         # Validate required arguments for plot-only mode
         if not args.mlflow_run_ids:
             parser.error("--mlflow-run-ids is required when using --plot-only")
+
+        # Validate additional CSV files if provided
+        if args.additional_csv_files:
+            logger.info(
+                f"Will include {len(args.additional_csv_files)} additional CSV file(s)"
+            )
+            for csv_file in args.additional_csv_files:
+                if not Path(csv_file).exists():
+                    parser.error(f"Additional CSV file not found: {csv_file}")
 
         # Parse run IDs and versions
         run_ids = [rid.strip() for rid in args.mlflow_run_ids.split(",")]
@@ -986,6 +1008,7 @@ def main():
                 runs_data=runs_data,
                 versions=versions,
                 mlflow_tracking_uri=args.mlflow_tracking_uri,
+                additional_csv_files=args.additional_csv_files,
             )
 
             if html_report:
