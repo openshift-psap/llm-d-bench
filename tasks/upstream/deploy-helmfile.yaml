@@ -421,13 +421,13 @@ spec:
 
           # Check EPP (External Processing Pod) - GAIE
           EPP_READY=false
-          if check_pods "app.kubernetes.io/name=epp" "EPP"; then
+          if check_pods "inferencepool=gaie-$RELEASE_NAME-epp" "EPP"; then
             EPP_READY=true
           fi
 
           # Check Gateway
           GATEWAY_READY=false
-          if kubectl get gateway -n $NAMESPACE inference-gateway &>/dev/null; then
+          if kubectl get gateway -n $NAMESPACE infra-$RELEASE_NAME-inference-gateway &>/dev/null; then
             GATEWAY_READY=true
             echo "  Gateway: Found"
           else
