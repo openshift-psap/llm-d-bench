@@ -72,7 +72,7 @@ See [config/secrets/](config/secrets/) for YAML templates.
 # GuideLLM (default)
 oc create -f pipelineruns/benchmark/guidellm/build-image-run.yaml -n $NAMESPACE
 
-# Or MLPerf
+# Or MLPerf (requires dataset upload - see step 4 note below)
 oc create -f pipelineruns/benchmark/mlperf/build-image-run.yaml -n $NAMESPACE
 ```
 
@@ -89,7 +89,7 @@ oc create -f pipelineruns/llm-d/meta-llama-3.1-8b-mlperf.yaml -n $NAMESPACE
 tkn pipelinerun logs -f -n $NAMESPACE
 ```
 
-> **Note:** For MLPerf benchmarks, upload datasets to `models-storage` PVC at `/datasets/` before running. See [docs/ADVANCED.md](docs/ADVANCED.md#mlperf-benchmark-tool) for dataset upload instructions.
+> **Note:** For MLPerf benchmarks, datasets must be manually uploaded to the `models-storage` PVC at `/datasets/` before running. The pipeline does not download datasets automatically. See [docs/ADVANCED.md](docs/ADVANCED.md#mlperf-benchmark-tool) for step-by-step dataset upload instructions.
 
 ### Install Tekton CLI (Recommended)
 
@@ -161,6 +161,7 @@ llm-d-bench supports two benchmark tools:
 
 - **GuideLLM** (default): Load testing with concurrency control and detailed metrics
 - **MLPerf**: Standardized benchmark with Offline, Server, and other scenarios
+  - **Requires manual dataset upload**: MLPerf datasets must be uploaded to the `models-storage` PVC before running benchmarks
 
 To switch between tools, use different benchmark images and pipelines. See [docs/ADVANCED.md](docs/ADVANCED.md#mlperf-benchmark-tool) for details.
 

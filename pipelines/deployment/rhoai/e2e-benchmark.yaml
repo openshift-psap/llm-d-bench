@@ -270,7 +270,7 @@ spec:
         - name: VERIFY_TLS
           value: "false"
 
-    # Stage 4: Run Benchmark
+    # Stage 4a: Run GuideLLM Benchmark (if IMAGE doesn't contain "mlperf")
     - name: run-guidellm-benchmark
       runAfter:
         - wait-for-endpoint
@@ -278,6 +278,9 @@ spec:
         - input: "$(params.SKIP_BENCHMARK)"
           operator: in
           values: ["false"]
+        - input: "$(params.IMAGE)"
+          operator: notin
+          values: ["mlperf"]
       timeout: "2h"
       taskRef:
         name: run-guidellm-benchmark
@@ -320,10 +323,80 @@ spec:
         - name: results
           workspace: results
 
+    # Stage 4b: Run MLPerf Benchmark (if IMAGE contains "mlperf")
+    - name: run-mlperf-benchmark
+      runAfter:
+        - wait-for-endpoint
+      when:
+        - input: "$(params.SKIP_BENCHMARK)"
+          operator: in
+          values: ["false"]
+        - input: "$(params.IMAGE)"
+          operator: in
+          values: ["mlperf"]
+      timeout: "2h"
+      taskRef:
+        name: run-mlperf-benchmark
+      params:
+        - name: IMAGE
+          value: $(params.IMAGE)
+        - name: TARGET
+          value: $(params.TARGET)
+        - name: MODEL
+          value: $(params.MODEL_NAME)
+        - name: ACCELERATOR
+          value: $(params.ACCELERATOR)
+        - name: EXPERIMENT_NAME
+          value: $(params.EXPERIMENT_NAME)
+        - name: MLFLOW_ENABLED
+          value: $(params.MLFLOW_ENABLED)
+        - name: TAGS
+          value: $(params.TAGS[*])
+        - name: VERSION
+          value: $(params.VERSION)
+        - name: TP
+          value: $(params.TP)
+        - name: BENCHMARK_ENV_VARS
+          value: $(params.BENCHMARK_ENV_VARS[*])
+        - name: DATASET_NAME
+          value: $(params.DATASET_NAME)
+        - name: SCENARIO
+          value: $(params.SCENARIO)
+        - name: TEST_MODE
+          value: $(params.TEST_MODE)
+        - name: BATCH_SIZE
+          value: $(params.BATCH_SIZE)
+        - name: NUM_SAMPLES
+          value: $(params.NUM_SAMPLES)
+        - name: OUTPUT_DIR
+          value: $(params.OUTPUT_DIR)
+        - name: SERVER_TARGET_QPS
+          value: $(params.SERVER_TARGET_QPS)
+        - name: RATE
+          value: $(params.RATE)
+        - name: DATA
+          value: $(params.DATA)
+        - name: PROCESSOR
+          value: $(params.PROCESSOR)
+        - name: MAX_SECONDS
+          value: $(params.MAX_SECONDS)
+        - name: MAX_REQUESTS
+          value: $(params.MAX_REQUESTS)
+        - name: BACKEND_TYPE
+          value: $(params.BACKEND_TYPE)
+        - name: RATE_TYPE
+          value: $(params.RATE_TYPE)
+      workspaces:
+        - name: models-storage
+          workspace: models-storage
+        - name: results
+          workspace: results
+
     # Stage 5: Cleanup Deployment
     - name: cleanup-rhoai-deployment
       runAfter:
         - run-guidellm-benchmark
+        - run-mlperf-benchmark
       when:
         - input: "$(params.SKIP_CLEANUP)"
           operator: in

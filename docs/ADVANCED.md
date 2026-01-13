@@ -961,7 +961,7 @@ tkn pipelinerun logs -f -n llm-d-bench
 
 ### Build Process
 
-1. **guidellm-git-clone**: Clones this repository
+1. **git-clone**: Clones this repository
 2. **guidellm-buildah-build**: Builds container using `build/guidellm/Containerfile`
 3. **Push**: Pushes to OpenShift internal registry
 

@@ -216,7 +216,7 @@ spec:
         done
 
         # Construct dataset path
-        DATASET_PATH="/mnt/storage/datasets/$(params.DATASET_NAME)"
+        DATASET_PATH="$(workspaces.models-storage.path)/datasets/$(params.DATASET_NAME)"
 
         echo "MLPerf Benchmark Configuration"
         echo "==============================="
@@ -233,7 +233,7 @@ spec:
           echo "ERROR: Dataset not found: $DATASET_PATH"
           echo ""
           echo "Available datasets:"
-          ls -lh /mnt/storage/datasets/ 2>/dev/null || echo "  No datasets directory found"
+          ls -lh "$(workspaces.models-storage.path)/datasets/" 2>/dev/null || echo "  No datasets directory found"
           echo ""
           echo "To upload datasets, see documentation: docs/ADVANCED.md#mlperf-benchmark-tool"
           exit 1
@@ -268,10 +268,6 @@ spec:
         echo ""
 
         exec python3 -m benchmark.main "${ARGS[@]}"
-
-      volumeMounts:
-        - name: models-storage
-          mountPath: /mnt/storage
 
   # Avoid scheduling on GPU nodes
   affinity:

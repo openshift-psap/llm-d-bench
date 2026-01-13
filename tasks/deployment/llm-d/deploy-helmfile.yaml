@@ -93,23 +93,13 @@ spec:
         set -e
 
         echo "=== Step 1: Patching Values with yq ==="
-        echo ""
 
-        # Verify llm-d repository was cloned
         if [ ! -d "$(workspaces.source.path)/llm-d-repo/guides/inference-scheduling" ]; then
-          echo "ERROR: llm-d repository not found or incomplete"
-          echo "Expected path: $(workspaces.source.path)/llm-d-repo/guides/inference-scheduling"
-          echo ""
-          echo "Contents of workspace:"
-          ls -la $(workspaces.source.path)/
+          echo "ERROR: llm-d repository not found at $(workspaces.source.path)/llm-d-repo/guides/inference-scheduling"
           exit 1
         fi
 
-        echo "✓ Found llm-d repository at $(workspaces.source.path)/llm-d-repo"
-        echo ""
-
         # Install yq (mikefarah/yq v4.x)
-        echo "Installing yq..."
         YQ_VERSION="v4.40.5"
         if ! wget -qO /tmp/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"; then
           echo "ERROR: Failed to download yq"
@@ -122,23 +112,8 @@ spec:
         # Verify values file exists
         if [ ! -f "$VALUES_FILE" ]; then
           echo "ERROR: values.yaml not found at $VALUES_FILE"
-          echo "Directory contents:"
-          ls -la ms-inference-scheduling/
           exit 1
         fi
-
-        echo "Original values.yaml:"
-        echo "---"
-        cat $VALUES_FILE
-        echo "---"
-        echo ""
-
-        echo "Applying patches..."
-        echo "  Model: $(params.MODEL_NAME)"
-        echo "  Replicas: $(params.MODEL_REPLICAS)"
-        echo "  TP: $(params.TP)"
-        echo "  PVC: $(params.MODEL_PVC)"
-        echo ""
 
         # Sanitize model name for PVC path (replace / with -)
         MODEL_NAME_SANITIZED=$(echo "$(params.MODEL_NAME)" | sed 's|/|-|g')
@@ -174,15 +149,12 @@ spec:
 
         # 5. Model Revision (if not main)
         if [ "$(params.MODEL_REVISION)" != "main" ]; then
-          echo "  Setting model revision: $(params.MODEL_REVISION)"
           /tmp/yq -i '.decode.containers[0].args += ["--revision", "$(params.MODEL_REVISION)"]' $VALUES_FILE
         fi
 
         # 6. Additional vLLM Args
-        echo "  Processing additional vLLM args..."
         for arg in "$@"; do
           if [ -n "$arg" ]; then
-            echo "    Adding arg: $arg"
             /tmp/yq -i '.decode.containers[0].args += ["'"$arg"'"]' $VALUES_FILE
           fi
         done
@@ -190,18 +162,10 @@ spec:
         # Validate patched YAML
         if ! /tmp/yq eval '.' $VALUES_FILE > /dev/null; then
           echo "ERROR: Patched values.yaml is not valid YAML"
-          echo "This may indicate a yq version incompatibility"
-          cat $VALUES_FILE
           exit 1
         fi
 
-        echo ""
         echo "✓ Values patched successfully"
-        echo ""
-        echo "Patched values.yaml:"
-        echo "---"
-        cat $VALUES_FILE
-        echo "---"
 
     # Step 2: Deploy with Helmfile
     - name: deploy-llm-d-helmfile
@@ -219,39 +183,27 @@ spec:
         set -e
 
         echo "=== Step 2: Deploying with Helmfile ==="
-        echo ""
 
         NAMESPACE=$(params.NAMESPACE)
         RELEASE_NAME=$(params.RELEASE_NAME)
         GATEWAY_PROVIDER=$(params.GATEWAY_PROVIDER)
 
-        echo "Deployment Configuration:"
-        echo "  Namespace: $NAMESPACE"
-        echo "  Release Postfix: $RELEASE_NAME"
-        echo "  Gateway Provider: $GATEWAY_PROVIDER"
-        echo ""
-
         # Check for existing releases (idempotency)
         if [ "$(params.SKIP_IF_EXISTS)" = "true" ]; then
           if helm list -n $NAMESPACE 2>/dev/null | grep -q "ms-.*$RELEASE_NAME"; then
             echo "✓ Release already exists - skipping deployment"
-            echo ""
-            echo "Existing releases:"
-            helm list -n $NAMESPACE | grep "$RELEASE_NAME" || true
             exit 0
           fi
         fi
 
         # Check helm is accessible
-        if ! helm version; then
+        if ! helm version > /dev/null 2>&1; then
           echo "ERROR: helm command not available"
-          echo "Container image may be incorrect"
           exit 1
         fi
 
         # Initialize helmfile plugins
-        echo "Initializing helmfile..."
-        if ! helmfile init --force; then
+        if ! helmfile init --force > /dev/null 2>&1; then
           echo "ERROR: Failed to initialize helmfile"
           exit 1
         fi
@@ -280,10 +232,6 @@ spec:
         export RELEASE_NAME_POSTFIX="$RELEASE_NAME"
 
         # Deploy with helmfile
-        echo "Running helmfile apply..."
-        echo "  Command: helmfile apply $ENV_FLAG -n $NAMESPACE --skip-deps=false --suppress-secrets"
-        echo ""
-
         set +e
         helmfile apply $ENV_FLAG -n $NAMESPACE --skip-deps=false --suppress-secrets
         HELMFILE_EXIT_CODE=$?
@@ -291,23 +239,10 @@ spec:
 
         if [ $HELMFILE_EXIT_CODE -ne 0 ]; then
           echo "ERROR: helmfile apply failed with exit code $HELMFILE_EXIT_CODE"
-          echo ""
-          echo "Checking Helm releases:"
-          helm list -n $NAMESPACE || true
-          echo ""
-          echo "Checking pods:"
-          kubectl get pods -n $NAMESPACE || true
           exit $HELMFILE_EXIT_CODE
         fi
 
-        echo ""
         echo "✓ Deployment complete!"
-        echo "  Infrastructure: infra-inference-scheduling-$RELEASE_NAME"
-        echo "  GAIE Pool: gaie-inference-scheduling-$RELEASE_NAME"
-        echo "  Model Service: ms-inference-scheduling-$RELEASE_NAME"
-        echo ""
-        echo "Deployed releases:"
-        helm list -n $NAMESPACE | grep "$RELEASE_NAME" || true
 
     # Step 3: Create HTTPRoute
     - name: create-httproute
@@ -317,16 +252,9 @@ spec:
         set -e
 
         echo "=== Step 3: Creating HTTPRoute ==="
-        echo ""
 
         NAMESPACE=$(params.NAMESPACE)
         RELEASE_NAME=$(params.RELEASE_NAME)
-
-        echo "HTTPRoute Configuration:"
-        echo "  Name: llm-d-$RELEASE_NAME"
-        echo "  Gateway: infra-$RELEASE_NAME-inference-gateway"
-        echo "  InferencePool: gaie-$RELEASE_NAME"
-        echo ""
 
         # Create HTTPRoute
         cat <<EOF | kubectl apply -f - -n $NAMESPACE
@@ -355,9 +283,7 @@ spec:
                   value: /
         EOF
 
-        echo ""
         echo "✓ HTTPRoute created successfully"
-        echo ""
 
     # Step 4: Verify Deployment
     - name: verify-deployment
@@ -367,18 +293,11 @@ spec:
         set -e
 
         echo "=== Step 4: Verifying Deployment ==="
-        echo ""
 
         NAMESPACE=$(params.NAMESPACE)
         RELEASE_NAME=$(params.RELEASE_NAME)
         TIMEOUT=600  # 10 minutes
         INTERVAL=10  # Check every 10 seconds
-
-        echo "Verification Configuration:"
-        echo "  Namespace: $NAMESPACE"
-        echo "  Release: $RELEASE_NAME"
-        echo "  Timeout: ${TIMEOUT}s"
-        echo ""
 
         # Function to check pod status
         check_pods() {
@@ -451,17 +370,6 @@ spec:
           if [ "$EPP_READY" = "true" ] && [ "$GATEWAY_READY" = "true" ] && [ "$MS_READY" = "true" ]; then
             ELAPSED=$((CURRENT_TIME - START_TIME))
             echo "✓ All components ready! (${ELAPSED}s)"
-            echo ""
-            echo "=== Deployment Summary ==="
-            echo ""
-            echo "Pods:"
-            kubectl get pods -n $NAMESPACE || true
-            echo ""
-            echo "Gateway:"
-            kubectl get gateway -n $NAMESPACE || true
-            echo ""
-            echo "InferencePool:"
-            kubectl get inferencepool -n $NAMESPACE || true
             exit 0
           fi
 

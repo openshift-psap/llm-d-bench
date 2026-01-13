@@ -59,12 +59,12 @@ spec:
 
     - name: COMMIT
       description: The precise commit SHA that was built
-      value: $(tasks.mlperf-git-clone.results.COMMIT)
+      value: $(tasks.git-clone.results.COMMIT)
 
   tasks:
-    - name: mlperf-git-clone
+    - name: git-clone
       taskRef:
-        name: mlperf-git-clone
+        name: git-clone
       params:
         - name: URL
           value: $(params.GIT_URL)
@@ -76,7 +76,7 @@ spec:
 
     - name: mlperf-buildah-build
       runAfter:
-        - mlperf-git-clone
+        - git-clone
       taskRef:
         name: mlperf-buildah-build
       params:

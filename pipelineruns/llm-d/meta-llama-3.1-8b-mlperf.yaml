@@ -1,16 +1,16 @@
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
-  generateName: redhatai-meta-llama-31-8b-instruct-fp8-mlperf-
+  generateName: meta-llama-31-8b-mlperf-
   labels:
     app: llm-d-bench
-    pipeline: llm-d-end-to-end-benchmark-mlperf
-    experiment: redhatai-meta-llama-31-8b-instruct-fp8-mlperf
+    pipeline: llm-d-end-to-end-benchmark
+    experiment: meta-llama-31-8b-mlperf
     benchmark-tool: mlperf
     deployment-mode: llm-d
 spec:
   pipelineRef:
-    name: llm-d-end-to-end-benchmark-mlperf
+    name: llm-d-end-to-end-benchmark
 
   taskRunTemplate:
     serviceAccountName: deploy-model-sa
@@ -70,7 +70,7 @@ spec:
       value: "/tmp/mlperf"
     - name: BENCHMARK_ENV_VARS
       value:
-        - "MLFLOW_TRACKING_URI=http://150.239.115.202:5000"
+        - "MLFLOW_TRACKING_URI=http://150.239.115.202"
 
     # ===========================================
     # GuideLLM parameters (unused but required by pipeline schema)
@@ -96,7 +96,7 @@ spec:
     - name: MLFLOW_ENABLED
       value: "true"
     - name: EXPERIMENT_NAME
-      value: "redhatai-meta-llama-31-8b-instruct-fp8-mlperf"
+      value: "meta-llama-31-8b-mlperf"
     - name: VERSION
       value: "llm-d-0.4"
     - name: ACCELERATOR
@@ -136,7 +136,13 @@ spec:
         claimName: models-storage  # Must contain both models/ and datasets/ subdirectories
 
     - name: source
-      emptyDir: {}
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
 
     - name: results
       emptyDir: {}

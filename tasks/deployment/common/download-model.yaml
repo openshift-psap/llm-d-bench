@@ -39,7 +39,7 @@ spec:
 
   steps:
     - name: download-model
-      image: registry.access.redhat.com/ubi9/python-311:latest
+      image: python:3.11-slim
       workingDir: /tmp
       env:
         - name: HF_TOKEN

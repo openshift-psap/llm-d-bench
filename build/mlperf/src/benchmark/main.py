@@ -85,9 +85,15 @@ def main():
     lg_model_name = model_category
 
     mlflow_host = ""
+    mlflow_port = ""
     if args.mlflow_tracking_uri:
         parsed = urlparse(args.mlflow_tracking_uri)
-        mlflow_host = parsed.netloc or parsed.path.strip("/")
+        # Extract hostname and port separately
+        # parsed.hostname gives just the hostname without port
+        # parsed.port gives the port number (or None)
+        mlflow_host = parsed.hostname or parsed.path.strip("/")
+        if parsed.port:
+            mlflow_port = str(parsed.port)
 
     if not os.path.exists(args.dataset_path):
         print(f"ERROR: Dataset file not found: {args.dataset_path}")
@@ -132,6 +138,8 @@ def main():
 
     if mlflow_host:
         cmd.extend(["--mlflow-host", mlflow_host])
+        if mlflow_port:
+            cmd.extend(["--mlflow-port", mlflow_port])
 
     print("\nExecuting MLPerf harness with command:")
     print(" ".join(cmd))

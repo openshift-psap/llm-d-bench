@@ -64,12 +64,12 @@ spec:
 
     - name: COMMIT
       description: The precise commit SHA that was built
-      value: $(tasks.guidellm-git-clone.results.COMMIT)
+      value: $(tasks.git-clone.results.COMMIT)
 
   tasks:
-    - name: guidellm-git-clone
+    - name: git-clone
       taskRef:
-        name: guidellm-git-clone
+        name: git-clone
       params:
         - name: URL
           value: $(params.GIT_URL)
@@ -81,7 +81,7 @@ spec:
 
     - name: guidellm-buildah-build
       runAfter:
-        - guidellm-git-clone
+        - git-clone
       taskRef:
         name: guidellm-buildah-build
       params:
