@@ -24,7 +24,7 @@ spec:
     - name: REGISTRY
       value: "image-registry.openshift-image-registry.svc:5000"
     - name: NAMESPACE
-      value: "llm-d"
+      value: "llm-d-bench"
 
   timeouts:
     pipeline: "2h"

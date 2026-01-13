@@ -36,7 +36,7 @@ spec:
     - name: RELEASE_NAME
       value: "qwen-06b-example"  # Required - no default
     - name: NAMESPACE
-      value: "llm-d"  # Required - no default
+      value: "llm-d-bench"  # Required - no default
     - name: GATEWAY_PROVIDER
       value: "istio"  # DEFAULT
     - name: MODEL_REPLICAS
@@ -60,7 +60,7 @@ spec:
     - name: IMAGE
       value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"  # DEFAULT
     - name: TARGET
-      value: "https://qwen-06b-example-gateway.llm-d.svc.cluster.local:8000"  # Required - no default
+      value: "https://qwen-06b-example-gateway.llm-d-bench.svc.cluster.local:8000"  # Required - no default
     - name: PROCESSOR
       value: "Qwen/Qwen3-0.6B"  # DEFAULT: "" (empty)
     - name: BACKEND_TYPE

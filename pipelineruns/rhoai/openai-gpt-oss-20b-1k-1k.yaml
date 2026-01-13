@@ -38,7 +38,7 @@ spec:
     - name: IMAGE
       value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
     - name: TARGET
-      value: "https://inference-gateway.apps.example.com/downstream-llm-d/openai-gpt-oss-20b"
+      value: "https://inference-gateway.apps.example.com/llm-d-bench/openai-gpt-oss-20b"
     - name: PROCESSOR
       value: "openai/gpt-oss-20b"
     - name: BACKEND_TYPE

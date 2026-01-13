@@ -24,7 +24,7 @@ spec:
     - name: REGISTRY
       value: "image-registry.openshift-image-registry.svc:5000"
     - name: NAMESPACE
-      value: "llm-d"
+      value: "llm-d-bench"
     - name: GUIDELLM_VERSION
       value: "v0.3.1"
 

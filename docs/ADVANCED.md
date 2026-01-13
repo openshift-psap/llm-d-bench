@@ -288,12 +288,12 @@ This example replicates `pipelineruns/downstream/redhatai-llama-3.3-70b-instruct
 
 ```bash
 tkn pipeline start full-benchmark-lifecycle \
-  --namespace downstream-llm-d \
+  --namespace llm-d-bench \
   --serviceaccount deploy-model-sa \
   --workspace name=models-storage,claimName=models-storage \
   --param MODEL_NAME="RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic" \
   --param MODEL_REVISION="main" \
-  --param NAMESPACE="downstream-llm-d" \
+  --param NAMESPACE="llm-d-bench" \
   --param VLLM_ARGS="--max-model-len=8192" \
   --param VLLM_ARGS="--uvicorn-log-level=debug" \
   --param VLLM_ARGS="--trust-remote-code" \
@@ -302,8 +302,8 @@ tkn pipeline start full-benchmark-lifecycle \
   --param VLLM_ARGS="--disable-log-requests" \
   --param ENABLE_AUTH="false" \
   --param REPLICAS="1" \
-  --param IMAGE="image-registry.openshift-image-registry.svc:5000/downstream-llm-d/guidellm-custom:latest" \
-  --param TARGET="https://redhatai-llama-33-70b-instruct-fp8-dynamic-kserve-workload-svc.downstream-llm-d.svc.cluster.local:8000" \
+  --param IMAGE="image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest" \
+  --param TARGET="https://redhatai-llama-33-70b-instruct-fp8-dynamic-kserve-workload-svc.llm-d-bench.svc.cluster.local:8000" \
   --param PROCESSOR="RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic" \
   --param BACKEND_TYPE="openai_http" \
   --param RATE_TYPE="concurrent" \
@@ -334,12 +334,12 @@ Most parameters have defaults, so you can simplify:
 
 ```bash
 tkn pipeline start full-benchmark-lifecycle \
-  --namespace downstream-llm-d \
+  --namespace llm-d-bench \
   --serviceaccount deploy-model-sa \
   --workspace name=models-storage,claimName=models-storage \
   --param MODEL_NAME="meta-llama/Llama-3.1-8B" \
-  --param NAMESPACE="downstream-llm-d" \
-  --param TARGET="https://meta-llama-llama-31-8b-kserve-workload-svc.downstream-llm-d.svc.cluster.local:8000" \
+  --param NAMESPACE="llm-d-bench" \
+  --param TARGET="https://meta-llama-llama-31-8b-kserve-workload-svc.llm-d-bench.svc.cluster.local:8000" \
   --param RATE="1,50,100" \
   --param MLFLOW_ENABLED="true" \
   --showlog
@@ -349,25 +349,25 @@ tkn pipeline start full-benchmark-lifecycle \
 
 ```bash
 # List pipelines
-tkn pipeline list -n downstream-llm-d
+tkn pipeline list -n llm-d-bench
 
 # List recent runs
-tkn pipelinerun list -n downstream-llm-d
+tkn pipelinerun list -n llm-d-bench
 
 # Watch logs
-tkn pipelinerun logs -f <pipelinerun-name> -n downstream-llm-d
+tkn pipelinerun logs -f <pipelinerun-name> -n llm-d-bench
 
 # View specific task logs
-tkn pipelinerun logs <pipelinerun-name> -t run-benchmark -n downstream-llm-d
+tkn pipelinerun logs <pipelinerun-name> -t run-benchmark -n llm-d-bench
 
 # Describe a pipeline
-tkn pipeline describe full-benchmark-lifecycle -n downstream-llm-d
+tkn pipeline describe full-benchmark-lifecycle -n llm-d-bench
 
 # Cancel a running pipeline
-tkn pipelinerun cancel <pipelinerun-name> -n downstream-llm-d
+tkn pipelinerun cancel <pipelinerun-name> -n llm-d-bench
 
 # Delete completed runs
-tkn pipelinerun delete <pipelinerun-name> -n downstream-llm-d
+tkn pipelinerun delete <pipelinerun-name> -n llm-d-bench
 ```
 
 ---
@@ -454,7 +454,7 @@ spec:
 
 2. Test task standalone:
    ```bash
-   oc apply -f tasks/my-category/my-task.yaml -n downstream-llm-d
+   oc apply -f tasks/my-category/my-task.yaml -n llm-d-bench
    ```
 
 3. Create a TaskRun for testing:
@@ -676,7 +676,7 @@ mlflow.log_params(params)
 
 Then rebuild the image:
 ```bash
-oc create -f pipelineruns/build-image-run.yaml -n downstream-llm-d
+oc create -f pipelineruns/build-image-run.yaml -n llm-d-bench
 ```
 
 ---
@@ -1494,10 +1494,10 @@ For a complete example, see:
 **Solution**:
 ```bash
 # Check PVCs exist
-oc get pvc -n downstream-llm-d
+oc get pvc -n llm-d-bench
 
 # Check service account
-oc get sa deploy-model-sa -n downstream-llm-d
+oc get sa deploy-model-sa -n llm-d-bench
 
 # Check node resources
 oc describe nodes | grep -A 5 "Allocated resources"
@@ -1515,16 +1515,16 @@ oc describe nodes | grep -A 5 "Allocated resources"
 **Solution**:
 ```bash
 # Verify secret exists
-oc get secret huggingface-token -n downstream-llm-d
+oc get secret huggingface-token -n llm-d-bench
 
 # Check token value
-oc get secret huggingface-token -n downstream-llm-d -o jsonpath='{.data.HF_TOKEN}' | base64 -d
+oc get secret huggingface-token -n llm-d-bench -o jsonpath='{.data.HF_TOKEN}' | base64 -d
 
 # Recreate with valid token
-oc delete secret huggingface-token -n downstream-llm-d
+oc delete secret huggingface-token -n llm-d-bench
 oc create secret generic huggingface-token \
   --from-literal=HF_TOKEN=hf_xxxxxxxxxxxxx \
-  -n downstream-llm-d
+  -n llm-d-bench
 ```
 
 #### 3. Deployment Task Fails
@@ -1538,13 +1538,13 @@ oc create secret generic huggingface-token \
 **Solution**:
 ```bash
 # Check role binding
-oc get rolebinding deploy-model-rolebinding -n downstream-llm-d -o yaml
+oc get rolebinding deploy-model-rolebinding -n llm-d-bench -o yaml
 
 # Verify service account has role
-oc describe role deploy-model-role -n downstream-llm-d
+oc describe role deploy-model-role -n llm-d-bench
 
 # Re-apply RBAC
-oc apply -f config/rbac/deploy-model-rbac.yaml -n downstream-llm-d
+oc apply -f config/rbac/deploy-model-rbac.yaml -n llm-d-bench
 ```
 
 #### 4. Wait-for-Endpoint Times Out
@@ -1559,10 +1559,10 @@ oc apply -f config/rbac/deploy-model-rbac.yaml -n downstream-llm-d
 **Solution**:
 ```bash
 # Check deployment logs
-oc logs -l serving.kserve.io/inferenceservice=<deployment-name> -n downstream-llm-d
+oc logs -l serving.kserve.io/inferenceservice=<deployment-name> -n llm-d-bench
 
 # Check pod events
-oc get events -n downstream-llm-d --sort-by='.lastTimestamp'
+oc get events -n llm-d-bench --sort-by='.lastTimestamp'
 
 # Adjust HEALTH_CHECK_TIMEOUT or vLLM args
 ```
@@ -1595,7 +1595,7 @@ Already handled by setting `verify: false` in backend args. If still fails:
 oc exec -it <benchmark-pod> -- curl -k $MLFLOW_TRACKING_URI/health
 
 # Verify S3 secret
-oc get secret mlflow-s3-secret -n downstream-llm-d -o yaml
+oc get secret mlflow-s3-secret -n llm-d-bench -o yaml
 
 # Check benchmark output exists
 oc exec -it <benchmark-pod> -- ls -la /tmp/benchmark_sweep.json
@@ -1606,35 +1606,35 @@ oc exec -it <benchmark-pod> -- ls -la /tmp/benchmark_sweep.json
 #### View Task Logs
 ```bash
 # Get PipelineRun name
-tkn pipelinerun list -n downstream-llm-d
+tkn pipelinerun list -n llm-d-bench
 
 # View specific task logs
-tkn pipelinerun logs <pipelinerun-name> -t download-model -n downstream-llm-d
-tkn pipelinerun logs <pipelinerun-name> -t deploy-model -n downstream-llm-d
-tkn pipelinerun logs <pipelinerun-name> -t run-benchmark -n downstream-llm-d
+tkn pipelinerun logs <pipelinerun-name> -t download-model -n llm-d-bench
+tkn pipelinerun logs <pipelinerun-name> -t deploy-model -n llm-d-bench
+tkn pipelinerun logs <pipelinerun-name> -t run-benchmark -n llm-d-bench
 ```
 
 #### Check Pod Status
 ```bash
 # List pods for PipelineRun
-oc get pods -l tekton.dev/pipelineRun=<pipelinerun-name> -n downstream-llm-d
+oc get pods -l tekton.dev/pipelineRun=<pipelinerun-name> -n llm-d-bench
 
 # Describe pod for events
-oc describe pod <pod-name> -n downstream-llm-d
+oc describe pod <pod-name> -n llm-d-bench
 
 # Get pod logs
-oc logs <pod-name> -c step-run-benchmark -n downstream-llm-d
+oc logs <pod-name> -c step-run-benchmark -n llm-d-bench
 ```
 
 #### Inspect Resources
 ```bash
 # Check LLMInferenceService status
-oc get llminferenceservice -n downstream-llm-d
-oc describe llminferenceservice <deployment-name> -n downstream-llm-d
+oc get llminferenceservice -n llm-d-bench
+oc describe llminferenceservice <deployment-name> -n llm-d-bench
 
 # Check PVC usage
-oc get pvc models-storage -n downstream-llm-d
-oc describe pvc models-storage -n downstream-llm-d
+oc get pvc models-storage -n llm-d-bench
+oc describe pvc models-storage -n llm-d-bench
 ```
 
 #### Enable Debug Logging

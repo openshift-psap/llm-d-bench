@@ -28,7 +28,7 @@ spec:
     - name: RELEASE_NAME
       value: "llama-31-8b"
     - name: NAMESPACE
-      value: "llm-d"
+      value: "llm-d-bench"
     - name: GATEWAY_PROVIDER
       value: "istio"
     - name: MODEL_REPLICAS
@@ -42,9 +42,9 @@ spec:
 
     # Benchmark Configuration
     - name: IMAGE
-      value: "image-registry.openshift-image-registry.svc:5000/llm-d/guidellm-custom:latest"
+      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
     - name: TARGET
-      value: "https://llama-31-8b-test-gateway.llm-d.svc.cluster.local:8000"
+      value: "https://llama-31-8b-test-gateway.llm-d-bench.svc.cluster.local:8000"
     - name: PROCESSOR
       value: "meta-llama/Llama-3.1-8B"
     - name: BACKEND_TYPE

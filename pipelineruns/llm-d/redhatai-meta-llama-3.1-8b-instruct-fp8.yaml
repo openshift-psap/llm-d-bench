@@ -28,7 +28,7 @@ spec:
     - name: RELEASE_NAME
       value: "llama-31-8b-instruct-fp8"
     - name: NAMESPACE
-      value: "llm-d"
+      value: "llm-d-bench"
     - name: GATEWAY_PROVIDER
       value: "istio"
     - name: MODEL_REPLICAS
@@ -42,9 +42,9 @@ spec:
 
     # Benchmark Configuration
     - name: IMAGE
-      value: "image-registry.openshift-image-registry.svc:5000/llm-d/guidellm-custom:latest"
+      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
     - name: TARGET
-      value: "http://infra-llama-31-8b-instruct-fp8-inference-gateway-istio.llm-d.svc.cluster.local:80"
+      value: "http://infra-llama-31-8b-instruct-fp8-inference-gateway-istio.llm-d-bench.svc.cluster.local:80"
     - name: PROCESSOR
       value: "RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8"
     - name: BACKEND_TYPE

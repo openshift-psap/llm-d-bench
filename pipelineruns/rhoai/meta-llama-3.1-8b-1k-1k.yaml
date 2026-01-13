@@ -26,7 +26,7 @@ spec:
 
     # Deployment Configuration
     - name: NAMESPACE
-      value: "downstream-llm-d"
+      value: "llm-d-bench"
     - name: VLLM_ARGS
       value: []
     - name: ENABLE_AUTH
@@ -36,9 +36,9 @@ spec:
 
     # Benchmark Configuration
     - name: IMAGE
-      value: "image-registry.openshift-image-registry.svc:5000/downstream-llm-d/guidellm-custom:latest"
+      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
     - name: TARGET
-      value: "https://inference-gateway.apps.psap-llmd-h200.ibm-rh-ai.rhperfscale.org/downstream-llm-d/meta-llama-llama-31-8b"
+      value: "https://inference-gateway.apps.psap-llmd-h200.ibm-rh-ai.rhperfscale.org/llm-d-bench/meta-llama-llama-31-8b"
     - name: PROCESSOR
       value: "meta-llama/Llama-3.1-8B"
     - name: BACKEND_TYPE

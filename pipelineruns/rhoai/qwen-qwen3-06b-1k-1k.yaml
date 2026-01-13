@@ -38,7 +38,7 @@ spec:
     - name: IMAGE
       value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
     - name: TARGET
-      value: "https://inference-gateway.apps.example.com/downstream-llm-d/qwen-qwen3-06b"
+      value: "https://inference-gateway.apps.example.com/llm-d-bench/qwen-qwen3-06b"
     - name: PROCESSOR
       value: "Qwen/Qwen3-0.6B"
     - name: BACKEND_TYPE

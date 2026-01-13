@@ -19,7 +19,7 @@ spec:
 
     # Target and model
     - name: TARGET
-      value: "https://inference-gateway.apps.example.com/downstream-llm-d/my-model"
+      value: "https://inference-gateway.apps.example.com/llm-d-bench/my-model"
     - name: MODEL
       value: "meta-llama/Llama-3.1-8B"
     - name: PROCESSOR
