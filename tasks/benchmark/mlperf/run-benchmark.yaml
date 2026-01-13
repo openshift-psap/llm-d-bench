@@ -1,0 +1,283 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: run-mlperf-benchmark
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "Run MLPerf Benchmark"
+    tekton.dev/tags: benchmark, llm, mlperf
+    tekton.dev/platforms: "linux/amd64"
+spec:
+  description: >-
+    Execute an MLPerf benchmark test against an LLM inference endpoint.
+    Supports both MLflow tracking and dataset-based benchmarking.
+
+  params:
+    # Common parameters (shared with GuideLLM)
+    - name: IMAGE
+      description: Full URL of the MLPerf custom image to use
+      type: string
+
+    - name: TARGET
+      description: Target inference endpoint URL
+      type: string
+
+    - name: MODEL
+      description: Model name/identifier
+      type: string
+
+    - name: EXPERIMENT_NAME
+      description: MLflow experiment name
+      type: string
+      default: "mlperf-benchmarks"
+
+    - name: MLFLOW_ENABLED
+      description: Enable MLflow tracking (true or false)
+      type: string
+      default: "false"
+
+    - name: TAGS
+      description: Additional tags as array of key=value pairs
+      type: array
+      default: []
+
+    - name: VERSION
+      description: Version identifier for visualization reports
+      type: string
+      default: ""
+
+    - name: TP
+      description: Tensor parallelism size for visualization reports
+      type: string
+      default: "1"
+
+    - name: ACCELERATOR
+      description: Accelerator type tag (e.g., H200, A100)
+      type: string
+      default: ""
+
+    - name: BENCHMARK_ENV_VARS
+      description: Additional environment variables for the benchmark container
+      type: array
+      default: []
+
+    # MLPerf-specific parameters
+    - name: DATASET_NAME
+      description: Dataset filename (e.g., "cnn_eval.json")
+      type: string
+      default: "cnn_eval.json"
+
+    - name: SCENARIO
+      description: MLPerf scenario (Offline, Server, SingleStream, MultiStream)
+      type: string
+      default: "Offline"
+
+    - name: TEST_MODE
+      description: MLPerf test mode (accuracy or performance)
+      type: string
+      default: "accuracy"
+
+    - name: BATCH_SIZE
+      description: Batch size for inference
+      type: string
+      default: ""
+
+    - name: NUM_SAMPLES
+      description: Number of samples to process
+      type: string
+      default: "4388"
+
+    - name: OUTPUT_DIR
+      description: Output directory for results
+      type: string
+      default: "./test-run"
+
+    - name: SERVER_TARGET_QPS
+      description: Target QPS for Server scenario
+      type: string
+      default: "10"
+
+    # GuideLLM parameters (unused but may be passed by pipeline)
+    - name: RATE
+      description: Unused by MLPerf, required for pipeline compatibility
+      type: string
+      default: "1"
+
+    - name: DATA
+      description: Unused by MLPerf, required for pipeline compatibility
+      type: string
+      default: ""
+
+    - name: PROCESSOR
+      description: Unused by MLPerf, required for pipeline compatibility
+      type: string
+      default: ""
+
+    - name: MAX_SECONDS
+      description: Unused by MLPerf, required for pipeline compatibility
+      type: string
+      default: ""
+
+    - name: MAX_REQUESTS
+      description: Unused by MLPerf, required for pipeline compatibility
+      type: string
+      default: ""
+
+    - name: BACKEND_TYPE
+      description: Unused by MLPerf, required for pipeline compatibility
+      type: string
+      default: ""
+
+    - name: RATE_TYPE
+      description: Unused by MLPerf, required for pipeline compatibility
+      type: string
+      default: ""
+
+    - name: LOG_LEVEL
+      description: Logging level (DEBUG, INFO, WARNING, ERROR)
+      type: string
+      default: "DEBUG"
+
+  workspaces:
+    - name: models-storage
+      description: PVC containing datasets at /datasets/ subdirectory
+      optional: false
+
+    - name: results
+      description: Workspace for storing benchmark results (optional)
+      optional: true
+
+  steps:
+    - name: run-mlperf-benchmark
+      image: $(params.IMAGE)
+      workingDir: /tmp
+      env:
+        - name: MLFLOW_ENABLED
+          value: $(params.MLFLOW_ENABLED)
+        - name: MLFLOW_TRACKING_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: username
+              optional: true
+        - name: MLFLOW_TRACKING_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: password
+              optional: true
+        - name: MLFLOW_TRACKING_URI
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: tracking-uri
+              optional: true
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: access-key
+              optional: true
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: secret-key
+              optional: true
+        - name: MLFLOW_S3_BUCKET_NAME
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: bucket-name
+              optional: true
+        - name: AWS_DEFAULT_REGION
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: region
+              optional: true
+        - name: MLFLOW_TRACKING_INSECURE_TLS
+          value: "true"
+        - name: LOG_LEVEL
+          value: $(params.LOG_LEVEL)
+      args:
+        - $(params.BENCHMARK_ENV_VARS[*])
+      script: |
+        #!/bin/bash
+        set -euo pipefail
+
+        # Export additional environment variables
+        for env_var in "$@"; do
+          if [ -n "$env_var" ]; then
+            export "$env_var"
+            echo "Exported env var: $env_var"
+          fi
+        done
+
+        # Construct dataset path
+        DATASET_PATH="/mnt/storage/datasets/$(params.DATASET_NAME)"
+
+        echo "MLPerf Benchmark Configuration"
+        echo "==============================="
+        echo "Target: $(params.TARGET)"
+        echo "Model: $(params.MODEL)"
+        echo "Dataset: $DATASET_PATH"
+        echo "Scenario: $(params.SCENARIO)"
+        echo "Test Mode: $(params.TEST_MODE)"
+        echo "Num Samples: $(params.NUM_SAMPLES)"
+        echo ""
+
+        # Verify dataset exists
+        if [ ! -f "$DATASET_PATH" ]; then
+          echo "ERROR: Dataset not found: $DATASET_PATH"
+          echo ""
+          echo "Available datasets:"
+          ls -lh /mnt/storage/datasets/ 2>/dev/null || echo "  No datasets directory found"
+          echo ""
+          echo "To upload datasets, see documentation: docs/ADVANCED.md#mlperf-benchmark-tool"
+          exit 1
+        fi
+
+        echo "Dataset found: $DATASET_PATH ($(du -h $DATASET_PATH | cut -f1))"
+        echo ""
+
+        # Build MLPerf command
+        ARGS=(
+          --target "$(params.TARGET)"
+          --model "$(params.MODEL)"
+          --dataset-path "$DATASET_PATH"
+          --dataset-name "$(params.DATASET_NAME)"
+          --scenario "$(params.SCENARIO)"
+          --test-mode "$(params.TEST_MODE)"
+          --num-samples "$(params.NUM_SAMPLES)"
+          --output-dir "$(params.OUTPUT_DIR)"
+          --server-target-qps "$(params.SERVER_TARGET_QPS)"
+        )
+
+        # Add optional parameters
+        [ -n "$(params.BATCH_SIZE)" ] && ARGS+=(--batch-size "$(params.BATCH_SIZE)")
+
+        if [ "$(params.MLFLOW_ENABLED)" = "true" ]; then
+          ARGS+=(--experiment-name "$(params.EXPERIMENT_NAME)")
+          [ -n "$MLFLOW_TRACKING_URI" ] && ARGS+=(--mlflow-tracking-uri "$MLFLOW_TRACKING_URI")
+        fi
+
+        echo "Starting MLPerf benchmark..."
+        echo "Command: python3 -m benchmark.main ${ARGS[@]}"
+        echo ""
+
+        exec python3 -m benchmark.main "${ARGS[@]}"
+
+      volumeMounts:
+        - name: models-storage
+          mountPath: /mnt/storage
+
+  # Avoid scheduling on GPU nodes
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: nvidia.com/gpu
+                operator: DoesNotExist

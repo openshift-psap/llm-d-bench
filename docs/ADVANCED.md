@@ -25,7 +25,8 @@ This guide covers advanced topics for using, modifying, and extending the llm-d-
 ```
 llm-d-bench/
 ├── build/                    # Custom benchmark image source
-│   └── guidellm/             # GuideLLM with MLflow integration
+│   ├── guidellm/             # GuideLLM with MLflow integration
+│   └── mlperf/               # MLPerf benchmark wrapper
 │
 ├── config/                   # Configuration resources
 │   ├── rbac/                 # Service accounts and roles
@@ -39,14 +40,18 @@ llm-d-bench/
 │   ├── llm-d/                # llm-d (Helmfile) deployments
 │   ├── rhoai/                # RHOAI (KServe) deployments
 │   ├── rhaiis/               # RHAIIS (Pod) deployments
-│   └── benchmark/guidellm/   # Standalone benchmarks
+│   └── benchmark/            # Standalone benchmarks
+│       ├── guidellm/         # GuideLLM examples
+│       └── mlperf/           # MLPerf examples
 │
 ├── pipelines/                # Pipeline definitions (orchestration)
 │   ├── deployment/           # Deployment mode pipelines
 │   │   ├── llm-d/            # llm-d end-to-end
 │   │   ├── rhoai/            # RHOAI end-to-end
 │   │   └── rhaiis/           # RHAIIS end-to-end
-│   └── benchmark/guidellm/   # Benchmark pipelines
+│   └── benchmark/            # Benchmark pipelines
+│       ├── guidellm/         # GuideLLM pipelines
+│       └── mlperf/           # MLPerf pipelines
 │
 ├── scripts/                  # Utility scripts
 │   └── install.sh            # Installation automation
@@ -676,6 +681,197 @@ oc create -f pipelineruns/build-image-run.yaml -n downstream-llm-d
 
 ---
 
+## MLPerf Benchmark Tool
+
+### Overview
+
+llm-d-bench supports two benchmark tools: **GuideLLM** (default) and **MLPerf**. Switch between them by using different benchmark images and pipelines.
+
+**GuideLLM:**
+- Load testing with concurrency control
+- Detailed performance metrics (TTFT, ITL, TPOT)
+- Integrated MLflow tracking
+- Custom visualization reports
+
+**MLPerf:**
+- Standardized MLPerf Inference benchmark
+- Official MLPerf scenarios (Offline, Server, etc.)
+- Accuracy and performance testing
+- Industry-standard metrics
+
+### Switching Between Tools
+
+The benchmark tasks are tool-specific:
+- GuideLLM: Use `run-guidellm-benchmark` task or `guidellm-run-benchmark-pipeline`
+- MLPerf: Use `run-mlperf-benchmark` task or `mlperf-run-benchmark-pipeline`
+
+**GuideLLM Example:**
+```yaml
+params:
+  - name: IMAGE
+    value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
+  - name: RATE
+    value: "1,50,100"
+  - name: DATA
+    value: "prompt_tokens=1000,output_tokens=1000"
+  - name: MAX_SECONDS
+    value: "600"
+```
+
+**MLPerf Example:**
+```yaml
+params:
+  - name: IMAGE
+    value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/mlperf-custom:latest"
+  - name: DATASET_NAME
+    value: "cnn_eval.json"
+  - name: SCENARIO
+    value: "Offline"
+  - name: TEST_MODE
+    value: "accuracy"
+  - name: NUM_SAMPLES
+    value: "4388"
+```
+
+### Parameter Mapping
+
+| Parameter | GuideLLM | MLPerf | Notes |
+|-----------|----------|--------|-------|
+| **TARGET** | ✓ | ✓ | Inference endpoint URL |
+| **MODEL** | ✓ | ✓ | Model identifier (MLPerf derives category) |
+| **EXPERIMENT_NAME** | ✓ | ✓ | MLflow experiment name |
+| **MLFLOW_TRACKING_URI** | ✓ | ✓ | MLflow server |
+| **RATE** | ✓ | ✗ | Concurrency levels (GuideLLM only) |
+| **DATA** | ✓ | ✗ | Token counts (GuideLLM only) |
+| **MAX_SECONDS** | ✓ | ✗ | Duration per rate (GuideLLM only) |
+| **DATASET_NAME** | ✗ | ✓ | Dataset filename (MLPerf only) |
+| **SCENARIO** | ✗ | ✓ | MLPerf scenario (Offline, Server, etc.) |
+| **TEST_MODE** | ✗ | ✓ | Test mode (accuracy, performance) |
+| **BATCH_SIZE** | ✗ | ✓ | Batch size (MLPerf only) |
+| **NUM_SAMPLES** | ✗ | ✓ | Number of samples (MLPerf only) |
+
+### Dataset Management for MLPerf
+
+MLPerf benchmarks require dataset files pre-uploaded to the `models-storage` PVC.
+
+#### Dataset Storage Structure
+
+```
+models-storage PVC:
+├── models/                    # Model files (existing)
+│   ├── meta-llama-llama-31-8b/
+│   └── ...
+└── datasets/                  # Dataset files (for MLPerf)
+    ├── cnn_eval.json
+    └── ...
+```
+
+#### Uploading Datasets
+
+**Step 1: Create a temporary pod with PVC mounted**
+
+```bash
+oc run dataset-upload --image=registry.access.redhat.com/ubi9/ubi:latest \
+  --overrides='{"spec":{"volumes":[{"name":"models-storage","persistentVolumeClaim":{"claimName":"models-storage"}}],"containers":[{"name":"dataset-upload","image":"registry.access.redhat.com/ubi9/ubi:latest","command":["sleep","3600"],"volumeMounts":[{"name":"models-storage","mountPath":"/mnt/storage"}]}]}}' \
+  -n llm-d-bench
+```
+
+**Step 2: Create datasets directory and upload files**
+
+```bash
+# Create datasets directory
+oc exec -it dataset-upload -n llm-d-bench -- mkdir -p /mnt/storage/datasets
+
+# Copy dataset file from local machine to PVC
+oc cp cnn_eval.json dataset-upload:/mnt/storage/datasets/cnn_eval.json -n llm-d-bench
+
+# Verify upload
+oc exec -it dataset-upload -n llm-d-bench -- ls -lh /mnt/storage/datasets/
+```
+
+**Step 3: Clean up**
+
+```bash
+oc delete pod dataset-upload -n llm-d-bench
+```
+
+#### Dataset Path Resolution
+
+When you specify `DATASET_NAME: "cnn_eval.json"`, the benchmark task automatically constructs:
+
+```bash
+DATASET_PATH="/mnt/storage/datasets/cnn_eval.json"
+```
+
+The task verifies the dataset exists before running MLPerf and fails with a helpful error if not found.
+
+### MLPerf Model Category Derivation
+
+The MLPerf wrapper automatically derives the `--model-category` parameter from the MODEL name:
+
+**Examples:**
+- `RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8` → `llama3.1-8b`
+- `meta-llama/Llama-3.1-70B` → `llama3.1-70b`
+- `meta-llama/Llama-2-70B` → `llama2-70b`
+
+To customize this logic, edit `build/mlperf/src/benchmark/main.py:derive_model_category()`.
+
+### Building MLPerf Image
+
+Before using MLPerf, build the custom MLPerf image:
+
+```bash
+# Build MLPerf image
+oc create -f pipelineruns/benchmark/mlperf/build-image-run.yaml -n llm-d-bench
+
+# Watch build progress
+tkn pipelinerun logs -f -n llm-d-bench
+
+# Image location:
+# image-registry.openshift-image-registry.svc:5000/llm-d-bench/mlperf-custom:latest
+```
+
+### Running MLPerf Benchmarks
+
+**Option 1: End-to-End Pipeline** (recommended)
+
+Use the MLPerf-specific deployment pipeline for a complete workflow:
+
+1. Upload datasets to PVC (see Dataset Management above)
+2. Run end-to-end pipeline with deployment + benchmark + cleanup:
+
+```bash
+# llm-d deployment with MLPerf benchmark
+oc create -f pipelineruns/llm-d/meta-llama-3.1-8b-mlperf.yaml -n llm-d-bench
+```
+
+**Available MLPerf deployment pipelines:**
+- `llm-d-end-to-end-benchmark-mlperf` - llm-d (Helmfile) + MLPerf
+- Additional deployment modes can use standalone benchmark (see Option 2)
+
+**Option 2: Standalone Benchmark**
+
+1. Deploy your model first (using any deployment mode with `SKIP_BENCHMARK=true`)
+2. Upload datasets to PVC (see Dataset Management above)
+3. Run standalone MLPerf benchmark:
+
+```bash
+oc create -f pipelineruns/benchmark/mlperf/run-benchmark-example.yaml -n llm-d-bench
+```
+
+### MLPerf Scenarios
+
+MLPerf supports multiple standardized scenarios:
+
+- **Offline**: Maximum throughput, no latency constraints
+- **Server**: Target QPS with latency constraints
+- **SingleStream**: Process one sample at a time
+- **MultiStream**: Process multiple streams simultaneously
+
+Each scenario has specific metrics and requirements. See [MLPerf Inference rules](https://github.com/mlcommons/inference_policies/blob/master/inference_rules.adoc) for details.
+
+---
+
 ## Building Custom Images
 
 ### Overview
@@ -690,9 +886,8 @@ build/
 │   ├── Containerfile
 │   ├── pyproject.toml
 │   └── src/
-└── <tool-name>/           # Future benchmark tools
+└── mlperf/                # MLPerf benchmark wrapper
     ├── Containerfile
-    ├── requirements.txt
     └── src/
 ```
 
@@ -721,6 +916,33 @@ podman build -t guidellm-custom:latest -f Containerfile .
 ```bash
 oc create -f pipelineruns/benchmark/guidellm/build-image-run.yaml
 ```
+
+#### mlperf/
+
+MLPerf benchmark tool with MLflow integration wrapper.
+
+**Base Image:** `python:3.11-slim`
+
+**Components:**
+- MLCommons MLPerf Inference loadgen
+- OpenShift PSAP MLPerf harness for LLMs
+- MLflow integration for experiment tracking
+- Support for Offline, Server, SingleStream, and MultiStream scenarios
+
+**Local Build:**
+```bash
+cd build/mlperf
+podman build -t mlperf-custom:latest -f Containerfile .
+```
+
+**Pipeline Build:**
+```bash
+oc create -f pipelineruns/benchmark/mlperf/build-image-run.yaml
+```
+
+**Requirements:**
+- Datasets must be pre-uploaded to `models-storage` PVC
+- See [MLPerf Benchmark Tool](#mlperf-benchmark-tool) section for details
 
 ### Image Build Pipeline
 

@@ -69,18 +69,27 @@ See [config/secrets/](config/secrets/) for YAML templates.
 ### 3. Build Custom Image
 
 ```bash
+# GuideLLM (default)
 oc create -f pipelineruns/benchmark/guidellm/build-image-run.yaml -n $NAMESPACE
+
+# Or MLPerf
+oc create -f pipelineruns/benchmark/mlperf/build-image-run.yaml -n $NAMESPACE
 ```
 
 ### 4. Run Benchmark
 
 ```bash
-# Use a pre-configured experiment (RHOAI mode example)
+# GuideLLM example (RHOAI mode)
 oc create -f pipelineruns/rhoai/qwen-qwen3-06b-example.yaml -n $NAMESPACE
+
+# MLPerf example (llm-d mode, end-to-end)
+oc create -f pipelineruns/llm-d/meta-llama-3.1-8b-mlperf.yaml -n $NAMESPACE
 
 # Watch logs
 tkn pipelinerun logs -f -n $NAMESPACE
 ```
+
+> **Note:** For MLPerf benchmarks, upload datasets to `models-storage` PVC at `/datasets/` before running. See [docs/ADVANCED.md](docs/ADVANCED.md#mlperf-benchmark-tool) for dataset upload instructions.
 
 ### Install Tekton CLI (Recommended)
 
@@ -132,9 +141,10 @@ The repo architecture is designed for extensibility. To add new benchmark tools,
 
 | Pipeline | Purpose | Tasks |
 |----------|---------|-------|
-| `llm-d-end-to-end-benchmark` | Full lifecycle with llm-d deployment | download → deploy-helmfile → wait → benchmark → cleanup |
-| `rhoai-end-to-end-benchmark` | Full lifecycle with RHOAI deployment | download → deploy-rhoai → wait → benchmark → cleanup |
-| `rhaiis-end-to-end-benchmark` | Full lifecycle with RHAIIS Pod deployment | download → deploy-rhaiis → wait → benchmark → cleanup |
+| `llm-d-end-to-end-benchmark` | Full lifecycle with llm-d deployment (GuideLLM) | download → deploy-helmfile → wait → benchmark → cleanup |
+| `llm-d-end-to-end-benchmark-mlperf` | Full lifecycle with llm-d deployment (MLPerf) | download → deploy-helmfile → wait → benchmark → cleanup |
+| `rhoai-end-to-end-benchmark` | Full lifecycle with RHOAI deployment (GuideLLM) | download → deploy-rhoai → wait → benchmark → cleanup |
+| `rhaiis-end-to-end-benchmark` | Full lifecycle with RHAIIS Pod deployment (GuideLLM) | download → deploy-rhaiis → wait → benchmark → cleanup |
 
 ### Benchmark Pipelines
 
@@ -142,6 +152,17 @@ The repo architecture is designed for extensibility. To add new benchmark tools,
 |----------|---------|-------|
 | `guidellm-build-image` | Build custom GuideLLM image | git-clone → buildah-build |
 | `guidellm-run-benchmark-pipeline` | Run benchmark only | wait-for-endpoint → run-benchmark |
+| `mlperf-build-image` | Build custom MLPerf image | git-clone → buildah-build |
+| `mlperf-run-benchmark-pipeline` | Run MLPerf benchmark only | wait-for-endpoint → run-benchmark |
+
+## Benchmark Tools
+
+llm-d-bench supports two benchmark tools:
+
+- **GuideLLM** (default): Load testing with concurrency control and detailed metrics
+- **MLPerf**: Standardized benchmark with Offline, Server, and other scenarios
+
+To switch between tools, use different benchmark images and pipelines. See [docs/ADVANCED.md](docs/ADVANCED.md#mlperf-benchmark-tool) for details.
 
 ## Custom Benchmarks
 

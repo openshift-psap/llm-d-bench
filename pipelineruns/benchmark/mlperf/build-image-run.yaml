@@ -1,13 +1,13 @@
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
-  generateName: build-guidellm-image-
+  generateName: build-mlperf-image-
   labels:
     app: llm-d-bench
-    pipeline: build-image
+    pipeline: mlperf-build-image
 spec:
   pipelineRef:
-    name: guidellm-build-image
+    name: mlperf-build-image
 
   # Automatically clean up completed PipelineRun after 1 hour
   ttlSecondsAfterFinished: 3600
@@ -16,17 +16,15 @@ spec:
     - name: GIT_URL
       value: "https://github.com/openshift-psap/llm-d-bench.git"
     - name: GIT_REVISION
-      value: "main"
+      value: "refactor/modular-architecture"
     - name: IMAGE_NAME
-      value: "guidellm-custom"
+      value: "mlperf-custom"
     - name: IMAGE_TAG
       value: "latest"
     - name: REGISTRY
       value: "image-registry.openshift-image-registry.svc:5000"
     - name: NAMESPACE
       value: "llm-d"
-    - name: GUIDELLM_VERSION
-      value: "v0.3.1"
 
   timeouts:
     pipeline: "2h"
