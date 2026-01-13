@@ -178,6 +178,19 @@ rules:
       - update
       - patch
       - delete
+
+  # OpenShift Routes (for RHAIIS deployment mode)
+  - apiGroups:
+      - route.openshift.io
+    resources:
+      - routes
+    verbs:
+      - create
+      - get
+      - list
+      - update
+      - patch
+      - delete
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -244,7 +257,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: deploy-model-sa
-    namespace: llm-d  # CHANGEME
+    namespace: llm-d-bench
 roleRef:
   kind: ClusterRole
   name: deploy-model-cluster-role

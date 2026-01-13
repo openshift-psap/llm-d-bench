@@ -14,6 +14,7 @@ This guide covers advanced topics for using, modifying, and extending the llm-d-
 - [Creating Custom Pipelines](#creating-custom-pipelines)
 - [MLflow Integration](#mlflow-integration)
 - [Building Custom Images](#building-custom-images)
+- [Adding New Benchmark Tools](#adding-new-benchmark-tools)
 - [Troubleshooting](#troubleshooting)
 - [Additional Resources](#additional-resources)
 
@@ -23,43 +24,56 @@ This guide covers advanced topics for using, modifying, and extending the llm-d-
 
 ```
 llm-d-bench/
-├── build/            # Custom benchmark image source
+├── build/                    # Custom benchmark image source
+│   └── guidellm/             # GuideLLM with MLflow integration
 │
-├── config/           # Configuration resources
-│   ├── rbac/         # Service accounts and roles
-│   ├── secrets/      # Secret templates
-│   └── workspaces/   # PVC definitions
+├── config/                   # Configuration resources
+│   ├── rbac/                 # Service accounts and roles
+│   ├── secrets/              # Secret templates
+│   └── workspaces/           # PVC definitions
 │
-├── docs/             # Documentation
-│   └── ADVANCED.md   # This file
+├── docs/                     # Documentation
+│   └── ADVANCED.md           # This file
 │
-├── pipelineruns/     # Pipeline execution definitions
-│   ├── downstream/   # Downstream (KServe) deployments
-│   └── upstream/     # Upstream (Helmfile) deployments
+├── pipelineruns/             # Pipeline execution definitions
+│   ├── llm-d/                # llm-d (Helmfile) deployments
+│   ├── rhoai/                # RHOAI (KServe) deployments
+│   ├── rhaiis/               # RHAIIS (Pod) deployments
+│   └── benchmark/guidellm/   # Standalone benchmarks
 │
-├── pipelines/        # Pipeline definitions (orchestration)
-│   ├── benchmark/    # Benchmark-only pipelines
-│   ├── downstream/   # Full lifecycle (KServe)
-│   └── upstream/                  # Full lifecycle (Helmfile)
+├── pipelines/                # Pipeline definitions (orchestration)
+│   ├── deployment/           # Deployment mode pipelines
+│   │   ├── llm-d/            # llm-d end-to-end
+│   │   ├── rhoai/            # RHOAI end-to-end
+│   │   └── rhaiis/           # RHAIIS end-to-end
+│   └── benchmark/guidellm/   # Benchmark pipelines
 │
-├── scripts/          # Utility scripts
-│   └── install.sh    # Installation automation
+├── scripts/                  # Utility scripts
+│   └── install.sh            # Installation automation
 │
-├── tasks/            # Task definitions (atomic operations)
-│   ├── benchmark/    # Image building and benchmarking
-│   ├── common/       # Shared tasks
-│   ├── downstream/   # KServe deployment tasks
-│   └── upstream/     # Helmfile deployment tasks
+├── tasks/                    # Task definitions (atomic operations)
+│   ├── deployment/           # Deployment-specific tasks
+│   │   ├── llm-d/            # llm-d deployment tasks
+│   │   ├── rhoai/            # RHOAI deployment tasks
+│   │   ├── rhaiis/           # RHAIIS deployment tasks
+│   │   └── common/           # Shared deployment tasks
+│   └── benchmark/guidellm/   # Benchmark tool tasks
 │
-└── README.md         # Quick start guide
+└── README.md                 # Quick start guide
 ```
 
 ### Directory Purposes
 
 - **`tasks/`**: Atomic, reusable operations (build, deploy, benchmark, cleanup)
+  - `deployment/`: Mode-specific deployment tasks
+  - `benchmark/`: Tool-specific benchmark tasks
 - **`pipelines/`**: Orchestration of tasks into workflows
+  - `deployment/`: Full end-to-end workflows per deployment mode
+  - `benchmark/`: Standalone benchmark pipelines
 - **`pipelineruns/`**: Concrete executions with specific parameters
-- **`build/`**: Custom container image with MLflow integration
+  - Organized by deployment mode and benchmark tool
+- **`build/`**: Benchmark tool container images
+  - Each tool has its own subdirectory
 - **`config/`**: Kubernetes resources (RBAC, secrets, PVCs)
 - **`scripts/`**: Installation and utility automation
 
@@ -67,9 +81,9 @@ llm-d-bench/
 
 ## Infrastructure Requirements
 
-### Downstream Deployment (LLMInferenceService)
+### RHOAI Deployment (LLMInferenceService)
 
-This repository supports **downstream llm-d deployment** using distributed inference through `LLMInferenceService` via RHOAI 3.0. However, infrastructure provisioning is **not yet fully automated** and may require manual adjustments.
+This repository supports **RHOAI deployment** using distributed inference through `LLMInferenceService` via RHOAI 3.0. However, infrastructure provisioning is **not yet fully automated** and may require manual adjustments.
 
 **Key Points:**
 
@@ -125,11 +139,13 @@ spec:
 ```
 
 **Tasks in this repo:**
-- `download-model`: Downloads HuggingFace models to PVC
-- `deploy-model`: Creates LLMInferenceService deployments
-- `wait-for-endpoint`: Polls endpoint until ready
-- `run-benchmark`: Executes GuideLLM benchmarks
-- `cleanup-deployment`: Removes deployments
+- `download-model`: Downloads HuggingFace models to PVC (common)
+- `deploy-rhoai-model`: Creates LLMInferenceService deployments
+- `deploy-llm-d-helmfile`: Deploys using Helmfile GitOps
+- `deploy-rhaiis-pod`: Deploys as simple Pod with RHAIIS/vLLM
+- `wait-for-endpoint`: Polls endpoint until ready (common)
+- `run-guidellm-benchmark`: Executes GuideLLM benchmarks
+- `cleanup-rhoai-deployment`, `cleanup-llm-d-deployment`, `cleanup-rhaiis-deployment`: Remove deployments
 
 ### Pipelines
 
@@ -159,10 +175,11 @@ spec:
 ```
 
 **Pipelines in this repo:**
-- `build-image`: Builds custom GuideLLM container
-- `run-benchmark`: Standalone benchmark execution
-- `full-benchmark-lifecycle`: Complete downstream workflow (download → deploy → benchmark → cleanup)
-- `upstream-benchmark-lifecycle`: Complete upstream workflow (deploy Helmfile → benchmark → cleanup)
+- `guidellm-build-image`: Builds custom GuideLLM container
+- `guidellm-run-benchmark-pipeline`: Standalone benchmark execution
+- `llm-d-end-to-end-benchmark`: Complete llm-d workflow (download → deploy-helmfile → wait → benchmark → cleanup)
+- `rhoai-end-to-end-benchmark`: Complete RHOAI workflow (download → deploy-rhoai → wait → benchmark → cleanup)
+- `rhaiis-end-to-end-benchmark`: Complete RHAIIS workflow (download → deploy-rhaiis → wait → benchmark → cleanup)
 
 ### PipelineRuns
 
@@ -173,7 +190,7 @@ A **PipelineRun** is a concrete execution of a pipeline with specific parameter 
 - Can specify service accounts, timeouts, and cleanup policies
 
 **PipelineRuns in this repo:**
-- Located in `pipelineruns/downstream/` and `pipelineruns/upstream/`
+- Located in `pipelineruns/llm-d/`, `pipelineruns/rhoai/`, `pipelineruns/rhaiis/`, and `pipelineruns/benchmark/guidellm/`
 - Each represents a specific benchmark experiment
 - Uses `generateName` for unique run names
 
@@ -424,10 +441,11 @@ spec:
 ### Adding a New Task
 
 1. Create YAML file in appropriate directory:
-   - `tasks/benchmark/` - Benchmarking operations
-   - `tasks/common/` - Shared utilities
-   - `tasks/downstream/` - KServe-specific
-   - `tasks/upstream/` - Helmfile-specific
+   - `tasks/benchmark/guidellm/` - Benchmarking operations
+   - `tasks/deployment/common/` - Shared utilities
+   - `tasks/deployment/rhoai/` - RHOAI-specific
+   - `tasks/deployment/llm-d/` - llm-d-specific
+   - `tasks/deployment/rhaiis/` - RHAIIS-specific
 
 2. Test task standalone:
    ```bash
@@ -660,26 +678,581 @@ oc create -f pipelineruns/build-image-run.yaml -n downstream-llm-d
 
 ## Building Custom Images
 
+### Overview
+
+The `build/` directory contains container build configurations for benchmark tools. Each tool has its own subdirectory with build files.
+
+### Directory Structure
+
+```
+build/
+├── guidellm/              # GuideLLM with MLflow integration
+│   ├── Containerfile
+│   ├── pyproject.toml
+│   └── src/
+└── <tool-name>/           # Future benchmark tools
+    ├── Containerfile
+    ├── requirements.txt
+    └── src/
+```
+
+### Current Tools
+
+#### guidellm/
+
+GuideLLM benchmark tool with custom MLflow integration wrapper.
+
+**Base Image:** `ghcr.io/vllm-project/guidellm:v0.3.1`
+
+**Enhancements:**
+- MLflow 3.7.0 integration for experiment tracking
+- S3 artifact storage support
+- Benchmark result processing and visualization
+- CSV consolidation for historical comparison
+- Interactive Plotly HTML reports
+
+**Local Build:**
+```bash
+cd build/guidellm
+podman build -t guidellm-custom:latest -f Containerfile .
+```
+
+**Pipeline Build:**
+```bash
+oc create -f pipelineruns/benchmark/guidellm/build-image-run.yaml
+```
+
 ### Image Build Pipeline
 
-The `build-image` pipeline builds a custom container with MLflow integration:
+The `guidellm-build-image` pipeline builds a custom container with MLflow integration:
 
 ```bash
 # Trigger image build
-oc create -f pipelineruns/build-image-run.yaml -n downstream-llm-d
+oc create -f pipelineruns/benchmark/guidellm/build-image-run.yaml -n llm-d-bench
 
 # Watch build progress
-tkn pipelinerun logs -f -n downstream-llm-d
+tkn pipelinerun logs -f -n llm-d-bench
 
 # New image will be at:
-# image-registry.openshift-image-registry.svc:5000/downstream-llm-d/guidellm-custom:latest
+# image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest
 ```
 
 ### Build Process
 
-1. **git-clone**: Clones this repository
-2. **buildah-build**: Builds container using `build/Containerfile`
+1. **guidellm-git-clone**: Clones this repository
+2. **guidellm-buildah-build**: Builds container using `build/guidellm/Containerfile`
 3. **Push**: Pushes to OpenShift internal registry
+
+### Adding New Benchmark Tools
+
+To add a new benchmark tool, create a subdirectory with the following structure:
+
+#### 1. Create Directory
+
+```bash
+mkdir -p build/<tool-name>
+cd build/<tool-name>
+```
+
+#### 2. Add Containerfile
+
+Create a `Containerfile` (or `Dockerfile`) with your build instructions:
+
+```dockerfile
+FROM python:3.11-slim
+
+# Install dependencies
+COPY requirements.txt .
+RUN pip install -r requirements.txt
+
+# Copy tool code
+COPY src/ /app/
+WORKDIR /app
+
+# Set entrypoint
+ENTRYPOINT ["python", "-m", "benchmark.main"]
+```
+
+#### 3. Add Dependencies
+
+Choose your dependency management approach:
+
+**Option A: requirements.txt** (simple)
+```txt
+locust==2.15.1
+mlflow==3.7.0
+boto3==1.28.0
+```
+
+**Option B: pyproject.toml** (modern)
+```toml
+[project]
+name = "locust-benchmark"
+version = "0.1.0"
+dependencies = [
+    "locust>=2.15.1",
+    "mlflow>=3.7.0",
+    "boto3>=1.28.0",
+]
+```
+
+#### 4. Add Tool-Specific Code (Optional)
+
+Create `src/` directory for custom wrapper code:
+
+```bash
+mkdir -p src/benchmark
+```
+
+Example wrapper for MLflow integration:
+```python
+# src/benchmark/main.py
+import subprocess
+import mlflow
+
+def run_benchmark(target, model, rate):
+    # Execute benchmark tool
+    result = subprocess.run([
+        "locust",
+        "--host", target,
+        "--users", str(rate),
+        # ... other args
+    ], capture_output=True)
+
+    # Log to MLflow
+    if mlflow_enabled:
+        mlflow.log_metrics({
+            "throughput": parse_throughput(result),
+            "latency": parse_latency(result),
+        })
+```
+
+#### 5. Test Build Locally
+
+```bash
+podman build -t <tool-name>:test -f Containerfile .
+podman run <tool-name>:test --help
+```
+
+#### 6. Create Tekton Build Pipeline
+
+See the [Adding New Benchmark Tools](#adding-new-benchmark-tools) section for creating the corresponding Tekton tasks and pipelines.
+
+### Best Practices
+
+#### Container Images
+
+1. **Use specific base image versions** - Not `latest`
+   ```dockerfile
+   # Good
+   FROM python:3.11.6-slim
+
+   # Bad
+   FROM python:latest
+   ```
+
+2. **Multi-stage builds** - Keep images small
+   ```dockerfile
+   FROM python:3.11 AS builder
+   RUN pip install --user package
+
+   FROM python:3.11-slim
+   COPY --from=builder /root/.local /root/.local
+   ```
+
+3. **Layer caching** - Copy dependencies before code
+   ```dockerfile
+   COPY requirements.txt .
+   RUN pip install -r requirements.txt
+   COPY src/ /app/  # Changes more frequently
+   ```
+
+#### Dependencies
+
+1. **Pin versions** - Ensure reproducibility
+   ```txt
+   # Good
+   mlflow==3.7.0
+
+   # Bad
+   mlflow>=3.0
+   ```
+
+2. **Minimal dependencies** - Only install what you need
+3. **Security** - Regularly update dependencies for CVE fixes
+
+#### MLflow Integration
+
+For consistency with existing tools, consider integrating with MLflow:
+
+```python
+import mlflow
+
+# Set tracking URI
+mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI"))
+
+# Create experiment
+mlflow.set_experiment(experiment_name)
+
+# Log parameters and metrics
+with mlflow.start_run():
+    mlflow.log_params({
+        "model": model_name,
+        "rate": rate,
+    })
+
+    # Run benchmark
+    results = run_benchmark()
+
+    # Log metrics
+    mlflow.log_metrics(results)
+
+    # Upload artifacts
+    mlflow.log_artifact("results.json")
+```
+
+#### Image Size Optimization
+
+Tips to keep images small:
+
+1. Use slim/alpine base images
+2. Multi-stage builds
+3. Clean up in same layer:
+   ```dockerfile
+   RUN apt-get update && \
+       apt-get install -y build-essential && \
+       pip install package && \
+       apt-get remove -y build-essential && \
+       apt-get autoremove -y && \
+       rm -rf /var/lib/apt/lists/*
+   ```
+4. Use `.dockerignore`:
+   ```
+   .git
+   *.md
+   tests/
+   __pycache__/
+   ```
+
+### Build Arguments
+
+Use build arguments for flexibility:
+
+```dockerfile
+ARG PYTHON_VERSION=3.11
+FROM python:${PYTHON_VERSION}-slim
+
+ARG TOOL_VERSION=1.0.0
+RUN pip install benchmark-tool==${TOOL_VERSION}
+```
+
+Then build with:
+```bash
+podman build --build-arg PYTHON_VERSION=3.12 -t tool:latest .
+```
+
+### Testing Custom Images
+
+Before creating Tekton pipelines, test your image:
+
+```bash
+# Build
+podman build -t benchmark-tool:test .
+
+# Test execution
+podman run --rm benchmark-tool:test --help
+
+# Test against local endpoint
+podman run --rm \
+  -e MLFLOW_TRACKING_URI=http://localhost:5000 \
+  benchmark-tool:test \
+  --target http://model-server:8000 \
+  --model test-model \
+  --rate 10
+```
+
+### Registry and Versioning
+
+#### Tagging Strategy
+
+Use semantic versioning:
+- `<tool>:latest` - Latest build (for development)
+- `<tool>:v1.0.0` - Specific version (for production)
+- `<tool>:v1.0.0-dev` - Development version
+
+Example:
+```bash
+podman tag guidellm-custom:latest \
+  image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:v1.0.0
+```
+
+#### Pushing to Registry
+
+```bash
+podman push \
+  image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:v1.0.0
+```
+
+### Troubleshooting Image Builds
+
+#### Build Fails
+
+1. Check base image exists:
+   ```bash
+   podman pull <base-image>
+   ```
+
+2. Verify dependency syntax:
+   ```bash
+   pip install -r requirements.txt  # Test locally
+   ```
+
+3. Check for typos in Containerfile
+
+#### Image Too Large
+
+1. Check layer sizes:
+   ```bash
+   podman history <image>
+   ```
+
+2. Use dive for analysis:
+   ```bash
+   dive <image>
+   ```
+
+3. Optimize as described above
+
+#### Runtime Errors
+
+1. Test entrypoint:
+   ```bash
+   podman run --entrypoint /bin/sh -it <image>
+   ```
+
+2. Check environment variables:
+   ```bash
+   podman run --rm <image> env
+   ```
+
+---
+
+## Adding New Benchmark Tools
+
+This section covers the complete workflow for adding a new benchmark tool to llm-d-bench.
+
+### Current Tools
+
+- **guidellm/**: GuideLLM with MLflow integration wrapper (default)
+
+### Adding a New Benchmark Tool
+
+To add a new benchmark tool (e.g., "locust", "wrk2", or your in-house tool):
+
+#### 1. Create Build Directory
+
+Create `/build/<tool-name>/`:
+```bash
+mkdir -p build/locust
+cd build/locust
+```
+
+Add the following files:
+- **Containerfile** - Container build definition
+- **Dependencies file** - requirements.txt, pyproject.toml, etc.
+- **Tool wrapper** (optional) - Custom code to integrate with MLflow or process results
+
+For detailed build instructions and best practices, see the [Building Custom Images](#building-custom-images) section above.
+
+Example Containerfile:
+```dockerfile
+FROM python:3.11-slim
+
+# Install benchmark tool
+RUN pip install locust
+
+# Copy wrapper scripts (if any)
+COPY src/ /app/
+WORKDIR /app
+
+ENTRYPOINT ["python", "-m", "locust_wrapper"]
+```
+
+#### 2. Create Task Directory
+
+Create `/tasks/benchmark/<tool-name>/`:
+```bash
+mkdir -p tasks/benchmark/locust
+```
+
+Create `run-benchmark.yaml` with standardized parameters:
+
+**Required Parameters:**
+- `IMAGE` - Benchmark tool container image
+- `TARGET` - Inference endpoint URL
+- `MODEL` - Model identifier
+- `RATE` - Load specification
+- `MAX_SECONDS` - Duration
+- `MLFLOW_ENABLED` - Enable MLflow tracking
+- `TAGS` - Array of tags
+
+**Tool-specific Parameters:**
+Add any tool-specific configuration parameters
+
+Example task structure:
+```yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: run-locust-benchmark
+spec:
+  params:
+    - name: IMAGE
+    - name: TARGET
+    - name: MODEL
+    - name: RATE
+    - name: MAX_SECONDS
+    - name: MLFLOW_ENABLED
+    - name: TAGS
+    # Tool-specific params here
+  steps:
+    - name: run-benchmark
+      image: $(params.IMAGE)
+      script: |
+        # Execute benchmark
+        # Process results
+        # Upload to MLflow (if enabled)
+```
+
+If you need a custom build task, create `buildah-build.yaml` following the pattern in `guidellm/buildah-build.yaml`.
+
+#### 3. Create Pipelines
+
+Create `/pipelines/benchmark/<tool-name>/`:
+```bash
+mkdir -p pipelines/benchmark/locust
+```
+
+Create two pipelines:
+
+**build-image.yaml** - Build the benchmark tool image:
+- Clones source repository
+- Builds container image with buildah
+- Pushes to registry
+
+**run-benchmark.yaml** - Standalone benchmark execution:
+- Waits for endpoint (optional)
+- Runs benchmark task
+- No deployment management
+
+#### 4. Create Example PipelineRuns
+
+Create `/pipelineruns/benchmark/<tool-name>/`:
+```bash
+mkdir -p pipelineruns/benchmark/locust
+```
+
+Create example pipelinerun files:
+- `build-image-run.yaml` - Example build configuration
+- `run-benchmark-example.yaml` - Example standalone benchmark run
+
+#### 5. Update Deployment Mode Pipelines (Optional)
+
+To use the new tool in deployment mode pipelines:
+
+Edit pipelines in:
+- `pipelines/deployment/llm-d/e2e-benchmark.yaml`
+- `pipelines/deployment/rhoai/e2e-benchmark.yaml`
+- `pipelines/deployment/rhaiis/e2e-benchmark.yaml`
+
+Change the benchmark task reference:
+```yaml
+# OLD:
+- name: run-guidellm-benchmark
+  taskRef:
+    name: run-guidellm-benchmark
+
+# NEW:
+- name: run-locust-benchmark
+  taskRef:
+    name: run-locust-benchmark
+```
+
+Update the `IMAGE` parameter to point to your tool's image.
+
+#### 6. Installation
+
+No changes needed to `scripts/install.sh` - it auto-discovers tasks and pipelines using `find`.
+
+Just run:
+```bash
+./scripts/install.sh -n <namespace>
+```
+
+#### 7. Documentation
+
+Update the main README.md:
+- Add your tool to the "Benchmark Tools" section
+- Document any tool-specific requirements or features
+
+### Best Practices
+
+1. **Standardize Parameters**: Use common parameter names (IMAGE, TARGET, MODEL, etc.) to maintain consistency
+2. **MLflow Integration**: Support MLflow logging for result tracking and comparison
+3. **Error Handling**: Gracefully handle failures and provide clear error messages
+4. **Documentation**: Include clear usage examples in your pipelinerun files
+5. **Versioning**: Use specific image tags, not `latest`, for reproducibility
+6. **Cleanup**: Ensure your tool doesn't leave behind temporary files or resources
+
+### Parameter Consistency
+
+All benchmark tools should support these core parameters:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| IMAGE | string | Benchmark tool container image |
+| TARGET | string | Inference endpoint URL |
+| MODEL | string | Model identifier |
+| RATE | string | Load specification (format varies by tool) |
+| MAX_SECONDS | string | Benchmark duration in seconds |
+| MLFLOW_ENABLED | string | "true" or "false" |
+| TAGS | array | Key=value tags for tracking |
+
+Tool-specific parameters should be clearly documented and prefixed if possible (e.g., `LOCUST_SPAWN_RATE`).
+
+### Example: Minimal Benchmark Tool
+
+Here's a minimal example for adding a simple HTTP load testing tool:
+
+```yaml
+# tasks/benchmark/curl-bench/run-benchmark.yaml
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: run-curl-benchmark
+spec:
+  params:
+    - name: TARGET
+    - name: MODEL
+    - name: RATE
+    - name: MAX_SECONDS
+  steps:
+    - name: benchmark
+      image: curlimages/curl:latest
+      script: |
+        #!/bin/sh
+        echo "Running curl benchmark against $(params.TARGET)"
+        # Simple benchmark logic here
+```
+
+This minimal approach works for simple tools. For production use, add MLflow integration, proper result processing, and error handling.
+
+### Reference Implementation
+
+For a complete example, see:
+- GuideLLM tasks: `/tasks/benchmark/guidellm/`
+- GuideLLM pipelines: `/pipelines/benchmark/guidellm/`
+- GuideLLM build files: `/build/guidellm/`
 
 ---
 

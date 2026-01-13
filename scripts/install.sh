@@ -63,7 +63,8 @@ echo "Installing RBAC resources..."
 for rbac in "$PROJECT_ROOT"/config/rbac/*.yaml; do
     if [ -f "$rbac" ]; then
         echo "  - $(basename "$rbac")"
-        oc apply -f "$rbac" $NS_FLAG
+        # Replace namespace in ClusterRoleBinding to match target namespace
+        sed "s/namespace: llm-d-bench/namespace: $NAMESPACE/g" "$rbac" | oc apply $NS_FLAG -f -
     fi
 done
 echo "✓ RBAC resources installed"
@@ -136,10 +137,10 @@ echo "ServiceAccounts:"
 oc get serviceaccount $NS_FLAG | grep -E 'NAME|deploy-model' || true
 echo ""
 echo "Tasks:"
-oc get tasks $NS_FLAG | grep -E 'NAME|buildah-build|wait-for-endpoint|run-benchmark|download-model|deploy-model|cleanup-deployment|deploy-helmfile|cleanup-upstream|git-clone' || true
+oc get tasks $NS_FLAG | grep -E 'NAME|guidellm|wait-for-endpoint|download-model|deploy-llm-d|cleanup-llm-d|deploy-rhoai|cleanup-rhoai|deploy-rhaiis|cleanup-rhaiis' || true
 echo ""
 echo "Pipelines:"
-oc get pipelines.tekton.dev $NS_FLAG | grep -E 'NAME|build-image|run-benchmark|downstream-end-to-end-benchmark|upstream-end-to-end-benchmark' || true
+oc get pipelines.tekton.dev $NS_FLAG | grep -E 'NAME|guidellm|llm-d-end-to-end|rhoai-end-to-end|rhaiis-end-to-end' || true
 echo ""
 
 if [ "$CREATE_PVCS" = true ]; then

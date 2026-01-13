@@ -1,0 +1,170 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: deploy-rhoai-model
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "Deploy Model as LLMInferenceService"
+    tekton.dev/tags: model, deploy, kserve, vllm
+    tekton.dev/platforms: "linux/amd64"
+spec:
+  description: >-
+    Deploy a model from PVC as a KServe LLMInferenceService using vLLM.
+    This task generates and applies the LLMInferenceService YAML manifest.
+    Requires the deploy-model-sa service account to have permissions for LLMInferenceService resources.
+
+  params:
+    - name: MODEL_NAME
+      description: HuggingFace model identifier
+      type: string
+
+    - name: NAMESPACE
+      description: Namespace for deployment
+      type: string
+
+    - name: TP
+      description: Tensor parallelism size (number of GPUs)
+      type: string
+      default: "1"
+
+    - name: VLLM_ARGS
+      description: Additional vLLM arguments as array
+      type: array
+      default: []
+
+    - name: SKIP_IF_EXISTS
+      description: Skip deployment if LLMInferenceService already exists
+      type: string
+      default: "true"
+
+    - name: ENABLE_AUTH
+      description: Enable authentication on the service
+      type: string
+      default: "false"
+
+    - name: REPLICAS
+      description: Number of replicas
+      type: string
+      default: "1"
+
+    - name: CACHE_DIR
+      description: Base directory on PVC where models are stored
+      type: string
+      default: "/models"
+
+  workspaces:
+    - name: models-storage
+      description: PVC containing downloaded models
+
+  steps:
+    - name: deploy-rhoai-model
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      workingDir: /tmp
+      args:
+        - $(params.VLLM_ARGS[*])
+      script: |
+        #!/bin/bash
+        set -e
+
+        # Generate deployment name from model name
+        # Logic: lowercase | replace / with - | replace . with empty | trim suffix - | truncate to 42 chars
+        DEPLOYMENT_NAME=$(echo "$(params.MODEL_NAME)" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-42)
+
+        echo "Deployment: $DEPLOYMENT_NAME"
+        echo "Namespace: $(params.NAMESPACE)"
+        echo "Model: $(params.MODEL_NAME)"
+        echo ""
+
+        if [ "$(params.SKIP_IF_EXISTS)" = "true" ]; then
+          if oc get llminferenceservice "$DEPLOYMENT_NAME" -n "$(params.NAMESPACE)" 2>/dev/null; then
+            echo "✓ LLMInferenceService $DEPLOYMENT_NAME already exists - skipping"
+            echo "  To force update, set SKIP_IF_EXISTS=false"
+            exit 0
+          fi
+        fi
+
+        MODEL_DIR_NAME=$(echo "$(params.MODEL_NAME)" | sed 's/\//-/g')
+        MODEL_URI="pvc://models-storage$(params.CACHE_DIR)/${MODEL_DIR_NAME}"
+
+        echo "Configuration:"
+        echo "  Model: $(params.MODEL_NAME)"
+        echo "  Model URI: $MODEL_URI"
+        echo "  TP (Tensor Parallel / GPU Count): $(params.TP)"
+        echo "  Replicas: $(params.REPLICAS)"
+        echo ""
+
+        # Format VLLM_ARGS array as YAML list from positional parameters
+        VLLM_ARGS_YAML=""
+        for arg in "$@"; do
+          if [ -n "$arg" ]; then
+            VLLM_ARGS_YAML="${VLLM_ARGS_YAML}
+                - \"${arg}\""
+          fi
+        done
+
+        # Generate LLMInferenceService YAML
+        cat > /tmp/llm-inference-service.yaml <<EOF
+        apiVersion: serving.kserve.io/v1alpha1
+        kind: LLMInferenceService
+        metadata:
+          name: $DEPLOYMENT_NAME
+          namespace: $(params.NAMESPACE)
+          annotations:
+            security.opendatahub.io/enable-auth: "$(params.ENABLE_AUTH)"
+        spec:
+          model:
+            name: $(params.MODEL_NAME)
+            uri: ${MODEL_URI}
+          replicas: $(params.REPLICAS)
+          router:
+            route: {}
+            gateway: {}
+            scheduler: {}
+          template:
+            containers:
+            - name: main
+              command: ["python3", "-m", "vllm.entrypoints.openai.api_server"]
+              args:
+                - "--port=8000"
+                - "--host=0.0.0.0"
+                - "--model=/mnt/models"
+                - "--served-model-name=$(params.MODEL_NAME)"
+                - "--tensor-parallel-size=$(params.TP)"
+                - "--enable-ssl-refresh"
+                - "--ssl-certfile=/var/run/kserve/tls/tls.crt"
+                - "--ssl-keyfile=/var/run/kserve/tls/tls.key"
+        ${VLLM_ARGS_YAML}
+              resources:
+                limits:
+                  nvidia.com/gpu: "$(params.TP)"
+                requests:
+                  nvidia.com/gpu: "$(params.TP)"
+              livenessProbe:
+                httpGet:
+                  path: /health
+                  port: 8000
+                  scheme: HTTPS
+                initialDelaySeconds: 400
+                periodSeconds: 10
+                timeoutSeconds: 10
+                successThreshold: 1
+                failureThreshold: 3
+        EOF
+
+        echo "Generated LLMInferenceService manifest:"
+        echo "========================================="
+        cat /tmp/llm-inference-service.yaml
+        echo "========================================="
+        echo ""
+
+        # Apply the manifest
+        echo "Applying manifest..."
+        oc apply -f /tmp/llm-inference-service.yaml
+
+        echo ""
+        echo "✓ Deployment created successfully!"
+        echo "  Service: $DEPLOYMENT_NAME"
+        echo "  Namespace: $(params.NAMESPACE)"
+        echo ""
+        echo "Use 'oc get llminferenceservice $DEPLOYMENT_NAME -n $(params.NAMESPACE)' to check status"
