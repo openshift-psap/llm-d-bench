@@ -1,0 +1,122 @@
+# This file contains the example definition of a GuideLLM pipelinerun for RHOAI.
+# Parameters are marked if they are required, match default or not.
+# Use this pipelinerun as an example to create new RHOAI pipelineruns.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: qwen-qwen3-06b-example-
+  labels:
+    app: llm-d-bench
+    pipeline: rhoai-end-to-end-benchmark
+    experiment: qwen-qwen3-06b-example
+    deployment-mode: rhoai
+spec:
+  pipelineRef:
+    name: rhoai-end-to-end-benchmark
+
+  # Use service account with permissions for LLMInferenceService resources
+  taskRunTemplate:
+    serviceAccountName: deploy-model-sa
+
+  # Automatically clean up completed PipelineRun after 1 hour
+  ttlSecondsAfterFinished: 3600
+
+  params:
+    # ===========================================
+    # Model Configuration
+    # ===========================================
+    - name: MODEL_NAME
+      value: "Qwen/Qwen3-0.6B"  # Required - no default
+    - name: MODEL_REVISION
+      value: "main"  # DEFAULT
+
+    # ===========================================
+    # Deployment Configuration (RHOAI-specific)
+    # ===========================================
+    - name: NAMESPACE
+      value: "llm-d-bench"  # Required - no default
+    - name: VLLM_ARGS
+      value:  # DEFAULT: []
+        - "--max-model-len=8192"
+        - "--gpu-memory-utilization=0.95"
+    - name: ENABLE_AUTH
+      value: "false"  # DEFAULT
+    - name: REPLICAS
+      value: "1"  # DEFAULT
+    - name: TP
+      value: "1"  # DEFAULT
+
+    # ===========================================
+    # Benchmark Configuration
+    # ===========================================
+    - name: IMAGE
+      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"  # DEFAULT
+    - name: TARGET
+      value: "https://qwen-qwen3-06b-kserve-workload-svc.llm-d-bench.svc.cluster.local:8000"  # Required - no default
+    - name: PROCESSOR
+      value: "Qwen/Qwen3-0.6B"  # DEFAULT: "" (empty)
+    - name: BACKEND_TYPE
+      value: "openai_http"  # DEFAULT
+    - name: RATE_TYPE
+      value: "concurrent"  # DEFAULT
+    - name: RATE
+      value: "1"  # DEFAULT: "1,50,100"
+    - name: DATA
+      value: "prompt_tokens=1000,output_tokens=1000"  # DEFAULT
+    - name: MAX_SECONDS
+      value: "60"  # DEFAULT: "600"
+    - name: MAX_REQUESTS
+      value: ""  # DEFAULT
+    - name: ACCELERATOR
+      value: "H200"  # DEFAULT: "" (empty)
+    - name: EXPERIMENT_NAME
+      value: "qwen-qwen3-06b"  # DEFAULT: "guidellm-benchmarks"
+    - name: VERSION
+      value: "RHOAI-3.0"  # DEFAULT: "" (empty)
+    - name: BENCHMARK_ENV_VARS
+      value: []  # DEFAULT
+
+    # ===========================================
+    # MLflow Configuration
+    # ===========================================
+    - name: MLFLOW_ENABLED
+      value: "true"  # DEFAULT: "false"
+    - name: TAGS
+      value:  # DEFAULT: []
+        - "deployment=RHOAI"
+
+    # ===========================================
+    # Health Check Configuration
+    # ===========================================
+    - name: HEALTH_CHECK_TIMEOUT
+      value: "3600"  # DEFAULT
+
+    # ===========================================
+    # Stage Control
+    # ===========================================
+    - name: SKIP_DOWNLOAD
+      value: "false"  # DEFAULT
+    - name: SKIP_DEPLOY
+      value: "false"  # DEFAULT
+    - name: SKIP_BENCHMARK
+      value: "false"  # DEFAULT
+    - name: SKIP_CLEANUP
+      value: "false"  # DEFAULT
+
+  # ===========================================
+  # Timeouts
+  # ===========================================
+  timeouts:
+    pipeline: "2h"
+    tasks: "2h"
+
+  # ===========================================
+  # Workspaces
+  # ===========================================
+  workspaces:
+    - name: models-storage
+      persistentVolumeClaim:
+        claimName: models-storage
+
+    - name: results
+      emptyDir: {}

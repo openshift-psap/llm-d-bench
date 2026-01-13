@@ -1,10 +1,8 @@
 # llm-d-bench
 
-Tekton pipelines for running llm-d inference benchmarks using GuideLLM.
+Tekton pipelines for running LLM inference benchmarks with multiple deployment modes and benchmark tools.
 
-> This might work with any other LLM endpoint but has only been tested with `llm-d` endpoints.
-
-> **Note:** Upstream deployment (using the official llm-d repository with Helmfile) is experimental and may require additional manual configuration.
+> **Note:** llm-d deployment mode (using the official llm-d repository with Helmfile) is experimental and may require additional manual configuration.
 
 For advanced documentation see [docs/ADVANCED.md](docs/ADVANCED.md).
 
@@ -26,10 +24,11 @@ oc apply -f https://storage.googleapis.com/tekton-releases/pipeline/latest/relea
 oc get pods -n tekton-pipelines
 ```
 
-### 0. Set Namespace
+### 0. Create and Set Namespace
 
 ```bash
-export NAMESPACE=downstream-llm-d
+export NAMESPACE=llm-d-bench
+oc create namespace $NAMESPACE
 ```
 
 ### 1. Install Tekton Resources
@@ -70,14 +69,14 @@ See [config/secrets/](config/secrets/) for YAML templates.
 ### 3. Build Custom Image
 
 ```bash
-oc create -f pipelineruns/build-image-run.yaml -n $NAMESPACE
+oc create -f pipelineruns/benchmark/guidellm/build-image-run.yaml -n $NAMESPACE
 ```
 
 ### 4. Run Benchmark
 
 ```bash
-# Use a pre-configured experiment
-oc create -f pipelineruns/meta-llama-3.1-8b-1k-1k.yaml -n $NAMESPACE
+# Use a pre-configured experiment (RHOAI mode example)
+oc create -f pipelineruns/rhoai/qwen-qwen3-06b-example.yaml -n $NAMESPACE
 
 # Watch logs
 tkn pipelinerun logs -f -n $NAMESPACE
@@ -125,29 +124,42 @@ In order to deploy it, create the necessary secrets within `infra/manifests/{mlf
 
 Other manifests for deploying RHOAI and configuring Distributed Inference can be found inside `infra/{rhoai,rhcl}` too.
 
+The repo architecture is designed for extensibility. To add new benchmark tools, see [docs/ADVANCED.md](docs/ADVANCED.md#adding-new-benchmark-tools).
+
 ## Pipelines
+
+### Deployment Mode Pipelines
 
 | Pipeline | Purpose | Tasks |
 |----------|---------|-------|
-| `build-image` | Build custom GuideLLM image | git-clone → buildah-build |
-| `run-benchmark` | Run benchmark | wait-for-endpoint → run-benchmark |
+| `llm-d-end-to-end-benchmark` | Full lifecycle with llm-d deployment | download → deploy-helmfile → wait → benchmark → cleanup |
+| `rhoai-end-to-end-benchmark` | Full lifecycle with RHOAI deployment | download → deploy-rhoai → wait → benchmark → cleanup |
+| `rhaiis-end-to-end-benchmark` | Full lifecycle with RHAIIS Pod deployment | download → deploy-rhaiis → wait → benchmark → cleanup |
+
+### Benchmark Pipelines
+
+| Pipeline | Purpose | Tasks |
+|----------|---------|-------|
+| `guidellm-build-image` | Build custom GuideLLM image | git-clone → buildah-build |
+| `guidellm-run-benchmark-pipeline` | Run benchmark only | wait-for-endpoint → run-benchmark |
 
 ## Custom Benchmarks
 
 Copy an experiment and edit parameters:
 
 ```bash
-cp pipelineruns/meta-llama-3.1-8b-1k-1k.yaml pipelineruns/my-benchmark.yaml
-vi pipelineruns/my-benchmark.yaml  # Edit TARGET, MODEL, RATE, etc.
-oc create -f pipelineruns/my-benchmark.yaml -n $NAMESPACE
+# Choose a deployment mode (rhoai, llm-d, or rhaiis)
+cp pipelineruns/rhoai/qwen-qwen3-06b-example.yaml pipelineruns/rhoai/my-benchmark.yaml
+vim pipelineruns/rhoai/my-benchmark.yaml  # Edit TARGET, MODEL, RATE, etc.
+oc create -f pipelineruns/rhoai/my-benchmark.yaml -n $NAMESPACE
 ```
 
-Or use `tkn` CLI:
+Or use `tkn` CLI for standalone benchmark (no deployment):
 
 ```bash
-tkn pipeline start run-benchmark \
+tkn pipeline start guidellm-run-benchmark-pipeline \
   -p TARGET=https://my-model.example.com \
-  -p MODEL=meta-llama/Llama-3.1-8B \
+  -p MODEL=Qwen/Qwen3-0.6B \
   -p RATE="1,50,100" \
   -n $NAMESPACE \
   --showlog

@@ -1,0 +1,109 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: qwen-qwen3-06b-upstream-1k-1k-
+  labels:
+    app: llm-d-bench
+    pipeline: upstream-end-to-end-benchmark
+    experiment: qwen-qwen3-06b-upstream-1k-1k
+spec:
+  pipelineRef:
+    name: llm-d-end-to-end-benchmark
+
+  # Use service account with permissions for deployments
+  taskRunTemplate:
+    serviceAccountName: deploy-model-sa
+
+  # Automatically clean up completed PipelineRun after 1 hour
+  ttlSecondsAfterFinished: 3600
+
+  params:
+    # Model Configuration
+    - name: MODEL_NAME
+      value: "Qwen/Qwen3-0.6B"
+    - name: MODEL_REVISION
+      value: "main"
+
+    # Deployment Configuration
+    - name: RELEASE_NAME
+      value: "qwen-qwen3-06b-test"
+    - name: NAMESPACE
+      value: "llm-d"
+    - name: GATEWAY_PROVIDER
+      value: "istio"
+    - name: MODEL_REPLICAS
+      value: "1"
+    - name: HF_TOKEN_SECRET
+      value: "huggingface-token"
+    - name: VLLM_ARGS
+      value: []
+
+    # Benchmark Configuration
+    - name: IMAGE
+      value: "image-registry.openshift-image-registry.svc:5000/llm-d/guidellm-custom:latest"
+    - name: TARGET
+      value: "https://qwen-qwen3-06b-test-gateway.llm-d.svc.cluster.local:8000"
+    - name: PROCESSOR
+      value: "Qwen/Qwen3-0.6B"
+    - name: BACKEND_TYPE
+      value: "openai_http"
+    - name: RATE_TYPE
+      value: "concurrent"
+    - name: RATE
+      value: "1,50,100,200,500"
+    - name: DATA
+      value: "prompt_tokens=1000,output_tokens=1000"
+    - name: MAX_SECONDS
+      value: "240"
+    - name: MAX_REQUESTS
+      value: ""
+    - name: ACCELERATOR
+      value: "H200"
+    - name: EXPERIMENT_NAME
+      value: "qwen-qwen3-06b-upstream-1k-1k"
+    - name: VERSION
+      value: "RHOAI-3.0"
+    - name: TP
+      value: "1"
+    - name: BENCHMARK_ENV_VARS
+      value: []
+
+    # MLflow Configuration
+    - name: MLFLOW_ENABLED
+      value: "true"
+    - name: TAGS
+      value:
+        - "deployment=upstream"
+        - "llm-d-version=RHOAI 3.0"
+
+    # Health Check Configuration
+    - name: HEALTH_CHECK_TIMEOUT
+      value: "3600"
+
+    # Stage Control - skip download, enable deploy/benchmark/cleanup
+    - name: SKIP_DOWNLOAD
+      value: "false"
+    - name: SKIP_DEPLOY
+      value: "false"
+    - name: SKIP_BENCHMARK
+      value: "true"
+    - name: SKIP_CLEANUP
+      value: "true"
+
+  timeouts:
+    pipeline: "2h"
+    tasks: "2h"
+
+  workspaces:
+    - name: models-storage
+      persistentVolumeClaim:
+        claimName: models-storage
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          storageClassName: nfs-storage
+          resources:
+            requests:
+              storage: 1Gi

@@ -1,0 +1,74 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: benchmark-run-
+  labels:
+    app: llm-d-bench
+    pipeline: run-benchmark
+spec:
+  pipelineRef:
+    name: run-benchmark
+
+  # Automatically clean up completed PipelineRun after 1 hour
+  ttlSecondsAfterFinished: 3600
+
+  params:
+    # Image configuration
+    - name: IMAGE
+      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
+
+    # Target and model
+    - name: TARGET
+      value: "https://inference-gateway.apps.example.com/downstream-llm-d/my-model"
+    - name: MODEL
+      value: "meta-llama/Llama-3.1-8B"
+    - name: PROCESSOR
+      value: "meta-llama/Llama-3.1-8B"
+
+    # Benchmark configuration
+    - name: BACKEND_TYPE
+      value: "openai_http"
+    - name: RATE_TYPE
+      value: "concurrent"
+    - name: RATE
+      value: "1,50,100,200"
+    - name: DATA
+      value: "prompt_tokens=1000,output_tokens=1000"
+    - name: MAX_SECONDS
+      value: "240"
+    - name: ACCELERATOR
+      value: "H200"
+
+    # MLflow configuration
+    - name: MLFLOW_ENABLED
+      value: "true"
+    - name: EXPERIMENT_NAME
+      value: "guidellm-benchmarks"
+    - name: TAGS
+      value:
+        - "llm-d-version=RHOAI 3.0"
+        - "team=ai"
+
+    # Visualization configuration
+    - name: VERSION
+      value: "RHOAI-3.0"
+    - name: TP
+      value: "1"
+
+    # Health check
+    - name: SKIP_HEALTH_CHECK
+      value: "false"
+    - name: HEALTH_CHECK_TIMEOUT
+      value: "3600"
+
+  # No workspace needed when MLflow is enabled
+  # If MLFLOW_ENABLED=false, uncomment the workspace section below
+  # workspaces:
+  #   - name: results
+  #     volumeClaimTemplate:
+  #       spec:
+  #         accessModes:
+  #           - ReadWriteMany
+  #         resources:
+  #           requests:
+  #             storage: 10Gi
