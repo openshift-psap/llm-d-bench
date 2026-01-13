@@ -148,6 +148,42 @@ spec:
       type: array
       default: []
 
+    # MLPerf-specific Benchmark Parameters (only used when IMAGE contains 'mlperf')
+    - name: DATASET_NAME
+      description: Dataset filename for MLPerf (e.g., "cnn_eval.json"). Only used if IMAGE contains 'mlperf'.
+      type: string
+      default: "cnn_eval.json"
+
+    - name: SCENARIO
+      description: MLPerf scenario (Offline, Server, SingleStream, MultiStream). Only used for MLPerf.
+      type: string
+      default: "Offline"
+
+    - name: TEST_MODE
+      description: MLPerf test mode (accuracy or performance). Only used for MLPerf.
+      type: string
+      default: "accuracy"
+
+    - name: BATCH_SIZE
+      description: Batch size for MLPerf. Only used for MLPerf.
+      type: string
+      default: ""
+
+    - name: NUM_SAMPLES
+      description: Number of samples for MLPerf. Only used for MLPerf.
+      type: string
+      default: "4388"
+
+    - name: OUTPUT_DIR
+      description: Output directory for MLPerf results. Only used for MLPerf.
+      type: string
+      default: "./test-run"
+
+    - name: SERVER_TARGET_QPS
+      description: Target QPS for MLPerf Server scenario. Only used for MLPerf.
+      type: string
+      default: "10"
+
     # Health Check Configuration
     - name: HEALTH_CHECK_TIMEOUT
       description: Endpoint health check timeout in seconds

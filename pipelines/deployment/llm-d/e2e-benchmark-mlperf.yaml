@@ -1,17 +1,17 @@
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
-  name: rhaiis-end-to-end-benchmark
+  name: llm-d-end-to-end-benchmark-mlperf
   labels:
-    app.kubernetes.io/version: "0.1"
+    app.kubernetes.io/version: "0.2"
   annotations:
-    tekton.dev/displayName: "RHAIIS End-to-End Benchmark"
-    tekton.dev/tags: benchmark, llm, lifecycle, rhaiis, pod
+    tekton.dev/displayName: "llm-d End-to-End Benchmark (MLPerf)"
+    tekton.dev/tags: benchmark, llm, lifecycle, llm-d, helmfile, mlperf
 spec:
   description: >-
-    Complete model lifecycle pipeline: download model from HuggingFace, deploy
-    as simple Pod using RHAIIS vLLM image, run benchmark, and cleanup deployment.
-    Each stage can be optionally skipped via parameters.
+    Complete llm-d model lifecycle pipeline with MLPerf benchmarking: download model from HuggingFace,
+    deploy using Helmfile (llm-d infrastructure + GAIE + model service), run MLPerf benchmark,
+    and cleanup deployment. Each stage can be optionally skipped via parameters.
 
   params:
     # Model Configuration
@@ -25,88 +25,57 @@ spec:
       default: "main"
 
     # Deployment Configuration
+    - name: RELEASE_NAME
+      description: Unique release name for this deployment
+      type: string
+
     - name: NAMESPACE
       description: Namespace for deployment
       type: string
+
+    - name: GATEWAY_PROVIDER
+      description: "Gateway provider: istio (default), kgateway, standalone, gke"
+      type: string
+      default: "istio"
+
+    - name: MODEL_REPLICAS
+      description: Number of model replicas
+      type: string
+      default: "1"
+
+    - name: HF_TOKEN_SECRET
+      description: Secret name containing HuggingFace token
+      type: string
+      default: "huggingface-token"
 
     - name: VLLM_ARGS
       description: Additional vLLM arguments as array
       type: array
       default: []
 
-    - name: DEPLOYMENT_IMAGE
-      description: vLLM container image (default RHAIIS, can override to vllm/vllm-openai:latest for raw vLLM)
+    # llm-d Repository Configuration
+    - name: LLM_D_REPO_URL
+      description: llm-d repository URL (for testing forks)
       type: string
-      default: "registry.redhat.io/rhaiis/vllm-cuda-rhel9:3.2.3"
+      default: "https://github.com/llm-d/llm-d.git"
 
-    - name: REPLICAS
-      description: Number of replicas
+    - name: LLM_D_REPO_REF
+      description: llm-d repository branch/tag/commit
       type: string
-      default: "1"
-
-    - name: MODEL_PVC
-      description: PVC name for model storage
-      type: string
-      default: "models-storage"
-
-    - name: CACHE_DIR
-      description: Base directory on PVC where models are stored
-      type: string
-      default: "/models"
-
-    - name: CREATE_ROUTE
-      description: Create OpenShift Route to expose service externally
-      type: string
-      default: "true"
+      default: "main"
 
     # Benchmark Configuration
-    - name: BENCHMARK_IMAGE
+    - name: IMAGE
       description: |
-        Full URL of the GuideLLM custom image.
-        The namespace portion (/llm-d-bench/) should match the namespace where the image was built.
-        If building in a different namespace, override this parameter accordingly.
-        Example: image-registry.openshift-image-registry.svc:5000/<your-namespace>/guidellm-custom:latest
+        Full URL of the MLPerf custom image.
+        The namespace portion should match the namespace where the image was built.
+        Example: image-registry.openshift-image-registry.svc:5000/<your-namespace>/mlperf-custom:latest
       type: string
-      default: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
+      default: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/mlperf-custom:latest"
 
     - name: TARGET
       description: Target inference endpoint URL
       type: string
-
-    - name: PROCESSOR
-      description: Tokenizer/processor model name (optional)
-      type: string
-      default: ""
-
-    - name: BACKEND_TYPE
-      description: Backend type for the inference server
-      type: string
-      default: "openai_http"
-
-    - name: RATE_TYPE
-      description: Rate strategy (concurrent or synchronous)
-      type: string
-      default: "concurrent"
-
-    - name: RATE
-      description: Comma-separated list of rates to test
-      type: string
-      default: "1,50,100"
-
-    - name: DATA
-      description: Request data profile
-      type: string
-      default: "prompt_tokens=1000,output_tokens=1000"
-
-    - name: MAX_SECONDS
-      description: Maximum duration per rate in seconds
-      type: string
-      default: "600"
-
-    - name: MAX_REQUESTS
-      description: Maximum number of requests per rate (optional)
-      type: string
-      default: ""
 
     - name: ACCELERATOR
       description: Accelerator type tag
@@ -116,7 +85,7 @@ spec:
     - name: EXPERIMENT_NAME
       description: MLflow experiment name
       type: string
-      default: "guidellm-benchmarks"
+      default: "mlperf-benchmarks-llm-d"
 
     - name: MLFLOW_ENABLED
       description: Enable MLflow tracking
@@ -143,41 +112,77 @@ spec:
       type: array
       default: []
 
-    # MLPerf-specific Benchmark Parameters (only used when IMAGE contains 'mlperf')
+    # MLPerf-specific Benchmark Parameters
     - name: DATASET_NAME
-      description: Dataset filename for MLPerf (e.g., "cnn_eval.json"). Only used if IMAGE contains 'mlperf'.
+      description: Dataset filename (e.g., "cnn_eval.json")
       type: string
       default: "cnn_eval.json"
 
     - name: SCENARIO
-      description: MLPerf scenario (Offline, Server, SingleStream, MultiStream). Only used for MLPerf.
+      description: MLPerf scenario (Offline, Server, SingleStream, MultiStream)
       type: string
       default: "Offline"
 
     - name: TEST_MODE
-      description: MLPerf test mode (accuracy or performance). Only used for MLPerf.
+      description: MLPerf test mode (accuracy or performance)
       type: string
       default: "accuracy"
 
     - name: BATCH_SIZE
-      description: Batch size for MLPerf. Only used for MLPerf.
+      description: Batch size for MLPerf
       type: string
       default: ""
 
     - name: NUM_SAMPLES
-      description: Number of samples for MLPerf. Only used for MLPerf.
+      description: Number of samples for MLPerf
       type: string
       default: "4388"
 
     - name: OUTPUT_DIR
-      description: Output directory for MLPerf results. Only used for MLPerf.
+      description: Output directory for MLPerf results
       type: string
       default: "./test-run"
 
     - name: SERVER_TARGET_QPS
-      description: Target QPS for MLPerf Server scenario. Only used for MLPerf.
+      description: Target QPS for MLPerf Server scenario
       type: string
       default: "10"
+
+    # GuideLLM parameters (unused but for compatibility)
+    - name: PROCESSOR
+      description: Unused by MLPerf
+      type: string
+      default: ""
+
+    - name: BACKEND_TYPE
+      description: Unused by MLPerf
+      type: string
+      default: ""
+
+    - name: RATE_TYPE
+      description: Unused by MLPerf
+      type: string
+      default: ""
+
+    - name: RATE
+      description: Unused by MLPerf
+      type: string
+      default: "1"
+
+    - name: DATA
+      description: Unused by MLPerf
+      type: string
+      default: ""
+
+    - name: MAX_SECONDS
+      description: Unused by MLPerf
+      type: string
+      default: ""
+
+    - name: MAX_REQUESTS
+      description: Unused by MLPerf
+      type: string
+      default: ""
 
     # Health Check Configuration
     - name: HEALTH_CHECK_TIMEOUT
@@ -208,7 +213,10 @@ spec:
 
   workspaces:
     - name: models-storage
-      description: PVC for model storage (required for download and deploy stages)
+      description: PVC for model storage and datasets (required for download and benchmark stages)
+
+    - name: source
+      description: Workspace for cloning llm-d repository (required for deploy stage)
 
     - name: results
       description: PVC for benchmark results (optional, only for non-MLflow mode)
@@ -234,45 +242,65 @@ spec:
         - name: models-storage
           workspace: models-storage
 
-    # Stage 2: Deploy Model
-    - name: deploy-rhaiis-pod
-      runAfter:
-        - download-model
+    # Stage 2a: Clone llm-d Repository
+    - name: git-clone-llm-d
       when:
         - input: "$(params.SKIP_DEPLOY)"
           operator: in
           values: ["false"]
       taskRef:
-        name: deploy-rhaiis-pod
+        name: guidellm-git-clone
+      params:
+        - name: URL
+          value: $(params.LLM_D_REPO_URL)
+        - name: REVISION
+          value: $(params.LLM_D_REPO_REF)
+        - name: SUBDIRECTORY
+          value: "llm-d-repo"
+      workspaces:
+        - name: output
+          workspace: source
+
+    # Stage 2b: Deploy with Helmfile (GitOps)
+    - name: deploy-llm-d-helmfile
+      runAfter:
+        - download-model
+        - git-clone-llm-d
+      when:
+        - input: "$(params.SKIP_DEPLOY)"
+          operator: in
+          values: ["false"]
+      taskRef:
+        name: deploy-llm-d-helmfile
       params:
         - name: MODEL_NAME
           value: $(params.MODEL_NAME)
+        - name: MODEL_REVISION
+          value: $(params.MODEL_REVISION)
+        - name: RELEASE_NAME
+          value: $(params.RELEASE_NAME)
         - name: NAMESPACE
           value: $(params.NAMESPACE)
+        - name: GATEWAY_PROVIDER
+          value: $(params.GATEWAY_PROVIDER)
+        - name: MODEL_REPLICAS
+          value: $(params.MODEL_REPLICAS)
         - name: TP
           value: $(params.TP)
+        - name: HF_TOKEN_SECRET
+          value: $(params.HF_TOKEN_SECRET)
         - name: VLLM_ARGS
           value: $(params.VLLM_ARGS[*])
         - name: SKIP_IF_EXISTS
           value: "true"
-        - name: IMAGE
-          value: $(params.DEPLOYMENT_IMAGE)
-        - name: REPLICAS
-          value: $(params.REPLICAS)
-        - name: MODEL_PVC
-          value: $(params.MODEL_PVC)
-        - name: CACHE_DIR
-          value: $(params.CACHE_DIR)
-        - name: CREATE_ROUTE
-          value: $(params.CREATE_ROUTE)
       workspaces:
-        - name: models-storage
-          workspace: models-storage
+        - name: source
+          workspace: source
 
     # Stage 3: Wait for Endpoint
     - name: wait-for-endpoint
       runAfter:
-        - deploy-rhaiis-pod
+        - deploy-llm-d-helmfile
       when:
         - input: "$(params.SKIP_BENCHMARK)"
           operator: in
@@ -291,8 +319,8 @@ spec:
         - name: VERIFY_TLS
           value: "false"
 
-    # Stage 4: Run Benchmark
-    - name: run-guidellm-benchmark
+    # Stage 4: Run MLPerf Benchmark
+    - name: run-mlperf-benchmark
       runAfter:
         - wait-for-endpoint
       when:
@@ -301,28 +329,14 @@ spec:
           values: ["false"]
       timeout: "2h"
       taskRef:
-        name: run-guidellm-benchmark
+        name: run-mlperf-benchmark
       params:
         - name: IMAGE
-          value: $(params.BENCHMARK_IMAGE)
+          value: $(params.IMAGE)
         - name: TARGET
           value: $(params.TARGET)
         - name: MODEL
           value: $(params.MODEL_NAME)
-        - name: PROCESSOR
-          value: $(params.PROCESSOR)
-        - name: BACKEND_TYPE
-          value: $(params.BACKEND_TYPE)
-        - name: RATE_TYPE
-          value: $(params.RATE_TYPE)
-        - name: RATE
-          value: $(params.RATE)
-        - name: DATA
-          value: $(params.DATA)
-        - name: MAX_SECONDS
-          value: $(params.MAX_SECONDS)
-        - name: MAX_REQUESTS
-          value: $(params.MAX_REQUESTS)
         - name: ACCELERATOR
           value: $(params.ACCELERATOR)
         - name: EXPERIMENT_NAME
@@ -337,23 +351,53 @@ spec:
           value: $(params.TP)
         - name: BENCHMARK_ENV_VARS
           value: $(params.BENCHMARK_ENV_VARS[*])
+        - name: DATASET_NAME
+          value: $(params.DATASET_NAME)
+        - name: SCENARIO
+          value: $(params.SCENARIO)
+        - name: TEST_MODE
+          value: $(params.TEST_MODE)
+        - name: BATCH_SIZE
+          value: $(params.BATCH_SIZE)
+        - name: NUM_SAMPLES
+          value: $(params.NUM_SAMPLES)
+        - name: OUTPUT_DIR
+          value: $(params.OUTPUT_DIR)
+        - name: SERVER_TARGET_QPS
+          value: $(params.SERVER_TARGET_QPS)
+        - name: RATE
+          value: $(params.RATE)
+        - name: DATA
+          value: $(params.DATA)
+        - name: PROCESSOR
+          value: $(params.PROCESSOR)
+        - name: MAX_SECONDS
+          value: $(params.MAX_SECONDS)
+        - name: MAX_REQUESTS
+          value: $(params.MAX_REQUESTS)
+        - name: BACKEND_TYPE
+          value: $(params.BACKEND_TYPE)
+        - name: RATE_TYPE
+          value: $(params.RATE_TYPE)
       workspaces:
+        - name: models-storage
+          workspace: models-storage
         - name: results
           workspace: results
 
     # Stage 5: Cleanup Deployment
-    - name: cleanup-rhaiis-deployment
+    - name: cleanup-deployment
       runAfter:
-        - run-guidellm-benchmark
+        - run-mlperf-benchmark
       when:
         - input: "$(params.SKIP_CLEANUP)"
           operator: in
           values: ["false"]
       taskRef:
-        name: cleanup-rhaiis-deployment
+        name: cleanup-llm-d-deployment
       params:
-        - name: MODEL_NAME
-          value: $(params.MODEL_NAME)
+        - name: RELEASE_NAME
+          value: $(params.RELEASE_NAME)
         - name: NAMESPACE
           value: $(params.NAMESPACE)
         - name: WAIT_FOR_DELETION

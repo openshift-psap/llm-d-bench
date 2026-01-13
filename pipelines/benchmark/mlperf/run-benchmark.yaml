@@ -1,0 +1,239 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: mlperf-run-benchmark-pipeline
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "Run MLPerf Benchmark"
+    tekton.dev/tags: benchmark, llm, mlperf
+spec:
+  description: >-
+    Run an MLPerf benchmark against an LLM inference endpoint. This pipeline
+    assumes the custom MLPerf image already exists and datasets are uploaded.
+    It optionally waits for the endpoint to be ready, then executes the benchmark.
+
+
+  params:
+    # Common parameters
+    - name: IMAGE
+      description: |
+        Full URL of the MLPerf custom image.
+        Example: image-registry.openshift-image-registry.svc:5000/<namespace>/mlperf-custom:latest
+      type: string
+      default: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/mlperf-custom:latest"
+
+    - name: TARGET
+      description: Target inference endpoint URL
+      type: string
+
+    - name: MODEL
+      description: Model name/identifier
+      type: string
+
+    - name: EXPERIMENT_NAME
+      description: MLflow experiment name
+      type: string
+      default: "mlperf-benchmarks"
+
+    - name: MLFLOW_ENABLED
+      description: Enable MLflow tracking
+      type: string
+      default: "false"
+
+    - name: TAGS
+      description: Additional tags as array of key=value pairs
+      type: array
+      default: []
+
+    - name: VERSION
+      description: Version identifier for visualization reports
+      type: string
+      default: ""
+
+    - name: TP
+      description: Tensor parallelism size
+      type: string
+      default: "1"
+
+    - name: ACCELERATOR
+      description: Accelerator type tag
+      type: string
+      default: ""
+
+    - name: BENCHMARK_ENV_VARS
+      description: Additional environment variables
+      type: array
+      default: []
+
+    # MLPerf-specific parameters
+    - name: DATASET_NAME
+      description: Dataset filename
+      type: string
+      default: "cnn_eval.json"
+
+    - name: SCENARIO
+      description: MLPerf scenario
+      type: string
+      default: "Offline"
+
+    - name: TEST_MODE
+      description: MLPerf test mode
+      type: string
+      default: "accuracy"
+
+    - name: BATCH_SIZE
+      description: Batch size
+      type: string
+      default: ""
+
+    - name: NUM_SAMPLES
+      description: Number of samples
+      type: string
+      default: "4388"
+
+    - name: OUTPUT_DIR
+      description: Output directory
+      type: string
+      default: "./test-run"
+
+    - name: SERVER_TARGET_QPS
+      description: Target QPS for Server scenario
+      type: string
+      default: "10"
+
+    # Pipeline control parameters
+    - name: SKIP_HEALTH_CHECK
+      description: Skip waiting for endpoint health check
+      type: string
+      default: "false"
+
+    - name: HEALTH_CHECK_TIMEOUT
+      description: Health check timeout in seconds
+      type: string
+      default: "3600"
+
+    # GuideLLM parameters (unused but for pipeline compatibility)
+    - name: RATE
+      description: Unused by MLPerf
+      type: string
+      default: "1"
+
+    - name: DATA
+      description: Unused by MLPerf
+      type: string
+      default: ""
+
+    - name: PROCESSOR
+      description: Unused by MLPerf
+      type: string
+      default: ""
+
+    - name: MAX_SECONDS
+      description: Unused by MLPerf
+      type: string
+      default: ""
+
+    - name: MAX_REQUESTS
+      description: Unused by MLPerf
+      type: string
+      default: ""
+
+    - name: BACKEND_TYPE
+      description: Unused by MLPerf
+      type: string
+      default: ""
+
+    - name: RATE_TYPE
+      description: Unused by MLPerf
+      type: string
+      default: ""
+
+  workspaces:
+    - name: models-storage
+      description: PVC containing datasets at /datasets/ subdirectory
+
+    - name: results
+      description: Workspace for storing benchmark results (optional)
+      optional: true
+
+  tasks:
+    - name: wait-for-endpoint
+      when:
+        - input: "$(params.SKIP_HEALTH_CHECK)"
+          operator: in
+          values: ["false"]
+      taskRef:
+        name: wait-for-endpoint
+      params:
+        - name: TARGET_URL
+          value: $(params.TARGET)
+        - name: ENDPOINT_PATH
+          value: "/v1/models"
+        - name: TIMEOUT_SECONDS
+          value: $(params.HEALTH_CHECK_TIMEOUT)
+        - name: RETRY_INTERVAL
+          value: "10"
+        - name: VERIFY_TLS
+          value: "false"
+
+    - name: run-mlperf-benchmark
+      runAfter:
+        - wait-for-endpoint
+      timeout: "2h"
+      taskRef:
+        name: run-mlperf-benchmark
+      params:
+        - name: IMAGE
+          value: $(params.IMAGE)
+        - name: TARGET
+          value: $(params.TARGET)
+        - name: MODEL
+          value: $(params.MODEL)
+        - name: EXPERIMENT_NAME
+          value: $(params.EXPERIMENT_NAME)
+        - name: MLFLOW_ENABLED
+          value: $(params.MLFLOW_ENABLED)
+        - name: TAGS
+          value: $(params.TAGS[*])
+        - name: VERSION
+          value: $(params.VERSION)
+        - name: TP
+          value: $(params.TP)
+        - name: ACCELERATOR
+          value: $(params.ACCELERATOR)
+        - name: BENCHMARK_ENV_VARS
+          value: $(params.BENCHMARK_ENV_VARS[*])
+        - name: DATASET_NAME
+          value: $(params.DATASET_NAME)
+        - name: SCENARIO
+          value: $(params.SCENARIO)
+        - name: TEST_MODE
+          value: $(params.TEST_MODE)
+        - name: BATCH_SIZE
+          value: $(params.BATCH_SIZE)
+        - name: NUM_SAMPLES
+          value: $(params.NUM_SAMPLES)
+        - name: OUTPUT_DIR
+          value: $(params.OUTPUT_DIR)
+        - name: SERVER_TARGET_QPS
+          value: $(params.SERVER_TARGET_QPS)
+        - name: RATE
+          value: $(params.RATE)
+        - name: DATA
+          value: $(params.DATA)
+        - name: PROCESSOR
+          value: $(params.PROCESSOR)
+        - name: MAX_SECONDS
+          value: $(params.MAX_SECONDS)
+        - name: MAX_REQUESTS
+          value: $(params.MAX_REQUESTS)
+        - name: BACKEND_TYPE
+          value: $(params.BACKEND_TYPE)
+        - name: RATE_TYPE
+          value: $(params.RATE_TYPE)
+      workspaces:
+        - name: models-storage
+          workspace: models-storage
+        - name: results
+          workspace: results
