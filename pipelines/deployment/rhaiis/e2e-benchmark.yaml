@@ -6,11 +6,11 @@ metadata:
     app.kubernetes.io/version: "0.1"
   annotations:
     tekton.dev/displayName: "RHAIIS End-to-End Benchmark"
-    tekton.dev/tags: benchmark, llm, lifecycle, rhaiis, pod
+    tekton.dev/tags: benchmark, llm, lifecycle, rhaiis, kserve
 spec:
   description: >-
     Complete model lifecycle pipeline: download model from HuggingFace, deploy
-    as simple Pod using RHAIIS vLLM image, run benchmark, and cleanup deployment.
+    as KServe InferenceService using RHAIIS vLLM image, run benchmark, and cleanup deployment.
     Each stage can be optionally skipped via parameters.
 
   params:
@@ -53,11 +53,6 @@ spec:
       description: Base directory on PVC where models are stored
       type: string
       default: "/models"
-
-    - name: CREATE_ROUTE
-      description: Create OpenShift Route to expose service externally
-      type: string
-      default: "true"
 
     # Benchmark Configuration
     - name: BENCHMARK_IMAGE
@@ -235,7 +230,7 @@ spec:
           workspace: models-storage
 
     # Stage 2: Deploy Model
-    - name: deploy-rhaiis-pod
+    - name: deploy-rhaiis-model
       runAfter:
         - download-model
       when:
@@ -243,7 +238,7 @@ spec:
           operator: in
           values: ["false"]
       taskRef:
-        name: deploy-rhaiis-pod
+        name: deploy-rhaiis-model
       params:
         - name: MODEL_NAME
           value: $(params.MODEL_NAME)
@@ -263,8 +258,6 @@ spec:
           value: $(params.MODEL_PVC)
         - name: CACHE_DIR
           value: $(params.CACHE_DIR)
-        - name: CREATE_ROUTE
-          value: $(params.CREATE_ROUTE)
       workspaces:
         - name: models-storage
           workspace: models-storage
@@ -272,7 +265,7 @@ spec:
     # Stage 3: Wait for Endpoint
     - name: wait-for-endpoint
       runAfter:
-        - deploy-rhaiis-pod
+        - deploy-rhaiis-model
       when:
         - input: "$(params.SKIP_BENCHMARK)"
           operator: in

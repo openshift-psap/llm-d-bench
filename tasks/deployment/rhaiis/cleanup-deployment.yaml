@@ -5,13 +5,13 @@ metadata:
   labels:
     app.kubernetes.io/version: "0.1"
   annotations:
-    tekton.dev/displayName: "Cleanup RHAIIS Pod Deployment"
-    tekton.dev/tags: cleanup, rhaiis, pod
+    tekton.dev/displayName: "Cleanup RHAIIS InferenceService Deployment"
+    tekton.dev/tags: cleanup, kserve, rhaiis, inferenceservice
     tekton.dev/platforms: "linux/amd64"
 spec:
   description: >-
-    Cleanup RHAIIS Pod deployment by deleting Route, Service, and Pod resources.
-    This task removes all resources created by deploy-rhaiis-pod task.
+    Cleanup RHAIIS InferenceService deployment by deleting the KServe InferenceService resource.
+    KServe automatically cleans up associated Pod, Service, and Route resources.
 
   params:
     - name: MODEL_NAME
@@ -43,86 +43,41 @@ spec:
         DEPLOYMENT_NAME=$(echo "$(params.MODEL_NAME)" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-42)
 
         echo "Cleaning up RHAIIS deployment"
-        echo "  Deployment: $DEPLOYMENT_NAME"
+        echo "  InferenceService: $DEPLOYMENT_NAME"
         echo "  Namespace: $(params.NAMESPACE)"
         echo ""
 
-        # Check if resources exist
-        POD_EXISTS=false
-        SERVICE_EXISTS=false
-        ROUTE_EXISTS=false
-
-        if oc get pod "$DEPLOYMENT_NAME" -n "$(params.NAMESPACE)" &>/dev/null; then
-          POD_EXISTS=true
-        fi
-
-        if oc get service "$DEPLOYMENT_NAME" -n "$(params.NAMESPACE)" &>/dev/null; then
-          SERVICE_EXISTS=true
-        fi
-
-        if oc get route "$DEPLOYMENT_NAME" -n "$(params.NAMESPACE)" &>/dev/null; then
-          ROUTE_EXISTS=true
+        # Check if InferenceService exists
+        ISVC_EXISTS=false
+        if oc get inferenceservice "$DEPLOYMENT_NAME" -n "$(params.NAMESPACE)" &>/dev/null; then
+          ISVC_EXISTS=true
         fi
 
         # Exit early if nothing exists and SKIP_IF_NOT_EXISTS is true
-        if [ "$(params.SKIP_IF_NOT_EXISTS)" = "true" ]; then
-          if [ "$POD_EXISTS" = "false" ] && [ "$SERVICE_EXISTS" = "false" ] && [ "$ROUTE_EXISTS" = "false" ]; then
-            echo "✓ No resources found - nothing to clean up"
-            exit 0
+        if [ "$(params.SKIP_IF_NOT_EXISTS)" = "true" ] && [ "$ISVC_EXISTS" = "false" ]; then
+          echo "✓ InferenceService not found - nothing to clean up"
+          exit 0
+        fi
+
+        # Delete InferenceService (KServe automatically cleans up Pod, Service, Route)
+        if [ "$ISVC_EXISTS" = "true" ]; then
+          echo "Deleting InferenceService $DEPLOYMENT_NAME..."
+          echo "  (KServe will automatically clean up Pod, Service, and Route)"
+
+          if [ "$(params.WAIT_FOR_DELETION)" = "true" ]; then
+            oc delete inferenceservice "$DEPLOYMENT_NAME" -n "$(params.NAMESPACE)" --timeout=300s
+            echo "✓ InferenceService deleted (waited for completion)"
+          else
+            oc delete inferenceservice "$DEPLOYMENT_NAME" -n "$(params.NAMESPACE)" --ignore-not-found=true
+            echo "✓ InferenceService deletion initiated"
           fi
-        fi
-
-        # Delete Route first (if exists)
-        if [ "$ROUTE_EXISTS" = "true" ]; then
-          echo "Deleting Route $DEPLOYMENT_NAME..."
-          oc delete route "$DEPLOYMENT_NAME" -n "$(params.NAMESPACE)" --ignore-not-found=true
-          echo "✓ Route deleted"
         else
-          echo "Route $DEPLOYMENT_NAME not found (skipping)"
-        fi
-
-        # Delete Service
-        if [ "$SERVICE_EXISTS" = "true" ]; then
-          echo "Deleting Service $DEPLOYMENT_NAME..."
-          oc delete service "$DEPLOYMENT_NAME" -n "$(params.NAMESPACE)" --ignore-not-found=true
-          echo "✓ Service deleted"
-        else
-          echo "Service $DEPLOYMENT_NAME not found (skipping)"
-        fi
-
-        # Delete Pod
-        if [ "$POD_EXISTS" = "true" ]; then
-          echo "Deleting Pod $DEPLOYMENT_NAME..."
-          oc delete pod "$DEPLOYMENT_NAME" -n "$(params.NAMESPACE)" --ignore-not-found=true
-          echo "✓ Pod deletion initiated"
-        else
-          echo "Pod $DEPLOYMENT_NAME not found (skipping)"
-        fi
-
-        # Wait for deletion if requested
-        if [ "$(params.WAIT_FOR_DELETION)" = "true" ] && [ "$POD_EXISTS" = "true" ]; then
-          echo ""
-          echo "Waiting for Pod to be fully deleted..."
-          TIMEOUT=300  # 5 minutes
-          INTERVAL=5
-          ELAPSED=0
-
-          while [ $ELAPSED -lt $TIMEOUT ]; do
-            if ! oc get pod "$DEPLOYMENT_NAME" -n "$(params.NAMESPACE)" &>/dev/null; then
-              echo "✓ Pod fully deleted (${ELAPSED}s)"
-              break
-            fi
-
-            sleep $INTERVAL
-            ELAPSED=$((ELAPSED + INTERVAL))
-            echo "  Still deleting... (${ELAPSED}s elapsed)"
-          done
-
-          if [ $ELAPSED -ge $TIMEOUT ]; then
-            echo "WARNING: Timeout waiting for deletion, but continuing"
+          echo "InferenceService $DEPLOYMENT_NAME not found"
+          if [ "$(params.SKIP_IF_NOT_EXISTS)" = "false" ]; then
+            exit 1
           fi
         fi
 
         echo ""
         echo "✓ Cleanup complete!"
-        echo "  All resources for deployment '$DEPLOYMENT_NAME' removed"
+        echo "  InferenceService '$DEPLOYMENT_NAME' and all associated resources removed"
