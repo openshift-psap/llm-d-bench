@@ -244,7 +244,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: deploy-model-sa
-    namespace: llm-d  # CHANGEME
+    namespace: downstream-llm-d
 roleRef:
   kind: ClusterRole
   name: deploy-model-cluster-role
