@@ -151,18 +151,23 @@ spec:
         # 2. Replicas
         /tmp/yq -i '.decode.replicas = $(params.MODEL_REPLICAS)' $VALUES_FILE
 
-        # 3. Tensor Parallelism and GPU Resources
+        # 3. Tensor Parallelism
+        # The chart automatically computes GPU resources from .decode.parallelism.tensor
+        # See: llm-d-modelservice/templates/_helpers.tpl lines 170-193
         TP=$(params.TP)
+        echo "  Configuring TP=$TP..."
+
+        # Set parallelism.tensor - chart will automatically set GPU resources
+        /tmp/yq -i '.decode.parallelism.tensor = '"$TP" $VALUES_FILE
+
+        # Set CUDA_VISIBLE_DEVICES based on TP
         if [ "$TP" -gt 1 ]; then
-          echo "  Configuring TP=$TP..."
-          /tmp/yq -i '.decode.containers[0].args += ["--tensor-parallel-size", "'"$TP"'"]' $VALUES_FILE
-          /tmp/yq -i '.decode.containers[0].resources.limits."nvidia.com/gpu" = '"$TP" $VALUES_FILE
-          /tmp/yq -i '.decode.containers[0].resources.requests."nvidia.com/gpu" = '"$TP" $VALUES_FILE
+          CUDA_DEVICES=$(seq -s, 0 $((TP-1)))
         else
-          echo "  Configuring single GPU..."
-          /tmp/yq -i '.decode.containers[0].resources.limits."nvidia.com/gpu" = 1' $VALUES_FILE
-          /tmp/yq -i '.decode.containers[0].resources.requests."nvidia.com/gpu" = 1' $VALUES_FILE
+          CUDA_DEVICES="0"
         fi
+        echo "  Setting CUDA_VISIBLE_DEVICES=$CUDA_DEVICES"
+        /tmp/yq -i '(.decode.containers[0].env[] | select(.name == "CUDA_VISIBLE_DEVICES")).value = "'"$CUDA_DEVICES"'"' $VALUES_FILE
 
         # 4. Served Model Name
         /tmp/yq -i '.decode.containers[0].args += ["--served-model-name", "$(params.MODEL_NAME)"]' $VALUES_FILE
