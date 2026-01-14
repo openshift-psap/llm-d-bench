@@ -629,22 +629,35 @@ def fetch_mlflow_runs(run_ids: list, mlflow_tracking_uri: str = None) -> list:
             params = run.data.params
 
             # Check if cached version exists
-            cached_path = f"/tmp/mlflow/{run_id}/results/benchmark_sweep.json"
+            cache_dir = f"/tmp/mlflow/{run_id}/results"
+            cached_files = (
+                list(Path(cache_dir).glob("benchmark*.json"))
+                if Path(cache_dir).exists()
+                else []
+            )
 
-            if Path(cached_path).exists():
+            if cached_files:
                 logger.info(f"Using cached artifact for run {run_id}")
-                artifact_path = cached_path
+                artifact_path = str(
+                    cached_files[0]
+                )  # XXX: Only one JSON file per MLFlow run
             else:
-                # Download from MLflow
+                # Download from MLflow - search for any benchmark*.json file
                 client = mlflow.tracking.MlflowClient()
-                downloaded_path = client.download_artifacts(
-                    run_id, "results/benchmark_sweep.json"
+                artifacts = client.list_artifacts(run_id, "results")
+                benchmark_file = next(
+                    a.path
+                    for a in artifacts
+                    if a.path.startswith("results/benchmark")
+                    and a.path.endswith(".json")
                 )
+                downloaded_path = client.download_artifacts(run_id, benchmark_file)
 
                 # Create cache directory and copy to cache location
-                Path(cached_path).parent.mkdir(parents=True, exist_ok=True)
+                cached_path = Path(cache_dir) / Path(benchmark_file).name
+                cached_path.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy(downloaded_path, cached_path)
-                artifact_path = cached_path
+                artifact_path = str(cached_path)
                 logger.info(f"Downloaded and cached artifact for run {run_id}")
 
             with open(artifact_path, "r") as f:
