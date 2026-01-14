@@ -1,0 +1,47 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: detect-benchmark-type
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "Detect Benchmark Type from Image URI"
+    tekton.dev/tags: benchmark, detection, common
+    tekton.dev/platforms: "linux/amd64,linux/s390x,linux/ppc64le,linux/arm64"
+spec:
+  description: >-
+    Detects the benchmark type (mlperf or guidellm) from a container image URI
+    by checking if the URI contains "mlperf". This task enables conditional
+    benchmark execution without CEL expressions.
+
+  params:
+    - name: IMAGE
+      description: Benchmark container image URI
+      type: string
+
+  results:
+    - name: BENCHMARK_TYPE
+      description: Detected benchmark type (mlperf or guidellm)
+
+  steps:
+    - name: detect
+      image: registry.access.redhat.com/ubi9/ubi-minimal:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        IMAGE="$(params.IMAGE)"
+
+        echo "Detecting benchmark type from image URI:"
+        echo "  Image: $IMAGE"
+        echo ""
+
+        # Check if IMAGE contains "mlperf"
+        if [[ "$IMAGE" == *"mlperf"* ]]; then
+          BENCHMARK_TYPE="mlperf"
+        else
+          BENCHMARK_TYPE="guidellm"
+        fi
+
+        echo "Detected benchmark type: $BENCHMARK_TYPE"
+        printf "%s" "$BENCHMARK_TYPE" > $(results.BENCHMARK_TYPE.path)

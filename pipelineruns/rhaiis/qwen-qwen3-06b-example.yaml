@@ -59,7 +59,7 @@ spec:
     # ===========================================
     # Benchmark Configuration
     # ===========================================
-    - name: BENCHMARK_IMAGE
+    - name: IMAGE
       value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"  # Required - no default
     - name: TARGET
       value: "https://qwen-qwen3-06b-llm-d-bench.apps.psap-llmd-h200.ibm-rh-ai.rhperfscale.org"  # Required - no default

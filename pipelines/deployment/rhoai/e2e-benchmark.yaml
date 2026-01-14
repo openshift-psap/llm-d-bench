@@ -270,17 +270,31 @@ spec:
         - name: VERIFY_TLS
           value: "false"
 
-    # Stage 4a: Run GuideLLM Benchmark (if IMAGE doesn't contain "mlperf")
-    - name: run-guidellm-benchmark
+    # Stage 3b: Detect Benchmark Type
+    - name: detect-benchmark-type
       runAfter:
         - wait-for-endpoint
       when:
         - input: "$(params.SKIP_BENCHMARK)"
           operator: in
           values: ["false"]
-        - input: "$(params.IMAGE)"
-          operator: notin
-          values: ["mlperf"]
+      taskRef:
+        name: detect-benchmark-type
+      params:
+        - name: IMAGE
+          value: $(params.IMAGE)
+
+    # Stage 4a: Run GuideLLM Benchmark (if IMAGE doesn't contain "mlperf")
+    - name: run-guidellm-benchmark
+      runAfter:
+        - detect-benchmark-type
+      when:
+        - input: "$(params.SKIP_BENCHMARK)"
+          operator: in
+          values: ["false"]
+        - input: "$(tasks.detect-benchmark-type.results.BENCHMARK_TYPE)"
+          operator: in
+          values: ["guidellm"]
       timeout: "2h"
       taskRef:
         name: run-guidellm-benchmark
@@ -326,12 +340,12 @@ spec:
     # Stage 4b: Run MLPerf Benchmark (if IMAGE contains "mlperf")
     - name: run-mlperf-benchmark
       runAfter:
-        - wait-for-endpoint
+        - detect-benchmark-type
       when:
         - input: "$(params.SKIP_BENCHMARK)"
           operator: in
           values: ["false"]
-        - input: "$(params.IMAGE)"
+        - input: "$(tasks.detect-benchmark-type.results.BENCHMARK_TYPE)"
           operator: in
           values: ["mlperf"]
       timeout: "2h"

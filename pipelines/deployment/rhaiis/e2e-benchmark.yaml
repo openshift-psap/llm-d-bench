@@ -55,7 +55,7 @@ spec:
       default: "/models"
 
     # Benchmark Configuration
-    - name: BENCHMARK_IMAGE
+    - name: IMAGE
       description: |
         Full URL of the GuideLLM custom image.
         The namespace portion (/llm-d-bench/) should match the namespace where the image was built.
@@ -284,23 +284,37 @@ spec:
         - name: VERIFY_TLS
           value: "false"
 
-    # Stage 4a: Run GuideLLM Benchmark (if BENCHMARK_IMAGE doesn't contain "mlperf")
-    - name: run-guidellm-benchmark
+    # Stage 3b: Detect Benchmark Type
+    - name: detect-benchmark-type
       runAfter:
         - wait-for-endpoint
       when:
         - input: "$(params.SKIP_BENCHMARK)"
           operator: in
           values: ["false"]
-        - input: "$(params.BENCHMARK_IMAGE)"
-          operator: notin
-          values: ["mlperf"]
+      taskRef:
+        name: detect-benchmark-type
+      params:
+        - name: IMAGE
+          value: $(params.IMAGE)
+
+    # Stage 4a: Run GuideLLM Benchmark (if IMAGE doesn't contain "mlperf")
+    - name: run-guidellm-benchmark
+      runAfter:
+        - detect-benchmark-type
+      when:
+        - input: "$(params.SKIP_BENCHMARK)"
+          operator: in
+          values: ["false"]
+        - input: "$(tasks.detect-benchmark-type.results.BENCHMARK_TYPE)"
+          operator: in
+          values: ["guidellm"]
       timeout: "2h"
       taskRef:
         name: run-guidellm-benchmark
       params:
         - name: IMAGE
-          value: $(params.BENCHMARK_IMAGE)
+          value: $(params.IMAGE)
         - name: TARGET
           value: $(params.TARGET)
         - name: MODEL
@@ -337,15 +351,15 @@ spec:
         - name: results
           workspace: results
 
-    # Stage 4b: Run MLPerf Benchmark (if BENCHMARK_IMAGE contains "mlperf")
+    # Stage 4b: Run MLPerf Benchmark (if IMAGE contains "mlperf")
     - name: run-mlperf-benchmark
       runAfter:
-        - wait-for-endpoint
+        - detect-benchmark-type
       when:
         - input: "$(params.SKIP_BENCHMARK)"
           operator: in
           values: ["false"]
-        - input: "$(params.BENCHMARK_IMAGE)"
+        - input: "$(tasks.detect-benchmark-type.results.BENCHMARK_TYPE)"
           operator: in
           values: ["mlperf"]
       timeout: "2h"
@@ -353,7 +367,7 @@ spec:
         name: run-mlperf-benchmark
       params:
         - name: IMAGE
-          value: $(params.BENCHMARK_IMAGE)
+          value: $(params.IMAGE)
         - name: TARGET
           value: $(params.TARGET)
         - name: MODEL
