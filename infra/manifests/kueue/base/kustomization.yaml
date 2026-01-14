@@ -4,4 +4,8 @@ kind: Kustomization
 resources:
 - namespace.yaml
 - resource-flavor.yaml
+- gpu-resource-flavors.yaml
+- priority-classes.yaml
+- local-queues.yaml
+# Legacy local-queue.yaml (kept for backwards compatibility)
 - local-queue.yaml

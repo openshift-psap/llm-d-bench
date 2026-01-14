@@ -4,11 +4,11 @@
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
-  generateName: qwen-qwen3-06b-example-
+  generateName: meta-llama-31-8b-mlperf-
   labels:
     app: llm-d-bench
     pipeline: rhaiis-end-to-end-benchmark
-    experiment: qwen-qwen3-06b-example
+    experiment: meta-llama-31-8b-mlperf
     deployment-mode: rhaiis
 spec:
   pipelineRef:
@@ -31,7 +31,7 @@ spec:
     # Model Configuration
     # ===========================================
     - name: MODEL_NAME
-      value: "Qwen/Qwen3-0.6B"  # Required - no default
+      value: "RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8"
     - name: MODEL_REVISION
       value: "main"  # DEFAULT
 
@@ -39,7 +39,7 @@ spec:
     # Deployment Configuration (RHAIIS-specific)
     # ===========================================
     - name: NAMESPACE
-      value: "llm-d-bench"  # Required - no default
+      value: "llm-d"  # Required - no default
     - name: VLLM_ARGS
       value:  # DEFAULT: []
         - "--max-model-len=8192"
@@ -57,44 +57,67 @@ spec:
       value: "/models"  # DEFAULT
 
     # ===========================================
-    # Benchmark Configuration
+    # Benchmark Configuration - MLPerf Image
     # ===========================================
-    - name: BENCHMARK_IMAGE
-      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"  # Required - no default
+    - name: IMAGE
+      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/mlperf-custom:latest"
     - name: TARGET
-      value: "https://qwen-qwen3-06b-llm-d-bench.apps.psap-llmd-h200.ibm-rh-ai.rhperfscale.org"  # Required - no default
-    - name: PROCESSOR
-      value: "Qwen/Qwen3-0.6B"  # DEFAULT: "" (empty)
-    - name: BACKEND_TYPE
-      value: "openai_http"  # DEFAULT
-    - name: RATE_TYPE
-      value: "concurrent"  # DEFAULT
-    - name: RATE
-      value: "1,50,100,200"  # DEFAULT: "1,50,100"
-    - name: DATA
-      value: "prompt_tokens=1000,output_tokens=1000"  # DEFAULT
-    - name: MAX_SECONDS
-      value: "60"  # DEFAULT: "600"
-    - name: MAX_REQUESTS
-      value: ""  # DEFAULT
-    - name: ACCELERATOR
-      value: "H200"  # DEFAULT: "" (empty)
-    - name: EXPERIMENT_NAME
-      value: "qwen-qwen3-06b"  # DEFAULT: "guidellm-benchmarks"
-    - name: VERSION
-      value: "RHAIIS-3.2.3"  # DEFAULT: "" (empty)
+      value: "https://redhatai-meta-llama-31-8b-instruct-fp8.llm-d.apps.psap-llmd-h200.ibm-rh-ai.rhperfscale.org"  # Required - no default
+
+    # ===========================================
+    # MLPerf-specific parameters
+    # ===========================================
+    - name: DATASET_NAME
+      value: "cnn_eval.json"
+    - name: SCENARIO
+      value: "Server"
+    - name: TEST_MODE
+      value: "performance"
+    - name: NUM_SAMPLES
+      value: "13368"
+    - name: SERVER_TARGET_QPS
+      value: "20"
+    - name: BATCH_SIZE
+      value: ""
+    - name: OUTPUT_DIR
+      value: "/tmp/mlperf"
     - name: BENCHMARK_ENV_VARS
-      value: []  # DEFAULT
+      value:
+        - "MLFLOW_TRACKING_URI=http://150.239.115.202"
+
+    # ===========================================
+    # GuideLLM parameters (unused but required by pipeline schema)
+    # ===========================================
+    - name: RATE
+      value: "1"
+    - name: DATA
+      value: ""
+    - name: PROCESSOR
+      value: ""
+    - name: MAX_SECONDS
+      value: ""
+    - name: MAX_REQUESTS
+      value: ""
+    - name: BACKEND_TYPE
+      value: ""
+    - name: RATE_TYPE
+      value: ""
 
     # ===========================================
     # MLflow Configuration
     # ===========================================
     - name: MLFLOW_ENABLED
-      value: "true"  # DEFAULT: "false"
-
+      value: "true"
+    - name: EXPERIMENT_NAME
+      value: "meta-llama-31-8b-mlperf"
+    - name: VERSION
+      value: "llm-d-0.4"
+    - name: ACCELERATOR
+      value: "H200"
     - name: TAGS
-      value:  # DEFAULT: []
-        - "deployment=RHAIIS"
+      value:
+        - "deployment=vllm"
+        - "benchmark-tool=mlperf"
 
     # ===========================================
     # Health Check Configuration
@@ -106,7 +129,7 @@ spec:
     # Stage Control
     # ===========================================
     - name: SKIP_DOWNLOAD
-      value: "false"  # DEFAULT
+      value: "true"  # DEFAULT
     - name: SKIP_DEPLOY
       value: "false"  # DEFAULT
     - name: SKIP_BENCHMARK

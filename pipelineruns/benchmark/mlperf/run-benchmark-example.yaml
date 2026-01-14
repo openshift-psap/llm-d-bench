@@ -10,6 +10,13 @@ spec:
   pipelineRef:
     name: mlperf-run-benchmark-pipeline
 
+  taskRunTemplate:
+    podTemplate:
+      labels:
+        # Kueue integration for GPU quota management
+        kueue.x-k8s.io/queue-name: psap-releases-queue
+        kueue.x-k8s.io/priority-class: psap-releases
+
   ttlSecondsAfterFinished: 3600
 
   params:

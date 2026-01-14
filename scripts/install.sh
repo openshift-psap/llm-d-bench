@@ -2,18 +2,22 @@
 #
 # install.sh - Install all Tekton resources for llm-d-bench
 #
-# This script installs Tasks, Pipelines, and optionally PVCs in the specified namespace.
+# This script installs Tasks, Pipelines, and optionally infrastructure components
+# and PVCs in the specified namespace.
 #
 # Usage:
-#   ./scripts/install.sh                    # Install in default namespace
-#   ./scripts/install.sh -n my-namespace    # Install in specific namespace
+#   ./scripts/install.sh                              # Install in default namespace
+#   ./scripts/install.sh -n my-namespace              # Install in specific namespace
 #   ./scripts/install.sh -n my-namespace --with-pvcs  # Also create PVCs
+#   ./scripts/install.sh --with-infra                 # Install infrastructure (Kueue, etc.)
+#   ./scripts/install.sh -n my-namespace --with-infra --with-pvcs  # Full installation
 #
 
 set -e
 
 NAMESPACE=""
 CREATE_PVCS=false
+INSTALL_INFRA=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -25,12 +29,17 @@ while [[ $# -gt 0 ]]; do
             CREATE_PVCS=true
             shift
             ;;
+        --with-infra|--with-infrastructure)
+            INSTALL_INFRA=true
+            shift
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
             echo "  -n, --namespace NAMESPACE   Install in specified namespace"
             echo "  --with-pvcs                 Also create PersistentVolumeClaims"
+            echo "  --with-infra                Install infrastructure components (Kueue, etc.)"
             echo "  -h, --help                  Show this help message"
             exit 0
             ;;
@@ -53,10 +62,11 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-echo "LLM-D-Tekton Installation"
+echo "llm-d-bench Installation"
 echo "Project root: $PROJECT_ROOT"
 echo "Namespace: $NAMESPACE"
 echo "Create PVCs: $CREATE_PVCS"
+echo "Install Infrastructure: $INSTALL_INFRA"
 echo ""
 
 echo "Installing RBAC resources..."
@@ -111,6 +121,60 @@ find "$PROJECT_ROOT/pipelines" -type f -name "*.yaml" | while read -r pipeline; 
 done
 echo "✓ Pipelines installed"
 echo ""
+
+if [ "$INSTALL_INFRA" = true ]; then
+    echo "Installing Infrastructure components..."
+    echo ""
+
+    # Check if kustomize is available
+    if ! command -v kustomize &> /dev/null; then
+        echo "Warning: kustomize not found. Using 'oc apply -k' instead."
+        KUSTOMIZE_CMD="oc apply -k"
+    else
+        KUSTOMIZE_CMD="kustomize build"
+    fi
+
+    # Deploy infrastructure using kustomize
+    if [ -d "$PROJECT_ROOT/infra" ]; then
+        echo "  Installing Kueue and other infrastructure components..."
+
+        if [ "$KUSTOMIZE_CMD" = "kustomize build" ]; then
+            kustomize build "$PROJECT_ROOT/infra" | oc apply -f -
+        else
+            oc apply -k "$PROJECT_ROOT/infra"
+        fi
+
+        echo ""
+        echo "  Waiting for Kueue to be ready..."
+        # Wait for Kueue deployment to be ready (with timeout)
+        if oc wait --for=condition=available --timeout=120s deployment/kueue-controller-manager -n kueue-system 2>/dev/null; then
+            echo "  ✓ Kueue controller is ready"
+        else
+            echo "  ⚠ Kueue controller may still be starting (timeout waiting for ready state)"
+            echo "    Check status with: oc get pods -n kueue-system"
+        fi
+
+        echo ""
+        echo "  Verifying infrastructure components:"
+        echo "    ClusterQueues:"
+        oc get clusterqueue 2>/dev/null | grep -E 'NAME|benchmark-cluster-queue' || echo "      No ClusterQueues found"
+        echo ""
+        echo "    LocalQueues in $NAMESPACE:"
+        oc get localqueue $NS_FLAG 2>/dev/null | grep -E 'NAME|psap' || echo "      No LocalQueues found"
+        echo ""
+        echo "    WorkloadPriorityClasses:"
+        oc get workloadpriorityclass 2>/dev/null | grep -E 'NAME|psap' || echo "      No WorkloadPriorityClasses found"
+        echo ""
+
+    else
+        echo "  Warning: infra/ directory not found. Skipping infrastructure installation."
+    fi
+
+    echo "✓ Infrastructure components installed"
+    echo ""
+    echo "  For more information on Kueue configuration, see docs/kueue.md"
+    echo ""
+fi
 
 if [ "$CREATE_PVCS" = true ]; then
     echo "Creating PersistentVolumeClaims..."

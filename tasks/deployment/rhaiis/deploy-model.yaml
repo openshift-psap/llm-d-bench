@@ -1,0 +1,179 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: deploy-rhaiis-model
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "Deploy Model as InferenceService (RHAIIS/vLLM)"
+    tekton.dev/tags: model, deploy, kserve, rhaiis, vllm
+    tekton.dev/platforms: "linux/amd64"
+spec:
+  description: >-
+    Deploy a model as a KServe InferenceService using RHAIIS vLLM image or raw vLLM.
+    Uses standard KServe CRD with automatic service/route creation.
+
+    Default image: registry.redhat.io/rhaiis/vllm-cuda-rhel9:3.2.3
+
+    For raw vLLM deployment: Set IMAGE=vllm/vllm-openai:latest
+
+  params:
+    - name: MODEL_NAME
+      description: HuggingFace model identifier
+      type: string
+
+    - name: NAMESPACE
+      description: Namespace for deployment
+      type: string
+
+    - name: TP
+      description: Tensor parallelism size (number of GPUs)
+      type: string
+      default: "1"
+
+    - name: VLLM_ARGS
+      description: Additional vLLM arguments as array
+      type: array
+      default: []
+
+    - name: IMAGE
+      description: vLLM container image (default RHAIIS, can override to vllm/vllm-openai:latest)
+      type: string
+      default: "registry.redhat.io/rhaiis/vllm-cuda-rhel9:3.2.3"
+
+    - name: REPLICAS
+      description: Number of replicas
+      type: string
+      default: "1"
+
+    - name: SKIP_IF_EXISTS
+      description: Skip deployment if InferenceService already exists
+      type: string
+      default: "true"
+
+    - name: MODEL_PVC
+      description: PVC name for model storage
+      type: string
+      default: "models-storage"
+
+    - name: CACHE_DIR
+      description: Base directory on PVC where models are stored
+      type: string
+      default: "/models"
+
+  workspaces:
+    - name: models-storage
+      description: PVC containing downloaded models
+
+  steps:
+    - name: deploy-model
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      workingDir: /tmp
+      args:
+        - $(params.VLLM_ARGS[*])
+      script: |
+        #!/bin/bash
+        set -e
+
+        # Generate deployment name from model name
+        # Logic: lowercase | replace / with - | replace . with empty | trim suffix - | truncate to 42 chars
+        DEPLOYMENT_NAME=$(echo "$(params.MODEL_NAME)" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-42)
+
+        echo "Deployment: $DEPLOYMENT_NAME"
+        echo "Namespace: $(params.NAMESPACE)"
+        echo "Model: $(params.MODEL_NAME)"
+        echo "Image: $(params.IMAGE)"
+        echo ""
+
+        if [ "$(params.SKIP_IF_EXISTS)" = "true" ]; then
+          if oc get inferenceservice "$DEPLOYMENT_NAME" -n "$(params.NAMESPACE)" 2>/dev/null; then
+            echo "✓ InferenceService $DEPLOYMENT_NAME already exists - skipping"
+            echo "  To force update, set SKIP_IF_EXISTS=false"
+            exit 0
+          fi
+        fi
+
+        MODEL_DIR_NAME=$(echo "$(params.MODEL_NAME)" | sed 's/\//-/g')
+        STORAGE_URI="pvc://$(params.MODEL_PVC)$(params.CACHE_DIR)/${MODEL_DIR_NAME}"
+
+        echo "Configuration:"
+        echo "  Model: $(params.MODEL_NAME)"
+        echo "  Storage URI: $STORAGE_URI"
+        echo "  TP (Tensor Parallel / GPU Count): $(params.TP)"
+        echo "  Replicas: $(params.REPLICAS)"
+        echo "  PVC: $(params.MODEL_PVC)"
+        echo ""
+
+        # Build vLLM args array from positional parameters
+        VLLM_ARGS_YAML=""
+        for arg in "$@"; do
+          if [ -n "$arg" ]; then
+            VLLM_ARGS_YAML="${VLLM_ARGS_YAML}
+                - \"${arg}\""
+          fi
+        done
+
+        # Generate InferenceService YAML
+        cat > /tmp/inference-service.yaml <<EOF
+        apiVersion: serving.kserve.io/v1beta1
+        kind: InferenceService
+        metadata:
+          name: $DEPLOYMENT_NAME
+          namespace: $(params.NAMESPACE)
+          labels:
+            app: vllm-inference
+            model: $DEPLOYMENT_NAME
+            deployment-mode: rhaiis
+          annotations:
+            serving.kserve.io/deploymentMode: RawDeployment
+            serving.knative.dev/autoscaleClass: external
+        spec:
+          predictor:
+            minReplicas: $(params.REPLICAS)
+            maxReplicas: $(params.REPLICAS)
+            model:
+              modelFormat:
+                name: vllm
+              runtime: vllm
+              storageUri: ${STORAGE_URI}
+            containers:
+            - name: kserve-container
+              image: $(params.IMAGE)
+              command: ["python3", "-m", "vllm.entrypoints.openai.api_server"]
+              args:
+                - "--port=8000"
+                - "--host=0.0.0.0"
+                - "--model=/mnt/models"
+                - "--served-model-name=$(params.MODEL_NAME)"
+                - "--tensor-parallel-size=$(params.TP)"${VLLM_ARGS_YAML}
+              env:
+                - name: HF_HUB_OFFLINE
+                  value: "1"
+              resources:
+                limits:
+                  nvidia.com/gpu: "$(params.TP)"
+                requests:
+                  nvidia.com/gpu: "$(params.TP)"
+        EOF
+
+        echo "Generated InferenceService manifest:"
+        echo "========================================="
+        cat /tmp/inference-service.yaml
+        echo "========================================="
+        echo ""
+
+        # Apply the manifest
+        echo "Creating InferenceService..."
+        oc apply -f /tmp/inference-service.yaml
+
+        echo ""
+        echo "✓ Deployment created successfully!"
+        echo "  InferenceService: $DEPLOYMENT_NAME"
+        echo "  Namespace: $(params.NAMESPACE)"
+        echo ""
+        echo "KServe will automatically create:"
+        echo "  - Pod with vLLM container"
+        echo "  - Service for inference endpoint"
+        echo "  - Route for external access"
+        echo ""
+        echo "Use 'oc get inferenceservice $DEPLOYMENT_NAME -n $(params.NAMESPACE)' to check status"

@@ -34,8 +34,17 @@ oc create namespace $NAMESPACE
 ### 1. Install Tekton Resources
 
 ```bash
+# Basic installation (Tasks and Pipelines only)
 ./scripts/install.sh -n $NAMESPACE
+
+# With infrastructure components (Kueue for GPU quota management)
+./scripts/install.sh -n $NAMESPACE --with-infra
+
+# Full installation (with infrastructure and PVCs)
+./scripts/install.sh -n $NAMESPACE --with-infra --with-pvcs
 ```
+
+> **Note**: The `--with-infra` flag installs Kueue for PipelineRun queue management and GPU quota enforcement. See [docs/kueue.md](docs/kueue.md) for more information on Kueue configuration.
 
 ### 2. Create Secrets
 

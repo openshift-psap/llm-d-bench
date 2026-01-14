@@ -13,6 +13,11 @@ spec:
   # Use service account with permissions for LLMInferenceService resources
   taskRunTemplate:
     serviceAccountName: deploy-model-sa
+    podTemplate:
+      labels:
+        # Kueue integration for GPU quota management
+        kueue.x-k8s.io/queue-name: psap-releases-queue
+        kueue.x-k8s.io/priority-class: psap-releases
 
   # Automatically clean up completed PipelineRun after 1 hour
   ttlSecondsAfterFinished: 3600
