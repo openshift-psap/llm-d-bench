@@ -23,7 +23,7 @@ spec:
     - name: GIT_URL
       value: "https://github.com/openshift-psap/llm-d-bench.git"
     - name: GIT_REVISION
-      value: "refactor/modular-architecture"
+      value: "main"
     - name: IMAGE_NAME
       value: "mlperf-custom"
     - name: IMAGE_TAG
