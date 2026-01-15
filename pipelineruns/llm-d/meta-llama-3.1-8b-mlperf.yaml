@@ -44,9 +44,11 @@ spec:
       value: "1"
     - name: VLLM_ARGS
       value:
-        - "--max-model-len=8192"
-        - "--gpu-memory-utilization=0.92"
-        - "--trust-remote-code"
+        - "--max-model-len=131072"
+        - "--gpu-memory-utilization=0.91"
+        - "--disable-log-requests"
+        - "--max-num-batched-tokens=1024"
+        - "--max-num-seqs=512"
 
     # ===========================================
     # Benchmark Configuration - MLPerf Image

@@ -42,9 +42,11 @@ spec:
       value: "llm-d"  # Required - no default
     - name: VLLM_ARGS
       value:  # DEFAULT: []
-        - "--max-model-len=8192"
-        - "--gpu-memory-utilization=0.95"
-        - "--trust-remote-code"
+        - "--max-model-len=131072"
+        - "--gpu-memory-utilization=0.91"
+        - "--disable-log-requests"
+        - "--max-num-batched-tokens=1024"
+        - "--max-num-seqs=512"
     - name: DEPLOYMENT_IMAGE
       value: "registry.redhat.io/rhaiis/vllm-cuda-rhel9:3.2.3"  # DEFAULT
     - name: REPLICAS
@@ -131,11 +133,11 @@ spec:
     - name: SKIP_DOWNLOAD
       value: "true"  # DEFAULT
     - name: SKIP_DEPLOY
-      value: "false"  # DEFAULT
+      value: "true"  # DEFAULT
     - name: SKIP_BENCHMARK
       value: "false"  # DEFAULT
     - name: SKIP_CLEANUP
-      value: "false"  # DEFAULT
+      value: "true"  # DEFAULT
 
   # ===========================================
   # Timeouts
