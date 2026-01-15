@@ -7,12 +7,12 @@ metadata:
     type: workspace
 spec:
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce
   resources:
     requests:
-      storage: 1Ti
-  # Optional: specify storage class (must support RWX)
-  # storageClassName: nfs-provisioner
+      storage: 300Gi
+  # Note: Using ReadWriteOnce for single-node clusters or RWO-only storage classes
+  storageClassName: lvms-vg1
 ---
 # This PVC is used for storing downloaded LLM models
 #

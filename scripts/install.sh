@@ -59,6 +59,23 @@ echo "Namespace: $NAMESPACE"
 echo "Create PVCs: $CREATE_PVCS"
 echo ""
 
+echo "Configuring Tekton Pipelines Security Context Constraints..."
+# Grant privileged SCC to Tekton service accounts to allow them to run
+# This is required because Tekton controllers use non-standard user IDs (65532)
+# and seccomp annotations that don't match the default namespace restrictions
+if oc get namespace tekton-pipelines &>/dev/null; then
+    echo "  - Granting privileged SCC to tekton-pipelines-controller"
+    oc adm policy add-scc-to-user privileged -z tekton-pipelines-controller -n tekton-pipelines 2>/dev/null || true
+    echo "  - Granting privileged SCC to tekton-events-controller"
+    oc adm policy add-scc-to-user privileged -z tekton-events-controller -n tekton-pipelines 2>/dev/null || true
+    echo "  - Granting privileged SCC to tekton-pipelines-webhook"
+    oc adm policy add-scc-to-user privileged -z tekton-pipelines-webhook -n tekton-pipelines 2>/dev/null || true
+    echo "✓ Tekton SCC configured"
+else
+    echo "  ⚠ tekton-pipelines namespace not found - skipping SCC configuration"
+fi
+echo ""
+
 echo "Installing RBAC resources..."
 for rbac in "$PROJECT_ROOT"/config/rbac/*.yaml; do
     if [ -f "$rbac" ]; then

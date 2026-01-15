@@ -11,6 +11,7 @@ For advanced documentation see [docs/ADVANCED.md](docs/ADVANCED.md).
 - Tekton Pipelines Operator v0.50+
 - OpenShift 4.14+
 - `oc` CLI
+- OpenShift internal image registry (or external registry)
 
 ## Quick Start
 
@@ -66,7 +67,31 @@ or you can create your secret file by copying the templates present in the `conf
 
 See [config/secrets/](config/secrets/) for YAML templates.
 
-### 3. Build Custom Image
+### 3. Setup Internal Image Registry
+
+The pipelines build custom container images that need to be pushed to a registry. Setup the OpenShift internal registry:
+
+```bash
+# Quick setup with defaults (50Gi storage, lvms-vg1 storage class)
+./scripts/setup-image-registry.sh
+
+# Or customize storage
+STORAGE_SIZE=100Gi STORAGE_CLASS=thin ./scripts/setup-image-registry.sh
+```
+
+This will:
+- Enable the OpenShift internal image registry
+- Create a PVC for registry storage
+- Configure the registry to use the PVC
+- Verify the registry is running
+
+The registry will be available at: `image-registry.openshift-image-registry.svc:5000`
+
+> **Note:** For single-node clusters or storage classes that only support ReadWriteOnce (RWO), the script automatically sets registry replicas to 1. For multi-node clusters with ReadWriteMany (RWX) storage, you can increase replicas.
+
+See [infra/manifests/image-registry/README.md](infra/manifests/image-registry/README.md) for detailed documentation, troubleshooting, and manual setup instructions.
+
+### 4. Build Custom Image
 
 ```bash
 # GuideLLM (default)
@@ -76,7 +101,7 @@ oc create -f pipelineruns/benchmark/guidellm/build-image-run.yaml -n $NAMESPACE
 oc create -f pipelineruns/benchmark/mlperf/build-image-run.yaml -n $NAMESPACE
 ```
 
-### 4. Run Benchmark
+### 5. Run Benchmark
 
 ```bash
 # GuideLLM example (RHOAI mode)
