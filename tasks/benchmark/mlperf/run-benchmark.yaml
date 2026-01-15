@@ -201,6 +201,8 @@ spec:
           value: "true"
         - name: LOG_LEVEL
           value: $(params.LOG_LEVEL)
+        - name: HF_HOME
+          value: /tmp/.huggingface
       args:
         - $(params.BENCHMARK_ENV_VARS[*])
       script: |
