@@ -97,6 +97,12 @@ done
 echo "✓ RBAC resources installed"
 echo ""
 
+echo "Configuring image registry permissions..."
+echo "  - Granting system:image-builder to default service account"
+oc policy add-role-to-user system:image-builder -z default $NS_FLAG 2>/dev/null || true
+echo "✓ Image registry permissions configured"
+echo ""
+
 echo "Installing Secrets..."
 SECRET_COUNT=0
 for secret in "$PROJECT_ROOT"/config/secrets/*.yaml; do
