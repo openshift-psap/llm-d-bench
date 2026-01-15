@@ -1,0 +1,85 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: mlperf-benchmark-
+  labels:
+    app: llm-d-bench
+    pipeline: mlperf-run-benchmark-pipeline
+    benchmark-tool: mlperf
+spec:
+  pipelineRef:
+    name: mlperf-run-benchmark-pipeline
+
+  taskRunTemplate:
+    podTemplate:
+      labels:
+        # Kueue integration for GPU quota management
+        kueue.x-k8s.io/queue-name: psap-releases-queue
+        kueue.x-k8s.io/priority-class: psap-releases
+
+  ttlSecondsAfterFinished: 3600
+
+  params:
+    # ===========================================
+    # Benchmark Configuration
+    # ===========================================
+    - name: IMAGE
+      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/mlperf-custom:latest"
+    - name: TARGET
+      value: "http://your-model-endpoint.namespace.svc.cluster.local:8000"  # Update with actual endpoint
+    - name: MODEL
+      value: "RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8"
+
+    # ===========================================
+    # MLPerf-specific parameters
+    # ===========================================
+    - name: DATASET_NAME
+      value: "cnn_eval.json"
+    - name: SCENARIO
+      value: "Offline"  # Options: Offline, Server, SingleStream, MultiStream
+    - name: TEST_MODE
+      value: "accuracy"  # Options: accuracy, performance
+    - name: NUM_SAMPLES
+      value: "4388"
+    - name: SERVER_TARGET_QPS
+      value: "10"
+    - name: BATCH_SIZE
+      value: ""
+    - name: OUTPUT_DIR
+      value: "./test-run"
+
+    # ===========================================
+    # MLflow Configuration
+    # ===========================================
+    - name: MLFLOW_ENABLED
+      value: "false"  # Set to "true" if using MLflow
+    - name: EXPERIMENT_NAME
+      value: "mlperf-benchmarks"
+    - name: VERSION
+      value: ""
+    - name: ACCELERATOR
+      value: ""
+    - name: TP
+      value: "1"
+    - name: TAGS
+      value: []
+
+    # ===========================================
+    # Health Check Configuration
+    # ===========================================
+    - name: SKIP_HEALTH_CHECK
+      value: "false"
+    - name: HEALTH_CHECK_TIMEOUT
+      value: "3600"
+
+  timeouts:
+    pipeline: "2h"
+    tasks: "2h"
+
+  workspaces:
+    - name: models-storage
+      persistentVolumeClaim:
+        claimName: models-storage  # Must contain datasets/ subdirectory with dataset files
+
+    - name: results
+      emptyDir: {}

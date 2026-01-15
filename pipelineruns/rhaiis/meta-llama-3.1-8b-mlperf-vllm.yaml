@@ -1,0 +1,157 @@
+# This file contains the example definition of a GuideLLM pipelinerun for RHAIIS.
+# Parameters are marked if they are required, match default or not.
+# Use this pipelinerun as an example to create new RHAIIS pipelineruns.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: meta-llama-31-8b-mlperf-
+  labels:
+    app: llm-d-bench
+    pipeline: rhaiis-end-to-end-benchmark
+    experiment: meta-llama-31-8b-mlperf
+    deployment-mode: rhaiis
+spec:
+  pipelineRef:
+    name: rhaiis-end-to-end-benchmark
+
+  # Use service account with permissions for KServe deployments
+  taskRunTemplate:
+    serviceAccountName: deploy-model-sa
+    podTemplate:
+      labels:
+        # Kueue integration for GPU quota management
+        kueue.x-k8s.io/queue-name: psap-releases-queue
+        kueue.x-k8s.io/priority-class: psap-releases
+
+  # Automatically clean up completed PipelineRun after 1 hour
+  ttlSecondsAfterFinished: 3600
+
+  params:
+    # ===========================================
+    # Model Configuration
+    # ===========================================
+    - name: MODEL_NAME
+      value: "RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8"
+    - name: MODEL_REVISION
+      value: "main"  # DEFAULT
+
+    # ===========================================
+    # Deployment Configuration (RHAIIS-specific)
+    # ===========================================
+    - name: NAMESPACE
+      value: "llm-d-bench"  # Required - no default
+    - name: VLLM_ARGS
+      value:  # DEFAULT: []
+        - "--max-model-len=131072"
+        - "--gpu-memory-utilization=0.91"
+        - "--disable-log-requests"
+        - "--max-num-batched-tokens=1024"
+        - "--max-num-seqs=512"
+    - name: DEPLOYMENT_IMAGE
+      value: "registry.redhat.io/rhaiis/vllm-cuda-rhel9:3.2.3"  # DEFAULT
+    - name: REPLICAS
+      value: "1"  # DEFAULT
+    - name: TP
+      value: "1"  # DEFAULT
+    - name: MODEL_PVC
+      value: "models-storage"  # DEFAULT
+    - name: CACHE_DIR
+      value: "/models"  # DEFAULT
+
+    # ===========================================
+    # Benchmark Configuration - MLPerf Image
+    # ===========================================
+    - name: IMAGE
+      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/mlperf-custom:latest"
+    - name: TARGET
+      value: "http://vllm-llama-8b-fp8.llm-d-bench.svc.cluster.local:8000"  # Required - no default
+
+    # ===========================================
+    # MLPerf-specific parameters
+    # ===========================================
+    - name: DATASET_NAME
+      value: "cnn_eval.json"
+    - name: SCENARIO
+      value: "Server"
+    - name: TEST_MODE
+      value: "performance"
+    - name: NUM_SAMPLES
+      value: "13368"
+    - name: SERVER_TARGET_QPS
+      value: "20"
+    - name: BATCH_SIZE
+      value: ""
+    - name: OUTPUT_DIR
+      value: "/tmp/mlperf"
+    - name: BENCHMARK_ENV_VARS
+      value: []
+
+    # ===========================================
+    # GuideLLM parameters (unused but required by pipeline schema)
+    # ===========================================
+    - name: RATE
+      value: "1"
+    - name: DATA
+      value: ""
+    - name: PROCESSOR
+      value: ""
+    - name: MAX_SECONDS
+      value: ""
+    - name: MAX_REQUESTS
+      value: ""
+    - name: BACKEND_TYPE
+      value: ""
+    - name: RATE_TYPE
+      value: ""
+
+    # ===========================================
+    # MLflow Configuration
+    # ===========================================
+    - name: MLFLOW_ENABLED
+      value: "true"
+    - name: EXPERIMENT_NAME
+      value: "meta-llama-31-8b-mlperf"
+    - name: VERSION
+      value: "llm-d-0.4"
+    - name: ACCELERATOR
+      value: "H200"
+    - name: TAGS
+      value:
+        - "deployment=vllm"
+        - "benchmark-tool=mlperf"
+
+    # ===========================================
+    # Health Check Configuration
+    # ===========================================
+    - name: HEALTH_CHECK_TIMEOUT
+      value: "3600"  # DEFAULT
+
+    # ===========================================
+    # Stage Control
+    # ===========================================
+    - name: SKIP_DOWNLOAD
+      value: "true"  # DEFAULT
+    - name: SKIP_DEPLOY
+      value: "true"  # DEFAULT
+    - name: SKIP_BENCHMARK
+      value: "false"  # DEFAULT
+    - name: SKIP_CLEANUP
+      value: "true"  # DEFAULT
+
+  # ===========================================
+  # Timeouts
+  # ===========================================
+  timeouts:
+    pipeline: "2h"
+    tasks: "2h"
+
+  # ===========================================
+  # Workspaces
+  # ===========================================
+  workspaces:
+    - name: models-storage
+      persistentVolumeClaim:
+        claimName: models-storage
+
+    - name: results
+      emptyDir: {}

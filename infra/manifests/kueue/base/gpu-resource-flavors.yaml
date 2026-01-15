@@ -1,0 +1,31 @@
+---
+# H200 Cluster Profile (8x H200 GPUs per node)
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: h200-cluster
+spec:
+  nodeLabels:
+    nvidia.com/gpu.product: NVIDIA-H200
+    # Optional: Add cluster-specific labels
+    # cluster-type: h200-8gpu
+---
+# H100 DGX Profile (4x H100 GPUs per node)
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: h100-dgx-cluster
+spec:
+  nodeLabels:
+    nvidia.com/gpu.product: NVIDIA-H100
+    # Optional: Add cluster-specific labels
+    # cluster-type: h100-dgx-4gpu
+---
+# Generic GPU flavor (fallback)
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: gpu-generic
+spec:
+  nodeLabels:
+    nvidia.com/gpu: "true"

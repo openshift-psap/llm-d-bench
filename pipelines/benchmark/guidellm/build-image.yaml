@@ -1,0 +1,100 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: guidellm-build-image
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "Build GuideLLM Custom Image"
+    tekton.dev/tags: image-build
+spec:
+  description: >-
+    Build the custom GuideLLM image with MLflow and benchmark dependencies.
+    This pipeline clones the source repository and builds the image.
+
+
+  params:
+    - name: GIT_URL
+      description: Git repository URL
+      type: string
+      default: "https://github.com/openshift-psap/llm-d-bench.git"
+
+    - name: GIT_REVISION
+      description: Git revision to checkout (branch, tag, sha, ref)
+      type: string
+      default: "main"
+
+    - name: IMAGE_NAME
+      description: Name of the image to build
+      type: string
+      default: "guidellm-custom"
+
+    - name: IMAGE_TAG
+      description: Tag for the built image
+      type: string
+      default: "latest"
+
+    - name: REGISTRY
+      description: Container registry URL
+      type: string
+      default: "image-registry.openshift-image-registry.svc:5000"
+
+    - name: NAMESPACE
+      description: Namespace where image will be pushed
+      type: string
+      default: "llm-d-bench"
+
+    - name: GUIDELLM_VERSION
+      description: GuideLLM base image version
+      type: string
+      default: "v0.3.1"
+
+  workspaces:
+    - name: source
+      description: Workspace for source code and build context
+
+  results:
+    - name: IMAGE_DIGEST
+      description: Digest of the built image
+      value: $(tasks.guidellm-buildah-build.results.IMAGE_DIGEST)
+
+    - name: IMAGE_URL
+      description: Full URL of the built image
+      value: $(tasks.guidellm-buildah-build.results.IMAGE_URL)
+
+    - name: COMMIT
+      description: The precise commit SHA that was built
+      value: $(tasks.git-clone.results.COMMIT)
+
+  tasks:
+    - name: git-clone
+      taskRef:
+        name: git-clone
+      params:
+        - name: URL
+          value: $(params.GIT_URL)
+        - name: REVISION
+          value: $(params.GIT_REVISION)
+      workspaces:
+        - name: output
+          workspace: source
+
+    - name: guidellm-buildah-build
+      runAfter:
+        - git-clone
+      taskRef:
+        name: guidellm-buildah-build
+      params:
+        - name: IMAGE_NAME
+          value: $(params.IMAGE_NAME)
+        - name: IMAGE_TAG
+          value: $(params.IMAGE_TAG)
+        - name: REGISTRY
+          value: $(params.REGISTRY)
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: GUIDELLM_VERSION
+          value: $(params.GUIDELLM_VERSION)
+      workspaces:
+        - name: source
+          workspace: source

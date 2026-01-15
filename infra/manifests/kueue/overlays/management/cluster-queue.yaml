@@ -3,16 +3,34 @@ kind: ClusterQueue
 metadata:
   name: "benchmark-cluster-queue"
 spec:
-  # Define the total resources this queue can manage
+  # Single-cluster queue for managing GPU resources across PipelineRuns
   namespaceSelector: {}
-  admissionChecks:
-  - multikueue-admission-check
+
+  # Queue ordering strategy: StrictFIFO processes workloads in submission order
+  # Alternative: BestEffortFIFO for priority-based scheduling (see docs/kueue.md)
+  queueingStrategy: StrictFIFO
+
+  # Multi-cluster admission check (disabled for single-cluster deployment)
+  # admissionChecks:
+  # - multikueue-admission-check
+
   resourceGroups:
-  - coveredResources: ["cpu", "memory"]
+  # Primary resource constraint: GPU quotas
+  - coveredResources: ["nvidia.com/gpu"]
     flavors:
     - name: "default-flavor"
       resources:
-      - name: "cpu"
-        nominalQuota: 50
-      - name: "memory"
-        nominalQuota: 100Gi
+      - name: "nvidia.com/gpu"
+        nominalQuota: 16  # Total GPUs available (adjust based on cluster size)
+        borrowingLimit: 8  # Can borrow up to 8 additional GPUs if available
+
+  # Optional: CPU and Memory quotas (commented out by default)
+  # Uncomment if you need to enforce CPU/memory limits:
+  # - coveredResources: ["cpu", "memory"]
+  #   flavors:
+  #   - name: "default-flavor"
+  #     resources:
+  #     - name: "cpu"
+  #       nominalQuota: 100
+  #     - name: "memory"
+  #       nominalQuota: 500Gi

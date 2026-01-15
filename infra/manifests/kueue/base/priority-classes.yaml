@@ -1,0 +1,16 @@
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: WorkloadPriorityClass
+metadata:
+  name: psap-releases
+spec:
+  value: 1000
+  description: "PSAP release benchmarks and production workloads - highest priority"
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: WorkloadPriorityClass
+metadata:
+  name: psap-research
+spec:
+  value: 100
+  description: "PSAP research experiments and testing - lower priority"

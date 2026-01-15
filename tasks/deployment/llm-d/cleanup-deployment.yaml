@@ -1,0 +1,120 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: cleanup-llm-d-deployment
+  labels:
+    app.kubernetes.io/version: "0.3"
+  annotations:
+    tekton.dev/displayName: "Cleanup Upstream Deployment"
+    tekton.dev/tags: cleanup, helm, helmfile, llm-d
+    tekton.dev/platforms: "linux/amd64"
+spec:
+  description: >-
+    Delete an llm-d deployment by removing all Helm releases and HTTPRoute.
+    This task removes the HTTPRoute, infrastructure, GAIE pool, and model service
+    (pattern: {component}-{RELEASE_NAME})
+    but preserves models on the PVC.
+
+  params:
+    - name: RELEASE_NAME
+      description: Release name to delete
+      type: string
+
+    - name: NAMESPACE
+      description: Namespace containing the deployment
+      type: string
+
+    - name: WAIT_FOR_DELETION
+      description: Wait for resources to be fully deleted
+      type: string
+      default: "true"
+
+    - name: TIMEOUT_SECONDS
+      description: Maximum time to wait for deletion (in seconds)
+      type: string
+      default: "600"
+
+    - name: SKIP_IF_NOT_EXISTS
+      description: Don't fail if releases don't exist
+      type: string
+      default: "true"
+
+  steps:
+    - name: cleanup-releases
+      image: ghcr.io/helmfile/helmfile:latest
+      workingDir: /tmp
+      script: |
+        #!/bin/bash
+        set -e
+
+        echo "Cleanup target:"
+        echo "  Release: $(params.RELEASE_NAME)"
+        echo "  Namespace: $(params.NAMESPACE)"
+        echo ""
+
+        # Check if any releases exist
+        RELEASES_EXIST=false
+        for component in ms gaie infra; do
+          if helm list -n $(params.NAMESPACE) | grep -q "${component}-$(params.RELEASE_NAME)"; then
+            RELEASES_EXIST=true
+            break
+          fi
+        done
+
+        if [ "$RELEASES_EXIST" = "false" ]; then
+          if [ "$(params.SKIP_IF_NOT_EXISTS)" = "true" ]; then
+            echo "✓ No releases found for $(params.RELEASE_NAME) - nothing to clean"
+            exit 0
+          else
+            echo "ERROR: No releases found for $(params.RELEASE_NAME)"
+            exit 1
+          fi
+        fi
+
+        # Delete HTTPRoute first
+        HTTPROUTE_NAME="llm-d-$(params.RELEASE_NAME)"
+        if kubectl get httproute "$HTTPROUTE_NAME" -n $(params.NAMESPACE) &>/dev/null; then
+          echo "Deleting HTTPRoute: $HTTPROUTE_NAME"
+          kubectl delete httproute "$HTTPROUTE_NAME" -n $(params.NAMESPACE)
+          echo "✓ HTTPRoute deleted"
+          echo ""
+        else
+          echo "ℹ HTTPRoute $HTTPROUTE_NAME not found, skipping"
+          echo ""
+        fi
+
+        # Delete releases in reverse order (ms → gaie → infra)
+        for component in ms gaie infra; do
+          RELEASE_NAME="${component}-$(params.RELEASE_NAME)"
+
+          if helm list -n $(params.NAMESPACE) | grep -q "$RELEASE_NAME"; then
+            echo "Deleting Helm release: $RELEASE_NAME"
+            helm uninstall "$RELEASE_NAME" -n $(params.NAMESPACE)
+
+            if [ "$(params.WAIT_FOR_DELETION)" = "true" ]; then
+              echo "Waiting for $RELEASE_NAME to be fully deleted..."
+
+              START_TIME=$(date +%s)
+              END_TIME=$((START_TIME + $(params.TIMEOUT_SECONDS)))
+
+              while helm list -n $(params.NAMESPACE) | grep -q "$RELEASE_NAME"; do
+                CURRENT_TIME=$(date +%s)
+                if [ $CURRENT_TIME -ge $END_TIME ]; then
+                  echo "WARNING: Timeout waiting for $RELEASE_NAME deletion"
+                  break
+                fi
+                sleep 5
+              done
+
+              echo "✓ $RELEASE_NAME deleted"
+            fi
+          else
+            echo "ℹ Release $RELEASE_NAME not found, skipping"
+          fi
+          echo ""
+        done
+
+        echo ""
+        echo "✓ Cleanup complete!"
+        echo ""
+        echo "Note: Model files remain on the models-storage PVC and can be reused."

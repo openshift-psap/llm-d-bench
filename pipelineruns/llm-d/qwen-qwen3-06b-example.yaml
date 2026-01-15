@@ -1,0 +1,147 @@
+# This file contains the example definition of a GuideLLM pipelinerun for llm-d.
+# Parameters are marked if they are required, match default or not.
+# Use this pipelinerun as an example to create new llm-d pipelineruns.
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: qwen-qwen3-06b-example-
+  labels:
+    app: llm-d-bench
+    pipeline: llm-d-end-to-end-benchmark
+    experiment: qwen-qwen3-06b-example
+    deployment-mode: llm-d
+spec:
+  pipelineRef:
+    name: llm-d-end-to-end-benchmark
+
+  # Use service account with permissions for deployments
+  taskRunTemplate:
+    serviceAccountName: deploy-model-sa
+    podTemplate:
+      labels:
+        # Kueue integration for GPU quota management
+        kueue.x-k8s.io/queue-name: psap-releases-queue
+        kueue.x-k8s.io/priority-class: psap-releases
+
+  # Automatically clean up completed PipelineRun after 1 hour
+  ttlSecondsAfterFinished: 3600
+
+  params:
+    # ===========================================
+    # Model Configuration
+    # ===========================================
+    - name: MODEL_NAME
+      value: "Qwen/Qwen3-0.6B"  # Required - no default
+    - name: MODEL_REVISION
+      value: "main"  # DEFAULT
+
+    # ===========================================
+    # Deployment Configuration (llm-d-specific)
+    # ===========================================
+    - name: RELEASE_NAME
+      value: "qwen-06b-example"  # Required - no default
+    - name: NAMESPACE
+      value: "llm-d-bench"  # Required - no default
+    - name: GATEWAY_PROVIDER
+      value: "istio"  # DEFAULT
+    - name: MODEL_REPLICAS
+      value: "1"  # DEFAULT
+    - name: TP
+      value: "1"  # DEFAULT
+    - name: HF_TOKEN_SECRET
+      value: "huggingface-token"  # DEFAULT
+    - name: VLLM_ARGS
+      value:  # DEFAULT: []
+        - "--max-model-len=8192"
+        - "--gpu-memory-utilization=0.95"
+    - name: LLM_D_REPO_URL
+      value: "https://github.com/llm-d/llm-d.git"  # DEFAULT
+    - name: LLM_D_REPO_REF
+      value: "v0.4.0"  # DEFAULT: "main"
+
+    # ===========================================
+    # Benchmark Configuration
+    # ===========================================
+    - name: IMAGE
+      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"  # DEFAULT
+    - name: TARGET
+      value: "https://qwen-06b-example-gateway.llm-d-bench.svc.cluster.local:8000"  # Required - no default
+    - name: PROCESSOR
+      value: "Qwen/Qwen3-0.6B"  # DEFAULT: "" (empty)
+    - name: BACKEND_TYPE
+      value: "openai_http"  # DEFAULT
+    - name: RATE_TYPE
+      value: "concurrent"  # DEFAULT
+    - name: RATE
+      value: "1"  # DEFAULT: "1,50,100"
+    - name: DATA
+      value: "prompt_tokens=1000,output_tokens=1000"  # DEFAULT
+    - name: MAX_SECONDS
+      value: "60"  # DEFAULT: "600"
+    - name: MAX_REQUESTS
+      value: ""  # DEFAULT
+
+    - name: ACCELERATOR
+      value: "H200"  # DEFAULT: "" (empty)
+    - name: EXPERIMENT_NAME
+      value: "qwen-qwen3-06b"  # DEFAULT: "guidellm-benchmarks-llm-d"
+    - name: VERSION
+      value: "llm-d-upstream"  # DEFAULT: "" (empty)
+    - name: BENCHMARK_ENV_VARS
+      value: []  # DEFAULT
+
+    # ===========================================
+    # MLflow Configuration
+    # ===========================================
+    - name: MLFLOW_ENABLED
+      value: "true"  # DEFAULT: "false"
+
+    - name: TAGS
+      value:  # DEFAULT: []
+        - "deployment=llm-d"
+        - "gateway=istio"
+
+    # ===========================================
+    # Health Check Configuration
+    # ===========================================
+    - name: HEALTH_CHECK_TIMEOUT
+      value: "3600"  # DEFAULT
+
+    # ===========================================
+    # Stage Control
+    # ===========================================
+    - name: SKIP_DOWNLOAD
+      value: "false"  # DEFAULT
+    - name: SKIP_DEPLOY
+      value: "false"  # DEFAULT
+    - name: SKIP_BENCHMARK
+      value: "false"  # DEFAULT
+    - name: SKIP_CLEANUP
+      value: "false"  # DEFAULT
+
+  # ===========================================
+  # Timeouts
+  # ===========================================
+  timeouts:
+    pipeline: "2h"
+    tasks: "2h"
+
+  # ===========================================
+  # Workspaces
+  # ===========================================
+  workspaces:
+    - name: models-storage
+      persistentVolumeClaim:
+        claimName: models-storage
+
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+
+    - name: results
+      emptyDir: {}

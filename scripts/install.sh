@@ -2,18 +2,22 @@
 #
 # install.sh - Install all Tekton resources for llm-d-bench
 #
-# This script installs Tasks, Pipelines, and optionally PVCs in the specified namespace.
+# This script installs Tasks, Pipelines, and optionally infrastructure components
+# and PVCs in the specified namespace.
 #
 # Usage:
-#   ./scripts/install.sh                    # Install in default namespace
-#   ./scripts/install.sh -n my-namespace    # Install in specific namespace
+#   ./scripts/install.sh                              # Install in default namespace
+#   ./scripts/install.sh -n my-namespace              # Install in specific namespace
 #   ./scripts/install.sh -n my-namespace --with-pvcs  # Also create PVCs
+#   ./scripts/install.sh --with-infra                 # Install infrastructure (Kueue, etc.)
+#   ./scripts/install.sh -n my-namespace --with-infra --with-pvcs  # Full installation
 #
 
 set -e
 
 NAMESPACE=""
 CREATE_PVCS=false
+INSTALL_INFRA=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -25,12 +29,17 @@ while [[ $# -gt 0 ]]; do
             CREATE_PVCS=true
             shift
             ;;
+        --with-infra|--with-infrastructure)
+            INSTALL_INFRA=true
+            shift
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
             echo "Options:"
             echo "  -n, --namespace NAMESPACE   Install in specified namespace"
             echo "  --with-pvcs                 Also create PersistentVolumeClaims"
+            echo "  --with-infra                Install infrastructure components (Kueue, etc.)"
             echo "  -h, --help                  Show this help message"
             exit 0
             ;;
@@ -53,17 +62,19 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
-echo "LLM-D-Tekton Installation"
+echo "llm-d-bench Installation"
 echo "Project root: $PROJECT_ROOT"
 echo "Namespace: $NAMESPACE"
 echo "Create PVCs: $CREATE_PVCS"
+echo "Install Infrastructure: $INSTALL_INFRA"
 echo ""
 
 echo "Installing RBAC resources..."
 for rbac in "$PROJECT_ROOT"/config/rbac/*.yaml; do
     if [ -f "$rbac" ]; then
         echo "  - $(basename "$rbac")"
-        oc apply -f "$rbac" $NS_FLAG
+        # Replace namespace in ClusterRoleBinding to match target namespace
+        sed "s/namespace: llm-d-bench/namespace: $NAMESPACE/g" "$rbac" | oc apply $NS_FLAG -f -
     fi
 done
 echo "✓ RBAC resources installed"
@@ -111,6 +122,60 @@ done
 echo "✓ Pipelines installed"
 echo ""
 
+if [ "$INSTALL_INFRA" = true ]; then
+    echo "Installing Infrastructure components..."
+    echo ""
+
+    # Check if kustomize is available
+    if ! command -v kustomize &> /dev/null; then
+        echo "Warning: kustomize not found. Using 'oc apply -k' instead."
+        KUSTOMIZE_CMD="oc apply -k"
+    else
+        KUSTOMIZE_CMD="kustomize build"
+    fi
+
+    # Deploy infrastructure using kustomize
+    if [ -d "$PROJECT_ROOT/infra" ]; then
+        echo "  Installing Kueue and other infrastructure components..."
+
+        if [ "$KUSTOMIZE_CMD" = "kustomize build" ]; then
+            kustomize build "$PROJECT_ROOT/infra" | oc apply -f -
+        else
+            oc apply -k "$PROJECT_ROOT/infra"
+        fi
+
+        echo ""
+        echo "  Waiting for Kueue to be ready..."
+        # Wait for Kueue deployment to be ready (with timeout)
+        if oc wait --for=condition=available --timeout=120s deployment/kueue-controller-manager -n kueue-system 2>/dev/null; then
+            echo "  ✓ Kueue controller is ready"
+        else
+            echo "  ⚠ Kueue controller may still be starting (timeout waiting for ready state)"
+            echo "    Check status with: oc get pods -n kueue-system"
+        fi
+
+        echo ""
+        echo "  Verifying infrastructure components:"
+        echo "    ClusterQueues:"
+        oc get clusterqueue 2>/dev/null | grep -E 'NAME|benchmark-cluster-queue' || echo "      No ClusterQueues found"
+        echo ""
+        echo "    LocalQueues in $NAMESPACE:"
+        oc get localqueue $NS_FLAG 2>/dev/null | grep -E 'NAME|psap' || echo "      No LocalQueues found"
+        echo ""
+        echo "    WorkloadPriorityClasses:"
+        oc get workloadpriorityclass 2>/dev/null | grep -E 'NAME|psap' || echo "      No WorkloadPriorityClasses found"
+        echo ""
+
+    else
+        echo "  Warning: infra/ directory not found. Skipping infrastructure installation."
+    fi
+
+    echo "✓ Infrastructure components installed"
+    echo ""
+    echo "  For more information on Kueue configuration, see docs/kueue.md"
+    echo ""
+fi
+
 if [ "$CREATE_PVCS" = true ]; then
     echo "Creating PersistentVolumeClaims..."
     for pvc in "$PROJECT_ROOT"/config/workspaces/*.yaml; do
@@ -136,10 +201,10 @@ echo "ServiceAccounts:"
 oc get serviceaccount $NS_FLAG | grep -E 'NAME|deploy-model' || true
 echo ""
 echo "Tasks:"
-oc get tasks $NS_FLAG | grep -E 'NAME|buildah-build|wait-for-endpoint|run-benchmark|download-model|deploy-model|cleanup-deployment|deploy-helmfile|cleanup-upstream|git-clone' || true
+oc get tasks $NS_FLAG | grep -E 'NAME|guidellm|wait-for-endpoint|download-model|deploy-llm-d|cleanup-llm-d|deploy-rhoai|cleanup-rhoai|deploy-rhaiis|cleanup-rhaiis' || true
 echo ""
 echo "Pipelines:"
-oc get pipelines.tekton.dev $NS_FLAG | grep -E 'NAME|build-image|run-benchmark|downstream-end-to-end-benchmark|upstream-end-to-end-benchmark' || true
+oc get pipelines.tekton.dev $NS_FLAG | grep -E 'NAME|guidellm|llm-d-end-to-end|rhoai-end-to-end|rhaiis-end-to-end' || true
 echo ""
 
 if [ "$CREATE_PVCS" = true ]; then

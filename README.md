@@ -1,10 +1,8 @@
 # llm-d-bench
 
-Tekton pipelines for running llm-d inference benchmarks using GuideLLM.
+Tekton pipelines for running LLM inference benchmarks with multiple deployment modes and benchmark tools.
 
-> This might work with any other LLM endpoint but has only been tested with `llm-d` endpoints.
-
-> **Note:** Upstream deployment (using the official llm-d repository with Helmfile) is experimental and may require additional manual configuration.
+> **Note:** llm-d deployment mode (using the official llm-d repository with Helmfile) is experimental and may require additional manual configuration.
 
 For advanced documentation see [docs/ADVANCED.md](docs/ADVANCED.md).
 
@@ -26,17 +24,27 @@ oc apply -f https://storage.googleapis.com/tekton-releases/pipeline/latest/relea
 oc get pods -n tekton-pipelines
 ```
 
-### 0. Set Namespace
+### 0. Create and Set Namespace
 
 ```bash
-export NAMESPACE=downstream-llm-d
+export NAMESPACE=llm-d-bench
+oc create namespace $NAMESPACE
 ```
 
 ### 1. Install Tekton Resources
 
 ```bash
+# Basic installation (Tasks and Pipelines only)
 ./scripts/install.sh -n $NAMESPACE
+
+# With infrastructure components (Kueue for GPU quota management)
+./scripts/install.sh -n $NAMESPACE --with-infra
+
+# Full installation (with infrastructure and PVCs)
+./scripts/install.sh -n $NAMESPACE --with-infra --with-pvcs
 ```
+
+> **Note**: The `--with-infra` flag installs Kueue for PipelineRun queue management and GPU quota enforcement. See [docs/kueue.md](docs/kueue.md) for more information on Kueue configuration.
 
 ### 2. Create Secrets
 
@@ -70,18 +78,27 @@ See [config/secrets/](config/secrets/) for YAML templates.
 ### 3. Build Custom Image
 
 ```bash
-oc create -f pipelineruns/build-image-run.yaml -n $NAMESPACE
+# GuideLLM (default)
+oc create -f pipelineruns/benchmark/guidellm/build-image-run.yaml -n $NAMESPACE
+
+# Or MLPerf (requires dataset upload - see step 4 note below)
+oc create -f pipelineruns/benchmark/mlperf/build-image-run.yaml -n $NAMESPACE
 ```
 
 ### 4. Run Benchmark
 
 ```bash
-# Use a pre-configured experiment
-oc create -f pipelineruns/meta-llama-3.1-8b-1k-1k.yaml -n $NAMESPACE
+# GuideLLM example (RHOAI mode)
+oc create -f pipelineruns/rhoai/qwen-qwen3-06b-example.yaml -n $NAMESPACE
+
+# MLPerf example (llm-d mode, end-to-end)
+oc create -f pipelineruns/llm-d/meta-llama-3.1-8b-mlperf.yaml -n $NAMESPACE
 
 # Watch logs
 tkn pipelinerun logs -f -n $NAMESPACE
 ```
+
+> **Note:** For MLPerf benchmarks, datasets must be manually uploaded to the `models-storage` PVC at `/datasets/` before running. The pipeline does not download datasets automatically. See [docs/ADVANCED.md](docs/ADVANCED.md#mlperf-benchmark-tool) for step-by-step dataset upload instructions.
 
 ### Install Tekton CLI (Recommended)
 
@@ -125,29 +142,55 @@ In order to deploy it, create the necessary secrets within `infra/manifests/{mlf
 
 Other manifests for deploying RHOAI and configuring Distributed Inference can be found inside `infra/{rhoai,rhcl}` too.
 
+The repo architecture is designed for extensibility. To add new benchmark tools, see [docs/ADVANCED.md](docs/ADVANCED.md#adding-new-benchmark-tools).
+
 ## Pipelines
+
+### Deployment Mode Pipelines
 
 | Pipeline | Purpose | Tasks |
 |----------|---------|-------|
-| `build-image` | Build custom GuideLLM image | git-clone → buildah-build |
-| `run-benchmark` | Run benchmark | wait-for-endpoint → run-benchmark |
+| `llm-d-end-to-end-benchmark` | Full lifecycle with llm-d deployment (GuideLLM) | download → deploy-helmfile → wait → benchmark → cleanup |
+| `llm-d-end-to-end-benchmark-mlperf` | Full lifecycle with llm-d deployment (MLPerf) | download → deploy-helmfile → wait → benchmark → cleanup |
+| `rhoai-end-to-end-benchmark` | Full lifecycle with RHOAI deployment (GuideLLM) | download → deploy-rhoai → wait → benchmark → cleanup |
+| `rhaiis-end-to-end-benchmark` | Full lifecycle with RHAIIS Pod deployment (GuideLLM) | download → deploy-rhaiis → wait → benchmark → cleanup |
+
+### Benchmark Pipelines
+
+| Pipeline | Purpose | Tasks |
+|----------|---------|-------|
+| `guidellm-build-image` | Build custom GuideLLM image | git-clone → buildah-build |
+| `guidellm-run-benchmark-pipeline` | Run benchmark only | wait-for-endpoint → run-benchmark |
+| `mlperf-build-image` | Build custom MLPerf image | git-clone → buildah-build |
+| `mlperf-run-benchmark-pipeline` | Run MLPerf benchmark only | wait-for-endpoint → run-benchmark |
+
+## Benchmark Tools
+
+llm-d-bench supports two benchmark tools:
+
+- **GuideLLM** (default): Load testing with concurrency control and detailed metrics
+- **MLPerf**: Standardized benchmark with Offline, Server, and other scenarios
+  - **Requires manual dataset upload**: MLPerf datasets must be uploaded to the `models-storage` PVC before running benchmarks
+
+To switch between tools, use different benchmark images and pipelines. See [docs/ADVANCED.md](docs/ADVANCED.md#mlperf-benchmark-tool) for details.
 
 ## Custom Benchmarks
 
 Copy an experiment and edit parameters:
 
 ```bash
-cp pipelineruns/meta-llama-3.1-8b-1k-1k.yaml pipelineruns/my-benchmark.yaml
-vi pipelineruns/my-benchmark.yaml  # Edit TARGET, MODEL, RATE, etc.
-oc create -f pipelineruns/my-benchmark.yaml -n $NAMESPACE
+# Choose a deployment mode (rhoai, llm-d, or rhaiis)
+cp pipelineruns/rhoai/qwen-qwen3-06b-example.yaml pipelineruns/rhoai/my-benchmark.yaml
+vim pipelineruns/rhoai/my-benchmark.yaml  # Edit TARGET, MODEL, RATE, etc.
+oc create -f pipelineruns/rhoai/my-benchmark.yaml -n $NAMESPACE
 ```
 
-Or use `tkn` CLI:
+Or use `tkn` CLI for standalone benchmark (no deployment):
 
 ```bash
-tkn pipeline start run-benchmark \
+tkn pipeline start guidellm-run-benchmark-pipeline \
   -p TARGET=https://my-model.example.com \
-  -p MODEL=meta-llama/Llama-3.1-8B \
+  -p MODEL=Qwen/Qwen3-0.6B \
   -p RATE="1,50,100" \
   -n $NAMESPACE \
   --showlog

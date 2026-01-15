@@ -1,0 +1,83 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: cleanup-rhaiis-deployment
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "Cleanup RHAIIS InferenceService Deployment"
+    tekton.dev/tags: cleanup, kserve, rhaiis, inferenceservice
+    tekton.dev/platforms: "linux/amd64"
+spec:
+  description: >-
+    Cleanup RHAIIS InferenceService deployment by deleting the KServe InferenceService resource.
+    KServe automatically cleans up associated Pod, Service, and Route resources.
+
+  params:
+    - name: MODEL_NAME
+      description: HuggingFace model identifier (used to derive deployment name)
+      type: string
+
+    - name: NAMESPACE
+      description: Namespace where resources are deployed
+      type: string
+
+    - name: WAIT_FOR_DELETION
+      description: Wait for resources to be fully deleted
+      type: string
+      default: "true"
+
+    - name: SKIP_IF_NOT_EXISTS
+      description: Skip if resources don't exist (no error)
+      type: string
+      default: "true"
+
+  steps:
+    - name: cleanup
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        # Generate deployment name using same logic as deploy task
+        DEPLOYMENT_NAME=$(echo "$(params.MODEL_NAME)" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-42)
+
+        echo "Cleaning up RHAIIS deployment"
+        echo "  InferenceService: $DEPLOYMENT_NAME"
+        echo "  Namespace: $(params.NAMESPACE)"
+        echo ""
+
+        # Check if InferenceService exists
+        ISVC_EXISTS=false
+        if oc get inferenceservice "$DEPLOYMENT_NAME" -n "$(params.NAMESPACE)" &>/dev/null; then
+          ISVC_EXISTS=true
+        fi
+
+        # Exit early if nothing exists and SKIP_IF_NOT_EXISTS is true
+        if [ "$(params.SKIP_IF_NOT_EXISTS)" = "true" ] && [ "$ISVC_EXISTS" = "false" ]; then
+          echo "✓ InferenceService not found - nothing to clean up"
+          exit 0
+        fi
+
+        # Delete InferenceService (KServe automatically cleans up Pod, Service, Route)
+        if [ "$ISVC_EXISTS" = "true" ]; then
+          echo "Deleting InferenceService $DEPLOYMENT_NAME..."
+          echo "  (KServe will automatically clean up Pod, Service, and Route)"
+
+          if [ "$(params.WAIT_FOR_DELETION)" = "true" ]; then
+            oc delete inferenceservice "$DEPLOYMENT_NAME" -n "$(params.NAMESPACE)" --timeout=300s
+            echo "✓ InferenceService deleted (waited for completion)"
+          else
+            oc delete inferenceservice "$DEPLOYMENT_NAME" -n "$(params.NAMESPACE)" --ignore-not-found=true
+            echo "✓ InferenceService deletion initiated"
+          fi
+        else
+          echo "InferenceService $DEPLOYMENT_NAME not found"
+          if [ "$(params.SKIP_IF_NOT_EXISTS)" = "false" ]; then
+            exit 1
+          fi
+        fi
+
+        echo ""
+        echo "✓ Cleanup complete!"
+        echo "  InferenceService '$DEPLOYMENT_NAME' and all associated resources removed"

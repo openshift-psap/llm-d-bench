@@ -1,0 +1,36 @@
+FROM quay.io/rh-ee-nmiriyal/mlperf-6.0@sha256:0751ec3f84a84a3ccc61cfd793898f5009f1f0aeca6342efc9095789bc314232
+# FROM python:3.11-slim
+
+# RUN apt-get update && apt-get install -y \
+#     git \
+#     cmake \
+#     build-essential \
+#     && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Set PYTHONPATH so benchmark module can be found from any working directory
+ENV PYTHONPATH=/app:$PYTHONPATH
+
+# Create writable HuggingFace cache directory
+USER root
+RUN mkdir -p /tmp/.huggingface && chmod -R 777 /tmp/.huggingface
+
+# RUN git clone https://github.com/mlcommons/inference.git mlperf_inference && \
+#     cd mlperf_inference && \
+#     mkdir -p loadgen/build && \
+#     cd loadgen/build && \
+#     cmake .. && \
+#     cmake --build . && \
+#     cp libmlperf_loadgen.a .. && \
+#     cd /app/mlperf_inference/loadgen && \
+#     CFLAGS="-std=c++14 -O3" python -m pip install .
+
+# RUN git clone https://github.com/openshift-psap/mlperf-inference-6.0-redhat /app/mlperf-harness
+
+RUN pip install --no-cache-dir mlflow --ignore-installed blinker
+
+COPY src/benchmark /app/benchmark
+
+ENTRYPOINT ["python3", "-m", "benchmark.main"]
+CMD ["--help"]
