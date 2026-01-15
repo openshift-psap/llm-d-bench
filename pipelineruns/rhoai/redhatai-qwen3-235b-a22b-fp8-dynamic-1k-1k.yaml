@@ -50,7 +50,7 @@ spec:
     - name: IMAGE
       value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
     - name: TARGET
-      value: "https://inference-gateway.apps.psap-llmd-h200.ibm-rh-ai.rhperfscale.org/downstream-llm-d/redhatai-qwen3-235b-a22b-fp8-dynamic"
+      value: "https://inference-gateway.apps.psap-llmd-h200.ibm-rh-ai.rhperfscale.org/llm-d-bench/redhatai-qwen3-235b-a22b-fp8-dynamic"
     - name: PROCESSOR
       value: "RedHatAI/Qwen3-235B-A22B-FP8-dynamic"
     - name: BACKEND_TYPE

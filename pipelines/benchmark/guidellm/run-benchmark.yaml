@@ -18,7 +18,7 @@ spec:
     - name: IMAGE
       description: |
         Full URL of the GuideLLM custom image.
-        The namespace portion (/llm-d/) should match the namespace where the image was built.
+        The namespace portion (/llm-d-bench/) should match the namespace where the image was built.
         If building in a different namespace, override this parameter accordingly.
         Example: image-registry.openshift-image-registry.svc:5000/<your-namespace>/guidellm-custom:latest
       type: string

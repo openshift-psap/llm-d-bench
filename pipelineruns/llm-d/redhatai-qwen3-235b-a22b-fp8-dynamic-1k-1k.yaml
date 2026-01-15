@@ -53,9 +53,9 @@ spec:
 
     # Benchmark Configuration
     - name: IMAGE
-      value: "image-registry.openshift-image-registry.svc:5000/downstream-llm-d/guidellm-custom:latest"
+      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
     - name: TARGET
-      value: "http://infra-qwen3-235b-a22b-fp8-inference-gateway-istio.downstream-llm-d.svc.cluster.local:80"
+      value: "http://infra-qwen3-235b-a22b-fp8-inference-gateway-istio.llm-d-bench.svc.cluster.local:80"
     - name: PROCESSOR
       value: "RedHatAI/Qwen3-235B-A22B-FP8-dynamic"
     - name: BACKEND_TYPE

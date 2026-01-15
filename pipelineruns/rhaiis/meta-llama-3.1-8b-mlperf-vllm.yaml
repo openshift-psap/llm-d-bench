@@ -39,7 +39,7 @@ spec:
     # Deployment Configuration (RHAIIS-specific)
     # ===========================================
     - name: NAMESPACE
-      value: "llm-d"  # Required - no default
+      value: "llm-d-bench"  # Required - no default
     - name: VLLM_ARGS
       value:  # DEFAULT: []
         - "--max-model-len=131072"
@@ -64,7 +64,7 @@ spec:
     - name: IMAGE
       value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/mlperf-custom:latest"
     - name: TARGET
-      value: "https://redhatai-meta-llama-31-8b-instruct-fp8.llm-d.apps.psap-llmd-h200.ibm-rh-ai.rhperfscale.org"  # Required - no default
+      value: "http://vllm-llama-8b-fp8.llm-d-bench.svc.cluster.local:8000"  # Required - no default
 
     # ===========================================
     # MLPerf-specific parameters

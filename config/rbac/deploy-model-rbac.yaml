@@ -438,7 +438,7 @@ metadata:
 subjects:
   - kind: ServiceAccount
     name: deploy-model-sa
-    namespace: llm-d
+    namespace: llm-d-bench
 roleRef:
   kind: ClusterRole
   name: deploy-model-cluster-role
