@@ -101,7 +101,8 @@ def main():
 
     cmd = [
         "python3",
-        "/app/mlperf-harness/harness/harness_main.py",
+        "/vllm-workspace/mlperf-inference-6.0-redhat/harness/harness_main.py",
+        # "/app/mlperf-harness/harness/harness_main.py",
         "--model-category",
         model_category,
         "--model",
