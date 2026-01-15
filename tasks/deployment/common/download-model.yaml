@@ -70,8 +70,9 @@ spec:
         fi
 
         echo "Installing Hugging Face CLI..."
-        curl -LsSf https://hf.co/cli/install.sh | bash
-        export PATH="/opt/app-root/src/.local/bin:$PATH"
+        export HOME=/tmp
+        pip install -q -U --user huggingface_hub
+        export PATH="$HOME/.local/bin:$PATH"
         echo "✓ HF CLI installed"
         echo ""
 
