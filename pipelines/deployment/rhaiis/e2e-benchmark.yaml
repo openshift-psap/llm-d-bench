@@ -315,7 +315,6 @@ spec:
     - name: cleanup-rhaiis
       runAfter:
         - run-guidellm-benchmark
-        - run-mlperf-benchmark
       when:
         - input: "$(params.SKIP_CLEANUP)"
           operator: in
