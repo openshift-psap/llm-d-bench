@@ -6,7 +6,7 @@ metadata:
     app.kubernetes.io/version: "0.1"
   annotations:
     tekton.dev/displayName: "RHAIIS End-to-End Benchmark"
-    tekton.dev/tags: benchmark, llm, lifecycle, rhaiis, kserve
+    tekton.dev/tags: benchmark, llm, lifecycle, rhaiis
 spec:
   description: >-
     Complete model lifecycle pipeline: download model from HuggingFace, deploy
@@ -63,10 +63,6 @@ spec:
         Example: image-registry.openshift-image-registry.svc:5000/<your-namespace>/guidellm-custom:latest
       type: string
       default: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
-
-    - name: TARGET
-      description: Target inference endpoint URL
-      type: string
 
     - name: PROCESSOR
       description: Tokenizer/processor model name (optional)
@@ -138,42 +134,6 @@ spec:
       type: array
       default: []
 
-    # MLPerf-specific Benchmark Parameters (only used when IMAGE contains 'mlperf')
-    - name: DATASET_NAME
-      description: Dataset filename for MLPerf (e.g., "cnn_eval.json"). Only used if IMAGE contains 'mlperf'.
-      type: string
-      default: "cnn_eval.json"
-
-    - name: SCENARIO
-      description: MLPerf scenario (Offline, Server, SingleStream, MultiStream). Only used for MLPerf.
-      type: string
-      default: "Offline"
-
-    - name: TEST_MODE
-      description: MLPerf test mode (accuracy or performance). Only used for MLPerf.
-      type: string
-      default: "accuracy"
-
-    - name: BATCH_SIZE
-      description: Batch size for MLPerf. Only used for MLPerf.
-      type: string
-      default: ""
-
-    - name: NUM_SAMPLES
-      description: Number of samples for MLPerf. Only used for MLPerf.
-      type: string
-      default: "4388"
-
-    - name: OUTPUT_DIR
-      description: Output directory for MLPerf results. Only used for MLPerf.
-      type: string
-      default: "./test-run"
-
-    - name: SERVER_TARGET_QPS
-      description: Target QPS for MLPerf Server scenario. Only used for MLPerf.
-      type: string
-      default: "10"
-
     # Health Check Configuration
     - name: HEALTH_CHECK_TIMEOUT
       description: Endpoint health check timeout in seconds
@@ -229,8 +189,8 @@ spec:
         - name: models-storage
           workspace: models-storage
 
-    # Stage 2: Deploy Model
-    - name: deploy-rhaiis-model
+    # Stage 2: Deploy Model with KServe
+    - name: deploy-rhaiis
       runAfter:
         - download-model
       when:
@@ -238,7 +198,7 @@ spec:
           operator: in
           values: ["false"]
       taskRef:
-        name: deploy-rhaiis-model
+        name: deploy-rhaiis
       params:
         - name: MODEL_NAME
           value: $(params.MODEL_NAME)
@@ -265,7 +225,7 @@ spec:
     # Stage 3: Wait for Endpoint
     - name: wait-for-endpoint
       runAfter:
-        - deploy-rhaiis-model
+        - deploy-rhaiis
       when:
         - input: "$(params.SKIP_BENCHMARK)"
           operator: in
@@ -274,7 +234,7 @@ spec:
         name: wait-for-endpoint
       params:
         - name: TARGET_URL
-          value: $(params.TARGET)
+          value: $(tasks.deploy-rhaiis.results.ENDPOINT_URL)
         - name: ENDPOINT_PATH
           value: "/v1/models"
         - name: TIMEOUT_SECONDS
@@ -316,7 +276,7 @@ spec:
         - name: IMAGE
           value: $(params.IMAGE)
         - name: TARGET
-          value: $(params.TARGET)
+          value: $(tasks.deploy-rhaiis.results.ENDPOINT_URL)
         - name: MODEL
           value: $(params.MODEL_NAME)
         - name: PROCESSOR
@@ -351,77 +311,8 @@ spec:
         - name: results
           workspace: results
 
-    # Stage 4b: Run MLPerf Benchmark (if IMAGE contains "mlperf")
-    - name: run-mlperf-benchmark
-      runAfter:
-        - detect-benchmark-type
-      when:
-        - input: "$(params.SKIP_BENCHMARK)"
-          operator: in
-          values: ["false"]
-        - input: "$(tasks.detect-benchmark-type.results.BENCHMARK_TYPE)"
-          operator: in
-          values: ["mlperf"]
-      timeout: "2h"
-      taskRef:
-        name: run-mlperf-benchmark
-      params:
-        - name: IMAGE
-          value: $(params.IMAGE)
-        - name: TARGET
-          value: $(params.TARGET)
-        - name: MODEL
-          value: $(params.MODEL_NAME)
-        - name: ACCELERATOR
-          value: $(params.ACCELERATOR)
-        - name: EXPERIMENT_NAME
-          value: $(params.EXPERIMENT_NAME)
-        - name: MLFLOW_ENABLED
-          value: $(params.MLFLOW_ENABLED)
-        - name: TAGS
-          value: $(params.TAGS[*])
-        - name: VERSION
-          value: $(params.VERSION)
-        - name: TP
-          value: $(params.TP)
-        - name: BENCHMARK_ENV_VARS
-          value: $(params.BENCHMARK_ENV_VARS[*])
-        - name: DATASET_NAME
-          value: $(params.DATASET_NAME)
-        - name: SCENARIO
-          value: $(params.SCENARIO)
-        - name: TEST_MODE
-          value: $(params.TEST_MODE)
-        - name: BATCH_SIZE
-          value: $(params.BATCH_SIZE)
-        - name: NUM_SAMPLES
-          value: $(params.NUM_SAMPLES)
-        - name: OUTPUT_DIR
-          value: $(params.OUTPUT_DIR)
-        - name: SERVER_TARGET_QPS
-          value: $(params.SERVER_TARGET_QPS)
-        - name: RATE
-          value: $(params.RATE)
-        - name: DATA
-          value: $(params.DATA)
-        - name: PROCESSOR
-          value: $(params.PROCESSOR)
-        - name: MAX_SECONDS
-          value: $(params.MAX_SECONDS)
-        - name: MAX_REQUESTS
-          value: $(params.MAX_REQUESTS)
-        - name: BACKEND_TYPE
-          value: $(params.BACKEND_TYPE)
-        - name: RATE_TYPE
-          value: $(params.RATE_TYPE)
-      workspaces:
-        - name: models-storage
-          workspace: models-storage
-        - name: results
-          workspace: results
-
-    # Stage 5: Cleanup Deployment
-    - name: cleanup-rhaiis-deployment
+    # Stage 5: Cleanup KServe Deployment
+    - name: cleanup-rhaiis
       runAfter:
         - run-guidellm-benchmark
         - run-mlperf-benchmark
@@ -430,7 +321,7 @@ spec:
           operator: in
           values: ["false"]
       taskRef:
-        name: cleanup-rhaiis-deployment
+        name: cleanup-rhaiis
       params:
         - name: MODEL_NAME
           value: $(params.MODEL_NAME)

@@ -115,9 +115,7 @@ spec:
         echo "Image Digest: $(cat /tmp/image-digest)"
 
       securityContext:
-        capabilities:
-          add:
-            - SETFCAP
+        privileged: true
 
       volumeMounts:
         - name: varlibcontainers

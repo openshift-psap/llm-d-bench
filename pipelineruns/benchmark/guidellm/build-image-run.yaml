@@ -6,6 +6,7 @@ metadata:
     app: llm-d-bench
     pipeline: build-image
 spec:
+  serviceAccountName: pipeline-build-sa
   pipelineRef:
     name: guidellm-build-image
 
@@ -23,7 +24,7 @@ spec:
     - name: GIT_URL
       value: "https://github.com/openshift-psap/llm-d-bench.git"
     - name: GIT_REVISION
-      value: "main"
+      value: "refactor/modular-architecture"
     - name: IMAGE_NAME
       value: "guidellm-custom"
     - name: IMAGE_TAG
@@ -43,6 +44,7 @@ spec:
     - name: source
       volumeClaimTemplate:
         spec:
+          storageClassName: lvms-vg1
           accessModes:
             - ReadWriteOnce
           resources:
