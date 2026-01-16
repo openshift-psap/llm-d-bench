@@ -23,7 +23,7 @@ spec:
     - name: GIT_URL
       value: "https://github.com/openshift-psap/llm-d-bench.git"
     - name: GIT_REVISION
-      value: "refactor/modular-architecture"
+      value: "main"
     - name: IMAGE_NAME
       value: "guidellm-custom"
     - name: IMAGE_TAG
@@ -43,7 +43,6 @@ spec:
     - name: source
       volumeClaimTemplate:
         spec:
-          storageClassName: lvms-vg1
           accessModes:
             - ReadWriteOnce
           resources:

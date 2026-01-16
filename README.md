@@ -32,6 +32,21 @@ export NAMESPACE=llm-d-bench
 oc create namespace $NAMESPACE
 ```
 
+### 0.5. Configure Default Storage Class (Optional)
+
+If your cluster uses a specific storage class for all persistent volumes, you can annotate it as the default to avoid explicitly specifying `storageClassName` in PVC templates:
+
+```bash
+# Set lvms-vg1 as the default storage class (or your preferred storage class)
+oc patch storageclass lvms-vg1 -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+
+# Verify it's set as default
+oc get storageclass
+# Should show: lvms-vg1 (default)
+```
+
+This allows PVCs to automatically use the default storage class without explicit configuration.
+
 ### 1. Install Tekton Resources
 
 ```bash

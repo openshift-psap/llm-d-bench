@@ -17,7 +17,7 @@ The llm-d-bench pipelines build custom container images that need to be pushed t
 Run the setup script:
 
 ```bash
-cd /Users/memehta/workspace/llm-d-bench
+cd /Users/{username}/workspace/llm-d-bench
 ./scripts/setup-image-registry.sh
 ```
 
