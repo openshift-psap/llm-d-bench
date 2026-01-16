@@ -142,6 +142,9 @@ oc create -f pipelineruns/rhoai/qwen-qwen3-06b-example.yaml -n $NAMESPACE
 # MLPerf example (llm-d mode, end-to-end)
 oc create -f pipelineruns/llm-d/meta-llama-3.1-8b-mlperf.yaml -n $NAMESPACE
 
+# PD Disaggregation example (llm-d mode, large models 70B+)
+oc create -f pipelineruns/llm-d/meta-llama-3.1-70b-pd-disaggregation.yaml -n $NAMESPACE
+
 # Watch logs
 tkn pipelinerun logs -f -n $NAMESPACE
 ```
@@ -198,8 +201,7 @@ The repo architecture is designed for extensibility. To add new benchmark tools,
 
 | Pipeline | Purpose | Tasks |
 |----------|---------|-------|
-| `llm-d-end-to-end-benchmark` | Full lifecycle with llm-d deployment (GuideLLM) | download → deploy-helmfile → wait → benchmark → cleanup |
-| `llm-d-end-to-end-benchmark-mlperf` | Full lifecycle with llm-d deployment (MLPerf) | download → deploy-helmfile → wait → benchmark → cleanup |
+| `llm-d-end-to-end-benchmark` | Full lifecycle with llm-d deployment (GuideLLM or MLPerf)<br/>Supports both inference-scheduling and pd-disaggregation modes | download → deploy-helmfile/deploy-pd-disaggregation → wait → benchmark → cleanup |
 | `rhoai-end-to-end-benchmark` | Full lifecycle with RHOAI deployment (GuideLLM) | download → deploy-rhoai → wait → benchmark → cleanup |
 | `rhaiis-end-to-end-benchmark` | Full lifecycle with RHAIIS Pod deployment (GuideLLM) | download → deploy-rhaiis → wait → benchmark → cleanup |
 
