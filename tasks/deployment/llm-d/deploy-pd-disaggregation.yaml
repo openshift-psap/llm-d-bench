@@ -247,11 +247,11 @@ spec:
         echo "  Configuring PD handler: threshold=$(params.PD_THRESHOLD), hashBlockSize=$(params.HASH_BLOCK_SIZE)..."
 
         # Update pd-profile-handler parameters in the YAML string
-        /tmp/yq -i '(.inferenceExtension.pluginsCustomConfig."pd-config.yaml" | sub("threshold: [0-9]+", "threshold: $(params.PD_THRESHOLD)"))' $GAIE_VALUES_FILE
-        /tmp/yq -i '(.inferenceExtension.pluginsCustomConfig."pd-config.yaml" | sub("hashBlockSize: [0-9]+", "hashBlockSize: $(params.HASH_BLOCK_SIZE)"))' $GAIE_VALUES_FILE
+        /tmp/yq -i '.inferenceExtension.pluginsCustomConfig."pd-config.yaml" |= sub("threshold: [0-9]+", "threshold: $(params.PD_THRESHOLD)")' $GAIE_VALUES_FILE
+        /tmp/yq -i '.inferenceExtension.pluginsCustomConfig."pd-config.yaml" |= sub("hashBlockSize: [0-9]+", "hashBlockSize: $(params.HASH_BLOCK_SIZE)")' $GAIE_VALUES_FILE
 
         # Also update queue-scorer hashBlockSize
-        /tmp/yq -i '(.inferenceExtension.pluginsCustomConfig."pd-config.yaml" | sub("(- type: queue-scorer.*?hashBlockSize:) [0-9]+", "${1} $(params.HASH_BLOCK_SIZE)"))' $GAIE_VALUES_FILE
+        /tmp/yq -i '.inferenceExtension.pluginsCustomConfig."pd-config.yaml" |= sub("(- type: queue-scorer.*?hashBlockSize:) [0-9]+", "${1} $(params.HASH_BLOCK_SIZE)")' $GAIE_VALUES_FILE
 
         # Validate patched GAIE YAML
         if ! /tmp/yq eval '.' $GAIE_VALUES_FILE > /dev/null; then
