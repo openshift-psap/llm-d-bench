@@ -47,6 +47,26 @@ oc get storageclass
 
 This allows PVCs to automatically use the default storage class without explicit configuration.
 
+### 0.6. Choose PVC Access Mode (Temporary)
+
+> **Note:** This is a temporary solution. A more automated approach is planned for future releases.
+
+Before running the installation with `--with-pvcs`, choose the appropriate PVC access mode based on your deployment mode:
+
+**For RHAIIS deployments (single-pod):**
+```bash
+# Use ReadWriteOnce (RWO) for single-node access
+cp config/workspaces/models-storage-pvc-rwo.yaml config/workspaces/models-storage-pvc.yaml
+```
+
+**For RHOAI or llm-d deployments (multi-pod):**
+```bash
+# Use ReadWriteMany (RWX) for multi-node access
+cp config/workspaces/models-storage-pvc-rwx.yaml config/workspaces/models-storage-pvc.yaml
+```
+
+> **Important:** Your storage class must support the chosen access mode. Use `oc get storageclass` to check capabilities. Most storage classes like `lvms-vg1` support only ReadWriteOnce (RWO).
+
 ### 1. Install Tekton Resources
 
 ```bash

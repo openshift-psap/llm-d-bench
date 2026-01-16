@@ -7,14 +7,13 @@ metadata:
     type: workspace
 spec:
   accessModes:
-    - ReadWriteOnce
+    - ReadWriteOnce  # For RHAIIS single-pod deployments
   resources:
     requests:
       storage: 300Gi
-  # Note: Using ReadWriteOnce for single-node clusters or RWO-only storage classes
-  storageClassName: lvms-vg1
 ---
-# This PVC is used for storing downloaded LLM models
+# This PVC is used for RHAIIS deployments which use ReadWriteOnce (RWO)
+# RWO allows the volume to be mounted by a single node only
 #
 # Models will be stored in subdirectories by name.
 # The huggingface-cli automatically sanitizes model names (replaces '/' with '-')
