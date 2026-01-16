@@ -116,6 +116,9 @@ spec:
 
       securityContext:
         privileged: true
+        capabilities:
+          add:
+            - SETFCAP
 
       volumeMounts:
         - name: varlibcontainers
