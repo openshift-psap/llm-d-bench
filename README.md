@@ -241,7 +241,7 @@ Or use `tkn` CLI for standalone benchmark (no deployment):
 tkn pipeline start guidellm-run-benchmark-pipeline \
   -p TARGET=https://my-model.example.com \
   -p MODEL=Qwen/Qwen3-0.6B \
-  -p RATE="1,50,100" \
+  -p GUIDELLM_RATE="1,50,100" \
   -n $NAMESPACE \
   --showlog
 ```

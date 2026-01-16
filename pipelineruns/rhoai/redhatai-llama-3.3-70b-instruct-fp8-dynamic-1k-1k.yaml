@@ -50,19 +50,19 @@ spec:
       value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
     - name: TARGET
       value: "https://redhatai-llama-33-70b-instruct-fp8-dynamic-kserve-workload-svc.llm-d-bench.svc.cluster.local:8000"
-    - name: PROCESSOR
+    - name: GUIDELLM_PROCESSOR
       value: "RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic"
-    - name: BACKEND_TYPE
+    - name: GUIDELLM_BACKEND_TYPE
       value: "openai_http"
-    - name: RATE_TYPE
+    - name: GUIDELLM_RATE_TYPE
       value: "concurrent"
-    - name: RATE
+    - name: GUIDELLM_RATE
       value: "650,500,300,200,100,50,1"
-    - name: DATA
+    - name: GUIDELLM_DATA
       value: "prompt_tokens=1000,output_tokens=1000"
-    - name: MAX_SECONDS
+    - name: GUIDELLM_MAX_SECONDS
       value: "600"
-    - name: MAX_REQUESTS
+    - name: GUIDELLM_MAX_REQUESTS
       value: ""
     - name: ACCELERATOR
       value: "H200"

@@ -26,37 +26,38 @@ spec:
       description: Model name/identifier
       type: string
 
-    - name: PROCESSOR
-      description: Tokenizer/processor model name (optional)
+    - name: GUIDELLM_PROCESSOR
+      description: Tokenizer/processor model name (GuideLLM only, optional)
       type: string
       default: ""
 
-    - name: BACKEND_TYPE
-      description: Backend type for the inference server
+    - name: GUIDELLM_BACKEND_TYPE
+      description: Backend type for the inference server (GuideLLM only)
       type: string
       default: "openai_http"
 
-    - name: RATE_TYPE
-      description: Rate strategy (concurrent or synchronous)
+    - name: GUIDELLM_RATE_TYPE
+      description: Rate strategy - concurrent or synchronous (GuideLLM only)
       type: string
       default: "concurrent"
 
-    - name: RATE
-      description: Comma-separated list of rates to test (e.g., "1,50,100,200")
+    - name: GUIDELLM_RATE
+      description: Comma-separated list of rates to test (GuideLLM only, e.g., "1,50,100,200")
       type: string
+      default: "1,50,100"
 
-    - name: DATA
-      description: Request data profile (e.g., "prompt_tokens=1000,output_tokens=1000")
+    - name: GUIDELLM_DATA
+      description: Request data profile (GuideLLM only, e.g., "prompt_tokens=1000,output_tokens=1000")
       type: string
-      default: ""
+      default: "prompt_tokens=1000,output_tokens=1000"
 
-    - name: MAX_SECONDS
-      description: Maximum duration per rate in seconds
+    - name: GUIDELLM_MAX_SECONDS
+      description: Maximum duration per rate in seconds (GuideLLM only)
       type: string
       default: "600"
 
-    - name: MAX_REQUESTS
-      description: Maximum number of requests per rate (optional)
+    - name: GUIDELLM_MAX_REQUESTS
+      description: Maximum number of requests per rate (GuideLLM only, optional)
       type: string
       default: ""
 
@@ -207,15 +208,15 @@ spec:
         ARGS=(
           --target "$(params.TARGET)"
           --model "$(params.MODEL)"
-          --rate "$(params.RATE)"
-          --backend-type "$(params.BACKEND_TYPE)"
-          --rate-type "$(params.RATE_TYPE)"
+          --rate "$(params.GUIDELLM_RATE)"
+          --backend-type "$(params.GUIDELLM_BACKEND_TYPE)"
+          --rate-type "$(params.GUIDELLM_RATE_TYPE)"
         )
 
-        [ -n "$(params.PROCESSOR)" ] && ARGS+=(--processor "$(params.PROCESSOR)")
-        [ -n "$(params.DATA)" ] && ARGS+=(--data "$(params.DATA)")
-        [ -n "$(params.MAX_SECONDS)" ] && ARGS+=(--max-seconds "$(params.MAX_SECONDS)")
-        [ -n "$(params.MAX_REQUESTS)" ] && ARGS+=(--max-requests "$(params.MAX_REQUESTS)")
+        [ -n "$(params.GUIDELLM_PROCESSOR)" ] && ARGS+=(--processor "$(params.GUIDELLM_PROCESSOR)")
+        [ -n "$(params.GUIDELLM_DATA)" ] && ARGS+=(--data "$(params.GUIDELLM_DATA)")
+        [ -n "$(params.GUIDELLM_MAX_SECONDS)" ] && ARGS+=(--max-seconds "$(params.GUIDELLM_MAX_SECONDS)")
+        [ -n "$(params.GUIDELLM_MAX_REQUESTS)" ] && ARGS+=(--max-requests "$(params.GUIDELLM_MAX_REQUESTS)")
         [ -n "$(params.ACCELERATOR)" ] && ARGS+=(--accelerator "$(params.ACCELERATOR)")
         [ -n "$(params.VERSION)" ] && ARGS+=(--version "$(params.VERSION)")
         [ -n "$(params.TP)" ] && ARGS+=(--tp "$(params.TP)")

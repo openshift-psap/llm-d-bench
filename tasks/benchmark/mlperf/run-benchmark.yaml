@@ -63,76 +63,40 @@ spec:
       default: []
 
     # MLPerf-specific parameters
-    - name: DATASET_NAME
-      description: Dataset filename (e.g., "cnn_eval.json")
+    - name: MLPERF_DATASET_NAME
+      description: Dataset filename (MLPerf only, e.g., "cnn_eval.json")
       type: string
       default: "cnn_eval.json"
 
-    - name: SCENARIO
-      description: MLPerf scenario (Offline, Server, SingleStream, MultiStream)
+    - name: MLPERF_SCENARIO
+      description: MLPerf scenario - Offline, Server, SingleStream, MultiStream (MLPerf only)
       type: string
       default: "Offline"
 
-    - name: TEST_MODE
-      description: MLPerf test mode (accuracy or performance)
+    - name: MLPERF_TEST_MODE
+      description: MLPerf test mode - accuracy or performance (MLPerf only)
       type: string
       default: "accuracy"
 
-    - name: BATCH_SIZE
-      description: Batch size for inference
+    - name: MLPERF_BATCH_SIZE
+      description: Batch size for inference (MLPerf only, optional)
       type: string
       default: ""
 
-    - name: NUM_SAMPLES
-      description: Number of samples to process
+    - name: MLPERF_NUM_SAMPLES
+      description: Number of samples to process (MLPerf only)
       type: string
       default: "4388"
 
-    - name: OUTPUT_DIR
-      description: Output directory for results
+    - name: MLPERF_OUTPUT_DIR
+      description: Output directory for results (MLPerf only)
       type: string
       default: "./test-run"
 
-    - name: SERVER_TARGET_QPS
-      description: Target QPS for Server scenario
+    - name: MLPERF_SERVER_TARGET_QPS
+      description: Target QPS for Server scenario (MLPerf only)
       type: string
       default: "10"
-
-    # GuideLLM parameters (unused but may be passed by pipeline)
-    - name: RATE
-      description: Unused by MLPerf, required for pipeline compatibility
-      type: string
-      default: "1"
-
-    - name: DATA
-      description: Unused by MLPerf, required for pipeline compatibility
-      type: string
-      default: ""
-
-    - name: PROCESSOR
-      description: Unused by MLPerf, required for pipeline compatibility
-      type: string
-      default: ""
-
-    - name: MAX_SECONDS
-      description: Unused by MLPerf, required for pipeline compatibility
-      type: string
-      default: ""
-
-    - name: MAX_REQUESTS
-      description: Unused by MLPerf, required for pipeline compatibility
-      type: string
-      default: ""
-
-    - name: BACKEND_TYPE
-      description: Unused by MLPerf, required for pipeline compatibility
-      type: string
-      default: ""
-
-    - name: RATE_TYPE
-      description: Unused by MLPerf, required for pipeline compatibility
-      type: string
-      default: ""
 
     - name: LOG_LEVEL
       description: Logging level (DEBUG, INFO, WARNING, ERROR)
@@ -218,16 +182,16 @@ spec:
         done
 
         # Construct dataset path
-        DATASET_PATH="$(workspaces.models-storage.path)/datasets/$(params.DATASET_NAME)"
+        DATASET_PATH="$(workspaces.models-storage.path)/datasets/$(params.MLPERF_DATASET_NAME)"
 
         echo "MLPerf Benchmark Configuration"
         echo "==============================="
         echo "Target: $(params.TARGET)"
         echo "Model: $(params.MODEL)"
         echo "Dataset: $DATASET_PATH"
-        echo "Scenario: $(params.SCENARIO)"
-        echo "Test Mode: $(params.TEST_MODE)"
-        echo "Num Samples: $(params.NUM_SAMPLES)"
+        echo "Scenario: $(params.MLPERF_SCENARIO)"
+        echo "Test Mode: $(params.MLPERF_TEST_MODE)"
+        echo "Num Samples: $(params.MLPERF_NUM_SAMPLES)"
         echo ""
 
         # Verify dataset exists
@@ -249,16 +213,16 @@ spec:
           --target "$(params.TARGET)"
           --model "$(params.MODEL)"
           --dataset-path "$DATASET_PATH"
-          --dataset-name "$(params.DATASET_NAME)"
-          --scenario "$(params.SCENARIO)"
-          --test-mode "$(params.TEST_MODE)"
-          --num-samples "$(params.NUM_SAMPLES)"
-          --output-dir "$(params.OUTPUT_DIR)"
-          --server-target-qps "$(params.SERVER_TARGET_QPS)"
+          --dataset-name "$(params.MLPERF_DATASET_NAME)"
+          --scenario "$(params.MLPERF_SCENARIO)"
+          --test-mode "$(params.MLPERF_TEST_MODE)"
+          --num-samples "$(params.MLPERF_NUM_SAMPLES)"
+          --output-dir "$(params.MLPERF_OUTPUT_DIR)"
+          --server-target-qps "$(params.MLPERF_SERVER_TARGET_QPS)"
         )
 
         # Add optional parameters
-        [ -n "$(params.BATCH_SIZE)" ] && ARGS+=(--batch-size "$(params.BATCH_SIZE)")
+        [ -n "$(params.MLPERF_BATCH_SIZE)" ] && ARGS+=(--batch-size "$(params.MLPERF_BATCH_SIZE)")
 
         if [ "$(params.MLFLOW_ENABLED)" = "true" ]; then
           ARGS+=(--experiment-name "$(params.EXPERIMENT_NAME)")

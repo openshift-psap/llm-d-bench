@@ -126,38 +126,39 @@ spec:
       description: Target inference endpoint URL
       type: string
 
-    - name: PROCESSOR
-      description: Tokenizer/processor model name (optional)
+    # GuideLLM-specific Parameters (all optional)
+    - name: GUIDELLM_PROCESSOR
+      description: Tokenizer/processor model name (GuideLLM only, optional)
       type: string
       default: ""
 
-    - name: BACKEND_TYPE
-      description: Backend type for the inference server
+    - name: GUIDELLM_BACKEND_TYPE
+      description: Backend type for the inference server (GuideLLM only)
       type: string
-      default: "openai_http"
+      default: ""
 
-    - name: RATE_TYPE
-      description: Rate strategy (concurrent or synchronous)
+    - name: GUIDELLM_RATE_TYPE
+      description: Rate strategy - concurrent or synchronous (GuideLLM only)
       type: string
-      default: "concurrent"
+      default: ""
 
-    - name: RATE
-      description: Comma-separated list of rates to test
+    - name: GUIDELLM_RATE
+      description: Comma-separated list of rates to test (GuideLLM only)
       type: string
-      default: "1,50,100"
+      default: ""
 
-    - name: DATA
-      description: Request data profile
+    - name: GUIDELLM_DATA
+      description: Request data profile (GuideLLM only)
       type: string
-      default: "prompt_tokens=1000,output_tokens=1000"
+      default: ""
 
-    - name: MAX_SECONDS
-      description: Maximum duration per rate in seconds
+    - name: GUIDELLM_MAX_SECONDS
+      description: Maximum duration per rate in seconds (GuideLLM only)
       type: string
-      default: "600"
+      default: ""
 
-    - name: MAX_REQUESTS
-      description: Maximum number of requests per rate (optional)
+    - name: GUIDELLM_MAX_REQUESTS
+      description: Maximum number of requests per rate (GuideLLM only, optional)
       type: string
       default: ""
 
@@ -191,41 +192,41 @@ spec:
       type: array
       default: []
 
-    # MLPerf-specific Benchmark Parameters (only used when IMAGE contains 'mlperf')
-    - name: DATASET_NAME
-      description: Dataset filename for MLPerf (e.g., "cnn_eval.json"). Only used if IMAGE contains 'mlperf'.
-      type: string
-      default: "cnn_eval.json"
-
-    - name: SCENARIO
-      description: MLPerf scenario (Offline, Server, SingleStream, MultiStream). Only used for MLPerf.
-      type: string
-      default: "Offline"
-
-    - name: TEST_MODE
-      description: MLPerf test mode (accuracy or performance). Only used for MLPerf.
-      type: string
-      default: "accuracy"
-
-    - name: BATCH_SIZE
-      description: Batch size for MLPerf. Only used for MLPerf.
+    # MLPerf-specific Parameters (all optional)
+    - name: MLPERF_DATASET_NAME
+      description: Dataset filename (MLPerf only, e.g., "cnn_eval.json")
       type: string
       default: ""
 
-    - name: NUM_SAMPLES
-      description: Number of samples for MLPerf. Only used for MLPerf.
+    - name: MLPERF_SCENARIO
+      description: MLPerf scenario - Offline, Server, SingleStream, MultiStream (MLPerf only)
       type: string
-      default: "4388"
+      default: ""
 
-    - name: OUTPUT_DIR
-      description: Output directory for MLPerf results. Only used for MLPerf.
+    - name: MLPERF_TEST_MODE
+      description: MLPerf test mode - accuracy or performance (MLPerf only)
       type: string
-      default: "./test-run"
+      default: ""
 
-    - name: SERVER_TARGET_QPS
-      description: Target QPS for MLPerf Server scenario. Only used for MLPerf.
+    - name: MLPERF_BATCH_SIZE
+      description: Batch size for inference (MLPerf only)
       type: string
-      default: "10"
+      default: ""
+
+    - name: MLPERF_NUM_SAMPLES
+      description: Number of samples to process (MLPerf only)
+      type: string
+      default: ""
+
+    - name: MLPERF_OUTPUT_DIR
+      description: Output directory for results (MLPerf only)
+      type: string
+      default: ""
+
+    - name: MLPERF_SERVER_TARGET_QPS
+      description: Target QPS for Server scenario (MLPerf only)
+      type: string
+      default: ""
 
     # Health Check Configuration
     - name: HEALTH_CHECK_TIMEOUT
@@ -450,20 +451,20 @@ spec:
           value: $(params.TARGET)
         - name: MODEL
           value: $(params.MODEL_NAME)
-        - name: PROCESSOR
-          value: $(params.PROCESSOR)
-        - name: BACKEND_TYPE
-          value: $(params.BACKEND_TYPE)
-        - name: RATE_TYPE
-          value: $(params.RATE_TYPE)
-        - name: RATE
-          value: $(params.RATE)
-        - name: DATA
-          value: $(params.DATA)
-        - name: MAX_SECONDS
-          value: $(params.MAX_SECONDS)
-        - name: MAX_REQUESTS
-          value: $(params.MAX_REQUESTS)
+        - name: GUIDELLM_PROCESSOR
+          value: $(params.GUIDELLM_PROCESSOR)
+        - name: GUIDELLM_BACKEND_TYPE
+          value: $(params.GUIDELLM_BACKEND_TYPE)
+        - name: GUIDELLM_RATE_TYPE
+          value: $(params.GUIDELLM_RATE_TYPE)
+        - name: GUIDELLM_RATE
+          value: $(params.GUIDELLM_RATE)
+        - name: GUIDELLM_DATA
+          value: $(params.GUIDELLM_DATA)
+        - name: GUIDELLM_MAX_SECONDS
+          value: $(params.GUIDELLM_MAX_SECONDS)
+        - name: GUIDELLM_MAX_REQUESTS
+          value: $(params.GUIDELLM_MAX_REQUESTS)
         - name: ACCELERATOR
           value: $(params.ACCELERATOR)
         - name: EXPERIMENT_NAME
@@ -517,34 +518,20 @@ spec:
           value: $(params.TP)
         - name: BENCHMARK_ENV_VARS
           value: $(params.BENCHMARK_ENV_VARS[*])
-        - name: DATASET_NAME
-          value: $(params.DATASET_NAME)
-        - name: SCENARIO
-          value: $(params.SCENARIO)
-        - name: TEST_MODE
-          value: $(params.TEST_MODE)
-        - name: BATCH_SIZE
-          value: $(params.BATCH_SIZE)
-        - name: NUM_SAMPLES
-          value: $(params.NUM_SAMPLES)
-        - name: OUTPUT_DIR
-          value: $(params.OUTPUT_DIR)
-        - name: SERVER_TARGET_QPS
-          value: $(params.SERVER_TARGET_QPS)
-        - name: RATE
-          value: $(params.RATE)
-        - name: DATA
-          value: $(params.DATA)
-        - name: PROCESSOR
-          value: $(params.PROCESSOR)
-        - name: MAX_SECONDS
-          value: $(params.MAX_SECONDS)
-        - name: MAX_REQUESTS
-          value: $(params.MAX_REQUESTS)
-        - name: BACKEND_TYPE
-          value: $(params.BACKEND_TYPE)
-        - name: RATE_TYPE
-          value: $(params.RATE_TYPE)
+        - name: MLPERF_DATASET_NAME
+          value: $(params.MLPERF_DATASET_NAME)
+        - name: MLPERF_SCENARIO
+          value: $(params.MLPERF_SCENARIO)
+        - name: MLPERF_TEST_MODE
+          value: $(params.MLPERF_TEST_MODE)
+        - name: MLPERF_BATCH_SIZE
+          value: $(params.MLPERF_BATCH_SIZE)
+        - name: MLPERF_NUM_SAMPLES
+          value: $(params.MLPERF_NUM_SAMPLES)
+        - name: MLPERF_OUTPUT_DIR
+          value: $(params.MLPERF_OUTPUT_DIR)
+        - name: MLPERF_SERVER_TARGET_QPS
+          value: $(params.MLPERF_SERVER_TARGET_QPS)
       workspaces:
         - name: models-storage
           workspace: models-storage

@@ -705,10 +705,10 @@ Parameters flow through three levels: **Task → Pipeline → PipelineRun**
 Tasks define default values for parameters:
 
 ```yaml
-# tasks/benchmark/run-benchmark.yaml
+# tasks/benchmark/guidellm/run-benchmark.yaml
 spec:
   params:
-    - name: MAX_SECONDS
+    - name: GUIDELLM_MAX_SECONDS
       type: string
       default: "600"    # Default value
 ```
@@ -718,17 +718,17 @@ spec:
 Pipelines can override task defaults:
 
 ```yaml
-# pipelines/downstream/full-benchmark-lifecycle.yaml
+# pipelines/deployment/llm-d/e2e-benchmark.yaml
 spec:
   params:
-    - name: MAX_SECONDS
+    - name: GUIDELLM_MAX_SECONDS
       type: string
       default: "600"    # Pipeline-level default
   tasks:
     - name: run-benchmark
       params:
-        - name: MAX_SECONDS
-          value: $(params.MAX_SECONDS)    # Pass pipeline param to task
+        - name: GUIDELLM_MAX_SECONDS
+          value: $(params.GUIDELLM_MAX_SECONDS)    # Pass pipeline param to task
 ```
 
 ### Level 3: PipelineRun Overrides
@@ -736,10 +736,10 @@ spec:
 PipelineRuns override pipeline defaults:
 
 ```yaml
-# pipelineruns/downstream/my-benchmark.yaml
+# pipelineruns/llm-d/my-benchmark.yaml
 spec:
   params:
-    - name: MAX_SECONDS
+    - name: GUIDELLM_MAX_SECONDS
       value: "1200"    # Override for this specific run
 ```
 
@@ -751,9 +751,9 @@ spec:
 
 **Example:**
 ```
-Task:        MAX_SECONDS = "600"  (default)
-Pipeline:    MAX_SECONDS = "600"  (optional override)
-PipelineRun: MAX_SECONDS = "1200" (final value used)
+Task:        GUIDELLM_MAX_SECONDS = "600"  (default)
+Pipeline:    GUIDELLM_MAX_SECONDS = "600"  (optional override)
+PipelineRun: GUIDELLM_MAX_SECONDS = "1200" (final value used)
 ```
 
 This means you only need to specify parameters that differ from defaults!
@@ -779,10 +779,10 @@ Instead of YAML files, you can use `tkn` to start pipelines:
 
 #### Example: Complete Benchmark Lifecycle
 
-This example replicates `pipelineruns/downstream/redhatai-llama-3.3-70b-instruct-fp8-dynamic-1k-1k.yaml`:
+This example replicates `pipelineruns/llm-d/redhatai-llama-3.3-70b-instruct-fp8-dynamic-1k-1k.yaml`:
 
 ```bash
-tkn pipeline start full-benchmark-lifecycle \
+tkn pipeline start llm-d-end-to-end-benchmark \
   --namespace llm-d-bench \
   --serviceaccount deploy-model-sa \
   --workspace name=models-storage,claimName=models-storage \
@@ -799,13 +799,13 @@ tkn pipeline start full-benchmark-lifecycle \
   --param REPLICAS="1" \
   --param IMAGE="image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest" \
   --param TARGET="https://redhatai-llama-33-70b-instruct-fp8-dynamic-kserve-workload-svc.llm-d-bench.svc.cluster.local:8000" \
-  --param PROCESSOR="RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic" \
-  --param BACKEND_TYPE="openai_http" \
-  --param RATE_TYPE="concurrent" \
-  --param RATE="650,500,300,200,100,50,1" \
-  --param DATA="prompt_tokens=1000,output_tokens=1000" \
-  --param MAX_SECONDS="600" \
-  --param MAX_REQUESTS="" \
+  --param GUIDELLM_PROCESSOR="RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic" \
+  --param GUIDELLM_BACKEND_TYPE="openai_http" \
+  --param GUIDELLM_RATE_TYPE="concurrent" \
+  --param GUIDELLM_RATE="650,500,300,200,100,50,1" \
+  --param GUIDELLM_DATA="prompt_tokens=1000,output_tokens=1000" \
+  --param GUIDELLM_MAX_SECONDS="600" \
+  --param GUIDELLM_MAX_REQUESTS="" \
   --param ACCELERATOR="H200" \
   --param EXPERIMENT_NAME="redhatai-llama-33-70b-instruct-fp8-dynamic-1k-1k" \
   --param VERSION="RHOAI-3.0" \
@@ -828,14 +828,14 @@ tkn pipeline start full-benchmark-lifecycle \
 Most parameters have defaults, so you can simplify:
 
 ```bash
-tkn pipeline start full-benchmark-lifecycle \
+tkn pipeline start llm-d-end-to-end-benchmark \
   --namespace llm-d-bench \
   --serviceaccount deploy-model-sa \
   --workspace name=models-storage,claimName=models-storage \
   --param MODEL_NAME="meta-llama/Llama-3.1-8B" \
   --param NAMESPACE="llm-d-bench" \
   --param TARGET="https://meta-llama-llama-31-8b-kserve-workload-svc.llm-d-bench.svc.cluster.local:8000" \
-  --param RATE="1,50,100" \
+  --param GUIDELLM_RATE="1,50,100" \
   --param MLFLOW_ENABLED="true" \
   --showlog
 ```
@@ -1095,6 +1095,8 @@ The following parameters are automatically logged to MLflow:
 - `accelerator` - GPU type (H200, A100, etc.)
 - `tp` - Tensor parallelism size
 
+**Note:** These are the internal MLflow parameter names. The pipeline parameters use prefixed names (e.g., `GUIDELLM_RATE`, `GUIDELLM_PROCESSOR`) which are mapped to these internal names by the benchmark wrapper.
+
 ### MLflow Metrics Logged
 
 For each concurrency level, the following metrics are logged:
@@ -1205,11 +1207,11 @@ The benchmark tasks are tool-specific:
 params:
   - name: IMAGE
     value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
-  - name: RATE
+  - name: GUIDELLM_RATE
     value: "1,50,100"
-  - name: DATA
+  - name: GUIDELLM_DATA
     value: "prompt_tokens=1000,output_tokens=1000"
-  - name: MAX_SECONDS
+  - name: GUIDELLM_MAX_SECONDS
     value: "600"
 ```
 
@@ -1218,13 +1220,13 @@ params:
 params:
   - name: IMAGE
     value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/mlperf-custom:latest"
-  - name: DATASET_NAME
+  - name: MLPERF_DATASET_NAME
     value: "cnn_eval.json"
-  - name: SCENARIO
+  - name: MLPERF_SCENARIO
     value: "Offline"
-  - name: TEST_MODE
+  - name: MLPERF_TEST_MODE
     value: "accuracy"
-  - name: NUM_SAMPLES
+  - name: MLPERF_NUM_SAMPLES
     value: "4388"
 ```
 
@@ -1236,14 +1238,20 @@ params:
 | **MODEL** | ✓ | ✓ | Model identifier (MLPerf derives category) |
 | **EXPERIMENT_NAME** | ✓ | ✓ | MLflow experiment name |
 | **MLFLOW_TRACKING_URI** | ✓ | ✓ | MLflow server |
-| **RATE** | ✓ | ✗ | Concurrency levels (GuideLLM only) |
-| **DATA** | ✓ | ✗ | Token counts (GuideLLM only) |
-| **MAX_SECONDS** | ✓ | ✗ | Duration per rate (GuideLLM only) |
-| **DATASET_NAME** | ✗ | ✓ | Dataset filename (MLPerf only) |
-| **SCENARIO** | ✗ | ✓ | MLPerf scenario (Offline, Server, etc.) |
-| **TEST_MODE** | ✗ | ✓ | Test mode (accuracy, performance) |
-| **BATCH_SIZE** | ✗ | ✓ | Batch size (MLPerf only) |
-| **NUM_SAMPLES** | ✗ | ✓ | Number of samples (MLPerf only) |
+| **GUIDELLM_RATE** | ✓ | ✗ | Concurrency levels (GuideLLM only) |
+| **GUIDELLM_DATA** | ✓ | ✗ | Token counts (GuideLLM only) |
+| **GUIDELLM_MAX_SECONDS** | ✓ | ✗ | Duration per rate (GuideLLM only) |
+| **GUIDELLM_PROCESSOR** | ✓ | ✗ | Tokenizer name (GuideLLM only) |
+| **GUIDELLM_BACKEND_TYPE** | ✓ | ✗ | Backend type (GuideLLM only) |
+| **GUIDELLM_RATE_TYPE** | ✓ | ✗ | Rate type (GuideLLM only) |
+| **GUIDELLM_MAX_REQUESTS** | ✓ | ✗ | Max requests per rate (GuideLLM only) |
+| **MLPERF_DATASET_NAME** | ✗ | ✓ | Dataset filename (MLPerf only) |
+| **MLPERF_SCENARIO** | ✗ | ✓ | MLPerf scenario (Offline, Server, etc.) |
+| **MLPERF_TEST_MODE** | ✗ | ✓ | Test mode (accuracy, performance) |
+| **MLPERF_BATCH_SIZE** | ✗ | ✓ | Batch size (MLPerf only) |
+| **MLPERF_NUM_SAMPLES** | ✗ | ✓ | Number of samples (MLPerf only) |
+| **MLPERF_OUTPUT_DIR** | ✗ | ✓ | Output directory (MLPerf only) |
+| **MLPERF_SERVER_TARGET_QPS** | ✗ | ✓ | Target QPS for Server scenario (MLPerf only) |
 
 ### Dataset Management for MLPerf
 
@@ -1292,7 +1300,7 @@ oc delete pod dataset-upload -n llm-d-bench
 
 #### Dataset Path Resolution
 
-When you specify `DATASET_NAME: "cnn_eval.json"`, the benchmark task automatically constructs:
+When you specify `MLPERF_DATASET_NAME: "cnn_eval.json"`, the benchmark task automatically constructs:
 
 ```bash
 DATASET_PATH="/mnt/storage/datasets/cnn_eval.json"
@@ -1835,17 +1843,18 @@ mkdir -p tasks/benchmark/locust
 
 Create `run-benchmark.yaml` with standardized parameters:
 
-**Required Parameters:**
+**Required Parameters (Common):**
 - `IMAGE` - Benchmark tool container image
 - `TARGET` - Inference endpoint URL
 - `MODEL` - Model identifier
-- `RATE` - Load specification
-- `MAX_SECONDS` - Duration
 - `MLFLOW_ENABLED` - Enable MLflow tracking
 - `TAGS` - Array of tags
 
 **Tool-specific Parameters:**
-Add any tool-specific configuration parameters
+Add tool-specific configuration parameters with appropriate prefixes:
+- GuideLLM: Use `GUIDELLM_` prefix (e.g., `GUIDELLM_RATE`, `GUIDELLM_MAX_SECONDS`)
+- MLPerf: Use `MLPERF_` prefix (e.g., `MLPERF_SCENARIO`, `MLPERF_NUM_SAMPLES`)
+- Custom tools: Use similar prefixing conventions
 
 Example task structure:
 ```yaml
@@ -1858,11 +1867,11 @@ spec:
     - name: IMAGE
     - name: TARGET
     - name: MODEL
-    - name: RATE
-    - name: MAX_SECONDS
     - name: MLFLOW_ENABLED
     - name: TAGS
-    # Tool-specific params here
+    # Tool-specific params with prefix
+    - name: LOCUST_RATE
+    - name: LOCUST_MAX_SECONDS
   steps:
     - name: run-benchmark
       image: $(params.IMAGE)
@@ -1961,12 +1970,15 @@ All benchmark tools should support these core parameters:
 | IMAGE | string | Benchmark tool container image |
 | TARGET | string | Inference endpoint URL |
 | MODEL | string | Model identifier |
-| RATE | string | Load specification (format varies by tool) |
-| MAX_SECONDS | string | Benchmark duration in seconds |
 | MLFLOW_ENABLED | string | "true" or "false" |
 | TAGS | array | Key=value tags for tracking |
 
-Tool-specific parameters should be clearly documented and prefixed if possible (e.g., `LOCUST_SPAWN_RATE`).
+**Tool-specific parameters MUST use prefixes:**
+- GuideLLM: `GUIDELLM_RATE`, `GUIDELLM_MAX_SECONDS`, `GUIDELLM_PROCESSOR`, etc.
+- MLPerf: `MLPERF_SCENARIO`, `MLPERF_NUM_SAMPLES`, `MLPERF_DATASET_NAME`, etc.
+- Custom tools: Use similar prefixing (e.g., `LOCUST_RATE`, `LOCUST_SPAWN_RATE`)
+
+This prefixing convention prevents parameter naming conflicts when multiple benchmark tools are used.
 
 ### Example: Minimal Benchmark Tool
 
@@ -1982,8 +1994,8 @@ spec:
   params:
     - name: TARGET
     - name: MODEL
-    - name: RATE
-    - name: MAX_SECONDS
+    - name: CURLBENCH_RATE
+    - name: CURLBENCH_MAX_SECONDS
   steps:
     - name: benchmark
       image: curlimages/curl:latest
@@ -1993,7 +2005,7 @@ spec:
         # Simple benchmark logic here
 ```
 
-This minimal approach works for simple tools. For production use, add MLflow integration, proper result processing, and error handling.
+This minimal approach works for simple tools. For production use, add MLflow integration, proper result processing, and error handling. Note the use of prefixed parameters (`CURLBENCH_`).
 
 ### Reference Implementation
 

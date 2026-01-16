@@ -32,37 +32,38 @@ spec:
       description: Model name/identifier
       type: string
 
-    - name: PROCESSOR
-      description: Tokenizer/processor model name (optional)
+    - name: GUIDELLM_PROCESSOR
+      description: Tokenizer/processor model name (GuideLLM only, optional)
       type: string
       default: ""
 
-    - name: BACKEND_TYPE
-      description: Backend type for the inference server
+    - name: GUIDELLM_BACKEND_TYPE
+      description: Backend type for the inference server (GuideLLM only)
       type: string
       default: "openai_http"
 
-    - name: RATE_TYPE
-      description: Rate strategy (concurrent or synchronous)
+    - name: GUIDELLM_RATE_TYPE
+      description: Rate strategy - concurrent or synchronous (GuideLLM only)
       type: string
       default: "concurrent"
 
-    - name: RATE
-      description: Comma-separated list of rates to test
+    - name: GUIDELLM_RATE
+      description: Comma-separated list of rates to test (GuideLLM only)
       type: string
+      default: ""
 
-    - name: DATA
-      description: Request data profile
+    - name: GUIDELLM_DATA
+      description: Request data profile (GuideLLM only)
       type: string
       default: "prompt_tokens=1000,output_tokens=1000"
 
-    - name: MAX_SECONDS
-      description: Maximum duration per rate in seconds
+    - name: GUIDELLM_MAX_SECONDS
+      description: Maximum duration per rate in seconds (GuideLLM only)
       type: string
       default: "600"
 
-    - name: MAX_REQUESTS
-      description: Maximum number of requests per rate (optional)
+    - name: GUIDELLM_MAX_REQUESTS
+      description: Maximum number of requests per rate (GuideLLM only, optional)
       type: string
       default: ""
 
@@ -149,20 +150,20 @@ spec:
           value: $(params.TARGET)
         - name: MODEL
           value: $(params.MODEL)
-        - name: PROCESSOR
-          value: $(params.PROCESSOR)
-        - name: BACKEND_TYPE
-          value: $(params.BACKEND_TYPE)
-        - name: RATE_TYPE
-          value: $(params.RATE_TYPE)
-        - name: RATE
-          value: $(params.RATE)
-        - name: DATA
-          value: $(params.DATA)
-        - name: MAX_SECONDS
-          value: $(params.MAX_SECONDS)
-        - name: MAX_REQUESTS
-          value: $(params.MAX_REQUESTS)
+        - name: GUIDELLM_PROCESSOR
+          value: $(params.GUIDELLM_PROCESSOR)
+        - name: GUIDELLM_BACKEND_TYPE
+          value: $(params.GUIDELLM_BACKEND_TYPE)
+        - name: GUIDELLM_RATE_TYPE
+          value: $(params.GUIDELLM_RATE_TYPE)
+        - name: GUIDELLM_RATE
+          value: $(params.GUIDELLM_RATE)
+        - name: GUIDELLM_DATA
+          value: $(params.GUIDELLM_DATA)
+        - name: GUIDELLM_MAX_SECONDS
+          value: $(params.GUIDELLM_MAX_SECONDS)
+        - name: GUIDELLM_MAX_REQUESTS
+          value: $(params.GUIDELLM_MAX_REQUESTS)
         - name: ACCELERATOR
           value: $(params.ACCELERATOR)
         - name: EXPERIMENT_NAME

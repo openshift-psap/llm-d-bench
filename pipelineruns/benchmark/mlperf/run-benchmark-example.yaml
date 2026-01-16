@@ -33,19 +33,19 @@ spec:
     # ===========================================
     # MLPerf-specific parameters
     # ===========================================
-    - name: DATASET_NAME
+    - name: MLPERF_DATASET_NAME
       value: "cnn_eval.json"
-    - name: SCENARIO
+    - name: MLPERF_SCENARIO
       value: "Offline"  # Options: Offline, Server, SingleStream, MultiStream
-    - name: TEST_MODE
+    - name: MLPERF_TEST_MODE
       value: "accuracy"  # Options: accuracy, performance
-    - name: NUM_SAMPLES
+    - name: MLPERF_NUM_SAMPLES
       value: "4388"
-    - name: SERVER_TARGET_QPS
+    - name: MLPERF_SERVER_TARGET_QPS
       value: "10"
-    - name: BATCH_SIZE
+    - name: MLPERF_BATCH_SIZE
       value: ""
-    - name: OUTPUT_DIR
+    - name: MLPERF_OUTPUT_DIR
       value: "./test-run"
 
     # ===========================================
