@@ -10,7 +10,7 @@ spec:
     - ReadWriteOnce  # For RHAIIS single-pod deployments
   resources:
     requests:
-      storage: 300Gi
+      storage: 1Ti
 ---
 # This PVC is used for RHAIIS deployments which use ReadWriteOnce (RWO)
 # RWO allows the volume to be mounted by a single node only
