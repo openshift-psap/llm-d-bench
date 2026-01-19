@@ -30,6 +30,10 @@ spec:
       value: "main"
 
     # Deployment Configuration
+    - name: LLM_D_REPO_REF
+      value: "v0.4.0"
+    - name: DEPLOYMENT_MODE
+      value: "inference-scheduling"
     - name: RELEASE_NAME
       value: "qwen3-235b-a22b-fp8"
     - name: NAMESPACE
