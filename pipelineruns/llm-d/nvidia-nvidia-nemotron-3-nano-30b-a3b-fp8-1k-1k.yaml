@@ -1,11 +1,11 @@
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
-  generateName: nvidia-nvidia-nemotron-3-nano-30B-A3b-fp8-1k-1k-
+  generateName: nvidia-nvidia-nemotron-3-nano-30b-a3b-fp8-1k-1k-
   labels:
     app: llm-d-bench
     pipeline: llm-d-end-to-end-benchmark
-    experiment: nvidia-nvidia-nemotron-3-nano-30B-A3b-fp8-1k-1k
+    experiment: nvidia-nvidia-nemotron-3-nano-30b-a3b-fp8-1k-1k
     benchmark-tool: guidellm
     deployment-mode: llm-d
 spec:
@@ -80,7 +80,7 @@ spec:
     - name: ACCELERATOR
       value: "H200"
     - name: EXPERIMENT_NAME
-      value: "nvidia-nvidia-nemotron-3-nano-30B-A3b-fp8-1k-1k"
+      value: "nvidia-nvidia-nemotron-3-nano-30b-a3b-fp8-1k-1k"
     - name: VERSION
       value: "llm-d-0.4"
     - name: TP

@@ -359,7 +359,7 @@ spec:
       value: "1,50,100,200"
 ```
 
-See `pipelineruns/llm-d/meta-llama-3.1-70b-pd-disaggregation.yaml` for complete example.
+See `pipelineruns/llm-d/redhatai-llama-3.3-70b-instruct-fp8-dynamic-pd-disagg.yaml` for a complete example.
 
 ### Technical Details
 
