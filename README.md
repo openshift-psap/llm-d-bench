@@ -51,18 +51,21 @@ This allows PVCs to automatically use the default storage class without explicit
 
 > **Note:** This is a temporary solution. A more automated approach is planned for future releases.
 
-The default PVC configuration uses **ReadWriteOnce (RWO)** which is suitable for:
-- RHAIIS deployments (single-pod vLLM)
-- Most single-node clusters
-- Storage classes like `lvms-vg1` that only support RWO
+Before running the installation with `--with-pvcs`, choose the appropriate PVC access mode based on your deployment mode:
 
-**For RHOAI or llm-d deployments (multi-pod) that require ReadWriteMany (RWX):**
+**For RHAIIS deployments (single-pod) or single-node clusters:**
 ```bash
-# Copy the RWX example to use multi-pod access mode
+# Use ReadWriteOnce (RWO) - most common for single-node and RWO-only storage classes
+cp config/workspaces/models-storage-pvc-rwo.yaml config/workspaces/models-storage-pvc.yaml
+```
+
+**For RHOAI or llm-d deployments (multi-pod):**
+```bash
+# Use ReadWriteMany (RWX) - requires RWX-capable storage class
 cp config/workspaces/models-storage-pvc-rwx.example.yaml config/workspaces/models-storage-pvc.yaml
 ```
 
-> **Important:** Ensure your storage class supports ReadWriteMany before using RWX. Use `oc get storageclass` to check capabilities.
+> **Important:** Ensure your storage class supports the chosen access mode. Use `oc get storageclass` to check capabilities. Most storage classes like `lvms-vg1` support only ReadWriteOnce (RWO).
 
 ### 1. Install Tekton Resources
 

@@ -209,8 +209,20 @@ fi
 
 if [ "$CREATE_PVCS" = true ]; then
     echo "Creating PersistentVolumeClaims..."
+
+    # Check if models-storage-pvc.yaml exists (user must copy from template)
+    if [ ! -f "$PROJECT_ROOT/config/workspaces/models-storage-pvc.yaml" ]; then
+        echo "  models-storage-pvc.yaml not found!"
+        echo "  Please copy the appropriate template based on your deployment:"
+        echo "    For RHAIIS/single-node: cp config/workspaces/models-storage-pvc-rwo.yaml config/workspaces/models-storage-pvc.yaml"
+        echo "    For RHOAI/llm-d multi-pod: cp config/workspaces/models-storage-pvc-rwx.example.yaml config/workspaces/models-storage-pvc.yaml"
+        echo ""
+    fi
+
+    PVC_COUNT=0
     for pvc in "$PROJECT_ROOT"/config/workspaces/*.yaml; do
-        if [ -f "$pvc" ]; then
+        # Skip .example.yaml files and template files (those with -rwo or -rwx in the name)
+        if [ -f "$pvc" ] && [[ ! "$pvc" =~ \.example\.yaml$ ]] && [[ ! "$pvc" =~ -rwo\.yaml$ ]] && [[ ! "$pvc" =~ -rwx\.yaml$ ]]; then
             # Extract PVC name from the YAML file
             PVC_NAME=$(grep "^  name:" "$pvc" | head -1 | awk '{print $2}')
 
@@ -220,8 +232,14 @@ if [ "$CREATE_PVCS" = true ]; then
                 echo "  - $(basename "$pvc") (creating)"
                 oc apply -f "$pvc" $NS_FLAG
             fi
+            PVC_COUNT=$((PVC_COUNT + 1))
         fi
     done
+
+    if [ $PVC_COUNT -eq 0 ]; then
+        echo "  No PVCs found to create (templates are skipped)"
+    fi
+
     echo "✓ PVCs processed"
     echo ""
 fi
