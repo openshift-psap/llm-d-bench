@@ -13,6 +13,7 @@ This guide covers advanced topics for using, modifying, and extending the llm-d-
 - [Creating Custom Tasks](#creating-custom-tasks)
 - [Creating Custom Pipelines](#creating-custom-pipelines)
 - [MLflow Integration](#mlflow-integration)
+- [Image Registry Setup](#image-registry-setup)
 - [Building Custom Images](#building-custom-images)
 - [Adding New Benchmark Tools](#adding-new-benchmark-tools)
 - [Troubleshooting](#troubleshooting)
@@ -871,6 +872,37 @@ MLPerf supports multiple standardized scenarios:
 Each scenario has specific metrics and requirements. See [MLPerf Inference rules](https://github.com/mlcommons/inference_policies/blob/master/inference_rules.adoc) for details.
 
 ---
+
+## Image Registry Setup
+
+The llm-d-bench pipelines build custom container images (such as GuideLLM with MLflow) that need to be pushed to a container registry. This section covers setting up the OpenShift internal image registry.
+
+### Why This Is Needed
+
+The OpenShift internal image registry provides:
+- **Cluster-internal endpoint** - No external network access required
+- **Automatic authentication** - Uses service account tokens
+- **No external credentials** - No need for DockerHub, Quay.io, or other external registries
+- **Persistent storage** - Images are stored on PVCs and survive pod restarts
+
+### Setup
+
+Use the `--setup-image-registry` flag when installing llm-d-bench:
+
+```bash
+./scripts/install.sh --setup-image-registry
+```
+
+This will automatically:
+1. Enable the OpenShift internal image registry
+2. Create a PVC for registry storage (default: 100Gi)
+3. Configure the registry to use the PVC
+4. Set appropriate replica count based on storage access mode (RWO vs RWX)
+5. Verify the registry is running
+
+The registry will be available at: `image-registry.openshift-image-registry.svc:5000`
+
+> **Note:** For single-node clusters or storage classes that only support ReadWriteOnce (RWO), the setup automatically sets registry replicas to 1. For multi-node clusters with ReadWriteMany (RWX) storage, replica count is set to 2.
 
 ## Building Custom Images
 

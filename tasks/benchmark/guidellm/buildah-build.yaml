@@ -88,6 +88,7 @@ spec:
         buildah --storage-driver=vfs bud \
           --format=$(params.FORMAT) \
           --tls-verify=$(params.TLSVERIFY) \
+          --userns=host \
           --layers \
           --build-arg IMAGE_VERSION=$(params.GUIDELLM_VERSION) \
           -f $(params.CONTEXT_DIR)/$(params.DOCKERFILE) \
@@ -115,9 +116,20 @@ spec:
         echo "Image Digest: $(cat /tmp/image-digest)"
 
       securityContext:
+        runAsUser: 0
+        allowPrivilegeEscalation: true
+        seLinuxOptions:
+          type: spc_t
         capabilities:
           add:
+            - SETUID
+            - SETGID
             - SETFCAP
+            - CHOWN
+            - FOWNER
+            - DAC_OVERRIDE
+            - SYS_ADMIN
+            - SYS_CHROOT
 
       volumeMounts:
         - name: varlibcontainers

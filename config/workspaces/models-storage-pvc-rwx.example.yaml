@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: models-storage
+  labels:
+    app: llm-d-bench
+    type: workspace
+spec:
+  accessModes:
+    - ReadWriteMany  # For RHOAI/llm-d multi-pod deployments
+  resources:
+    requests:
+      storage: 1Ti
+---
+# This PVC is used for RHOAI and llm-d deployments which need ReadWriteMany (RWX)
+# RWX allows the volume to be mounted by multiple nodes simultaneously
+#
+# Models will be stored in subdirectories by name.
+# The huggingface-cli automatically sanitizes model names (replaces '/' with '-')
+# when creating directories.
+#
+# Directory structure:
+#   /models/<sanitized-model-name>/
+#     ├── config.json
+#     ├── tokenizer.json
+#     ├── model files...
+#
+# Example: meta-llama/Llama-3.1-8B is stored at /models/meta-llama-Llama-3.1-8B/
+#
+# To access models:
+#   1. Create a pod with the PVC mounted
+#   2. Use oc rsh to browse the filesystem
+#   3. Or mount in deployment specifications
+#
+# Example:
+#   oc run -it --rm view-models --image=registry.access.redhat.com/ubi9/ubi:latest \
+#     --overrides='{"spec":{"volumes":[{"name":"models","persistentVolumeClaim":{"claimName":"models-storage"}}],"containers":[{"name":"view-models","image":"registry.access.redhat.com/ubi9/ubi:latest","command":["sh"],"volumeMounts":[{"name":"models","mountPath":"/models"}]}]}}'

@@ -6,7 +6,7 @@ metadata:
     app.kubernetes.io/version: "0.1"
   annotations:
     tekton.dev/displayName: "RHAIIS End-to-End Benchmark"
-    tekton.dev/tags: benchmark, llm, lifecycle, rhaiis, kserve
+    tekton.dev/tags: benchmark, llm, lifecycle, rhaiis
 spec:
   description: >-
     Complete model lifecycle pipeline: download model from HuggingFace, deploy
@@ -63,10 +63,6 @@ spec:
         Example: image-registry.openshift-image-registry.svc:5000/<your-namespace>/guidellm-custom:latest
       type: string
       default: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
-
-    - name: TARGET
-      description: Target inference endpoint URL
-      type: string
 
     - name: PROCESSOR
       description: Tokenizer/processor model name (optional)
@@ -174,6 +170,7 @@ spec:
       type: string
       default: "10"
 
+
     # Health Check Configuration
     - name: HEALTH_CHECK_TIMEOUT
       description: Endpoint health check timeout in seconds
@@ -229,8 +226,8 @@ spec:
         - name: models-storage
           workspace: models-storage
 
-    # Stage 2: Deploy Model
-    - name: deploy-rhaiis-model
+    # Stage 2: Deploy Model with KServe
+    - name: deploy-rhaiis
       runAfter:
         - download-model
       when:
@@ -238,7 +235,7 @@ spec:
           operator: in
           values: ["false"]
       taskRef:
-        name: deploy-rhaiis-model
+        name: deploy-rhaiis
       params:
         - name: MODEL_NAME
           value: $(params.MODEL_NAME)
@@ -265,7 +262,7 @@ spec:
     # Stage 3: Wait for Endpoint
     - name: wait-for-endpoint
       runAfter:
-        - deploy-rhaiis-model
+        - deploy-rhaiis
       when:
         - input: "$(params.SKIP_BENCHMARK)"
           operator: in
@@ -274,7 +271,7 @@ spec:
         name: wait-for-endpoint
       params:
         - name: TARGET_URL
-          value: $(params.TARGET)
+          value: $(tasks.deploy-rhaiis.results.ENDPOINT_URL)
         - name: ENDPOINT_PATH
           value: "/v1/models"
         - name: TIMEOUT_SECONDS
@@ -316,7 +313,7 @@ spec:
         - name: IMAGE
           value: $(params.IMAGE)
         - name: TARGET
-          value: $(params.TARGET)
+          value: $(tasks.deploy-rhaiis.results.ENDPOINT_URL)
         - name: MODEL
           value: $(params.MODEL_NAME)
         - name: PROCESSOR
@@ -420,17 +417,16 @@ spec:
         - name: results
           workspace: results
 
-    # Stage 5: Cleanup Deployment
-    - name: cleanup-rhaiis-deployment
+    # Stage 5: Cleanup KServe Deployment
+    - name: cleanup-rhaiis
       runAfter:
         - run-guidellm-benchmark
-        - run-mlperf-benchmark
       when:
         - input: "$(params.SKIP_CLEANUP)"
           operator: in
           values: ["false"]
       taskRef:
-        name: cleanup-rhaiis-deployment
+        name: cleanup-rhaiis
       params:
         - name: MODEL_NAME
           value: $(params.MODEL_NAME)

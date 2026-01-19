@@ -6,11 +6,12 @@
 # and PVCs in the specified namespace.
 #
 # Usage:
-#   ./scripts/install.sh                              # Install in default namespace
-#   ./scripts/install.sh -n my-namespace              # Install in specific namespace
-#   ./scripts/install.sh -n my-namespace --with-pvcs  # Also create PVCs
-#   ./scripts/install.sh --with-infra                 # Install infrastructure (Kueue, etc.)
-#   ./scripts/install.sh -n my-namespace --with-infra --with-pvcs  # Full installation
+#   ./scripts/install.sh                                    # Install in default namespace
+#   ./scripts/install.sh -n my-namespace                    # Install in specific namespace
+#   ./scripts/install.sh -n my-namespace --with-pvcs        # Also create PVCs
+#   ./scripts/install.sh --with-infra                       # Install infrastructure (Kueue, etc.)
+#   ./scripts/install.sh --setup-image-registry             # Setup internal image registry
+#   ./scripts/install.sh -n my-namespace --with-infra --with-pvcs --setup-image-registry  # Full installation
 #
 
 set -e
@@ -18,6 +19,7 @@ set -e
 NAMESPACE=""
 CREATE_PVCS=false
 INSTALL_INFRA=false
+SETUP_REGISTRY=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -33,6 +35,10 @@ while [[ $# -gt 0 ]]; do
             INSTALL_INFRA=true
             shift
             ;;
+        --setup-image-registry)
+            SETUP_REGISTRY=true
+            shift
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -40,6 +46,7 @@ while [[ $# -gt 0 ]]; do
             echo "  -n, --namespace NAMESPACE   Install in specified namespace"
             echo "  --with-pvcs                 Also create PersistentVolumeClaims"
             echo "  --with-infra                Install infrastructure components (Kueue, etc.)"
+            echo "  --setup-image-registry      Setup OpenShift internal image registry with persistent storage"
             echo "  -h, --help                  Show this help message"
             exit 0
             ;;
@@ -67,6 +74,24 @@ echo "Project root: $PROJECT_ROOT"
 echo "Namespace: $NAMESPACE"
 echo "Create PVCs: $CREATE_PVCS"
 echo "Install Infrastructure: $INSTALL_INFRA"
+echo "Setup Image Registry: $SETUP_REGISTRY"
+echo ""
+
+echo "Configuring Tekton Pipelines Security Context Constraints..."
+# Grant privileged SCC to Tekton service accounts to allow them to run
+# This is required because Tekton controllers use non-standard user IDs (65532)
+# and seccomp annotations that don't match the default namespace restrictions
+if oc get namespace tekton-pipelines &>/dev/null; then
+    echo "  - Granting privileged SCC to tekton-pipelines-controller"
+    oc adm policy add-scc-to-user privileged -z tekton-pipelines-controller -n tekton-pipelines 2>/dev/null || true
+    echo "  - Granting privileged SCC to tekton-events-controller"
+    oc adm policy add-scc-to-user privileged -z tekton-events-controller -n tekton-pipelines 2>/dev/null || true
+    echo "  - Granting privileged SCC to tekton-pipelines-webhook"
+    oc adm policy add-scc-to-user privileged -z tekton-pipelines-webhook -n tekton-pipelines 2>/dev/null || true
+    echo "✓ Tekton SCC configured"
+else
+    echo "  ⚠ tekton-pipelines namespace not found - skipping SCC configuration"
+fi
 echo ""
 
 echo "Installing RBAC resources..."
@@ -78,6 +103,12 @@ for rbac in "$PROJECT_ROOT"/config/rbac/*.yaml; do
     fi
 done
 echo "✓ RBAC resources installed"
+echo ""
+
+echo "Configuring image registry permissions..."
+echo "  - Granting system:image-builder to default service account"
+oc policy add-role-to-user system:image-builder -z default $NS_FLAG 2>/dev/null || true
+echo "✓ Image registry permissions configured"
 echo ""
 
 echo "Installing Secrets..."
@@ -178,8 +209,20 @@ fi
 
 if [ "$CREATE_PVCS" = true ]; then
     echo "Creating PersistentVolumeClaims..."
+
+    # Check if models-storage-pvc.yaml exists (user must copy from template)
+    if [ ! -f "$PROJECT_ROOT/config/workspaces/models-storage-pvc.yaml" ]; then
+        echo "  models-storage-pvc.yaml not found!"
+        echo "  Please copy the appropriate template based on your deployment:"
+        echo "    For RHAIIS/single-node: cp config/workspaces/models-storage-pvc-rwo.yaml config/workspaces/models-storage-pvc.yaml"
+        echo "    For RHOAI/llm-d multi-pod: cp config/workspaces/models-storage-pvc-rwx.example.yaml config/workspaces/models-storage-pvc.yaml"
+        echo ""
+    fi
+
+    PVC_COUNT=0
     for pvc in "$PROJECT_ROOT"/config/workspaces/*.yaml; do
-        if [ -f "$pvc" ]; then
+        # Skip .example.yaml files and template files (those with -rwo or -rwx in the name)
+        if [ -f "$pvc" ] && [[ ! "$pvc" =~ \.example\.yaml$ ]] && [[ ! "$pvc" =~ -rwo\.yaml$ ]] && [[ ! "$pvc" =~ -rwx\.yaml$ ]]; then
             # Extract PVC name from the YAML file
             PVC_NAME=$(grep "^  name:" "$pvc" | head -1 | awk '{print $2}')
 
@@ -189,9 +232,29 @@ if [ "$CREATE_PVCS" = true ]; then
                 echo "  - $(basename "$pvc") (creating)"
                 oc apply -f "$pvc" $NS_FLAG
             fi
+            PVC_COUNT=$((PVC_COUNT + 1))
         fi
     done
+
+    if [ $PVC_COUNT -eq 0 ]; then
+        echo "  No PVCs found to create (templates are skipped)"
+    fi
+
     echo "✓ PVCs processed"
+    echo ""
+fi
+
+if [ "$SETUP_REGISTRY" = true ]; then
+    echo "Setting up OpenShift internal image registry..."
+    echo ""
+
+    # Run the registry setup script
+    if [ -f "$PROJECT_ROOT/infra/manifests/image-registry/install.sh" ]; then
+        "$PROJECT_ROOT/infra/manifests/image-registry/install.sh"
+    else
+        echo "  ⚠ Registry setup script not found at infra/manifests/image-registry/install.sh"
+        echo "  Skipping registry setup."
+    fi
     echo ""
 fi
 

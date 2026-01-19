@@ -11,6 +11,7 @@ For advanced documentation see [docs/ADVANCED.md](docs/ADVANCED.md).
 - Tekton Pipelines Operator v0.50+
 - OpenShift 4.14+
 - `oc` CLI
+- OpenShift internal image registry (or external registry)
 
 ## Quick Start
 
@@ -30,6 +31,41 @@ oc get pods -n tekton-pipelines
 export NAMESPACE=llm-d-bench
 oc create namespace $NAMESPACE
 ```
+
+### 0.5. Configure Default Storage Class (Optional)
+
+If your cluster uses a specific storage class for all persistent volumes, you can annotate it as the default to avoid explicitly specifying `storageClassName` in PVC templates:
+
+```bash
+# Set lvms-vg1 as the default storage class (or your preferred storage class)
+oc patch storageclass lvms-vg1 -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
+
+# Verify it's set as default
+oc get storageclass
+# Should show: lvms-vg1 (default)
+```
+
+This allows PVCs to automatically use the default storage class without explicit configuration.
+
+### 0.6. Choose PVC Access Mode (Temporary)
+
+> **Note:** This is a temporary solution. A more automated approach is planned for future releases.
+
+Before running the installation with `--with-pvcs`, choose the appropriate PVC access mode based on your deployment mode:
+
+**For RHAIIS deployments (single-pod) or single-node clusters:**
+```bash
+# Use ReadWriteOnce (RWO) - most common for single-node and RWO-only storage classes
+cp config/workspaces/models-storage-pvc-rwo.yaml config/workspaces/models-storage-pvc.yaml
+```
+
+**For RHOAI or llm-d deployments (multi-pod):**
+```bash
+# Use ReadWriteMany (RWX) - requires RWX-capable storage class
+cp config/workspaces/models-storage-pvc-rwx.example.yaml config/workspaces/models-storage-pvc.yaml
+```
+
+> **Important:** Ensure your storage class supports the chosen access mode. Use `oc get storageclass` to check capabilities. Most storage classes like `lvms-vg1` support only ReadWriteOnce (RWO).
 
 ### 1. Install Tekton Resources
 
@@ -75,7 +111,19 @@ or you can create your secret file by copying the templates present in the `conf
 
 See [config/secrets/](config/secrets/) for YAML templates.
 
-### 3. Build Custom Image
+### 3. Setup Internal Image Registry
+
+The pipelines build custom container images that need to be pushed to a registry. Setup the OpenShift internal registry:
+
+```bash
+./scripts/install.sh --setup-image-registry
+```
+
+This will automatically enable and configure the internal registry with persistent storage.
+
+See [docs/ADVANCED.md#image-registry-setup](docs/ADVANCED.md#image-registry-setup) for detailed documentation and troubleshooting.
+
+### 4. Build Custom Image
 
 ```bash
 # GuideLLM (default)
@@ -85,7 +133,7 @@ oc create -f pipelineruns/benchmark/guidellm/build-image-run.yaml -n $NAMESPACE
 oc create -f pipelineruns/benchmark/mlperf/build-image-run.yaml -n $NAMESPACE
 ```
 
-### 4. Run Benchmark
+### 5. Run Benchmark
 
 ```bash
 # GuideLLM example (RHOAI mode)

@@ -7,14 +7,13 @@ metadata:
     type: workspace
 spec:
   accessModes:
-    - ReadWriteMany
+    - ReadWriteOnce  # For RHAIIS single-pod deployments
   resources:
     requests:
       storage: 1Ti
-  # Optional: specify storage class (must support RWX)
-  # storageClassName: nfs-provisioner
 ---
-# This PVC is used for storing downloaded LLM models
+# This PVC is used for RHAIIS deployments which use ReadWriteOnce (RWO)
+# RWO allows the volume to be mounted by a single node only
 #
 # Models will be stored in subdirectories by name.
 # The huggingface-cli automatically sanitizes model names (replaces '/' with '-')
