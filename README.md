@@ -377,3 +377,44 @@ oc policy add-role-to-user system:image-builder -z default -n $NAMESPACE
 This allows the service account to push images to the internal OpenShift registry.
 
 </details>
+
+### HTTPRoute Backend Not Recognized (llm-d)
+
+<details>
+<summary>llm-d deployment completes and HTTPRoute is configured but requests don't reach the pods</summary>
+
+**Symptoms:**
+- llm-d deployment completes successfully
+- HTTPRoute is created and shows no errors
+- Gateway is running
+- Requests to the inference endpoint return 404 or timeout
+- InferencePool pods are running but receive no traffic
+
+**Cause:**
+
+Some versions of the Gateway API or cluster configurations expect the `x-k8s.io` experimental API group for InferencePool backends instead of the standard `k8s.io` group.
+
+**Solution:**
+
+Patch the HTTPRoute to use the experimental API group:
+
+```bash
+NAMESPACE=llm-d-bench
+RELEASE_NAME=your-release-name
+
+oc patch httproute llm-d-$RELEASE_NAME -n $NAMESPACE --type='json' -p='[
+  {"op": "replace", "path": "/spec/rules/0/backendRefs/0/group", "value": "inference.networking.x-k8s.io"}
+]'
+```
+
+**Verify:**
+
+```bash
+# Check the HTTPRoute configuration
+oc get httproute llm-d-$RELEASE_NAME -n $NAMESPACE -o yaml | grep -A5 backendRefs
+
+# Test the endpoint
+curl -s http://infra-$RELEASE_NAME-inference-gateway-istio.$NAMESPACE.svc.cluster.local/v1/models
+```
+
+</details>

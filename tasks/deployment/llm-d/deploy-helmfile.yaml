@@ -269,7 +269,7 @@ spec:
             name: infra-$RELEASE_NAME-inference-gateway
           rules:
             - backendRefs:
-              - group: inference.networking.x-k8s.io
+              - group: inference.networking.k8s.io
                 kind: InferencePool
                 name: gaie-$RELEASE_NAME
                 port: 8000
