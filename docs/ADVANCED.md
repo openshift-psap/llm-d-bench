@@ -134,7 +134,6 @@ PD Disaggregation is designed for:
 **Do NOT use for:**
 - Small models (<13B parameters)
 - Short sequences (<1k tokens)
-- Clusters without RDMA networking
 - Limited GPU availability (<8 GPUs)
 
 ### Requirements
@@ -142,9 +141,10 @@ PD Disaggregation is designed for:
 #### Minimum Requirements
 
 - **8 GPUs minimum** for worker pools
-- **RDMA networking** (InfiniBand or RoCE)
-  - Required for efficient KV cache transfer between prefill and decode workers
-  - Without RDMA, network overhead negates performance benefits
+- **RDMA networking** (InfiniBand or RoCE) - *recommended but optional*
+  - Recommended for efficient KV cache transfer between prefill and decode workers
+  - Can be disabled with `ENABLE_RDMA: "false"` for clusters without RDMA
+  - Performance will be reduced without RDMA due to network overhead
 - **llm-d 0.4+** with PD disaggregation support
 - **vLLM with Nixl connector** for KV cache transfer
 
@@ -218,6 +218,14 @@ params:
     value: "pd-disaggregation"  # or "inference-scheduling" (default)
 ```
 
+#### Gateway Provider
+
+```yaml
+- name: GATEWAY_PROVIDER
+  value: "istio"              # Gateway provider for inference endpoint
+                              # Options: istio (default), kgateway, standalone, gke
+```
+
 #### Worker Pool Configuration
 
 **Prefill Workers:**
@@ -249,6 +257,15 @@ params:
 - name: HASH_BLOCK_SIZE
   value: "5"              # Hash block size for PD profiling in GAIE
                           # Used for KV cache profiling and matching
+```
+
+#### Networking Configuration
+
+```yaml
+- name: ENABLE_RDMA
+  value: "true"           # Enable RDMA/InfiniBand networking (default: true)
+                          # Set to "false" for clusters without RDMA hardware
+                          # Performance will be reduced without RDMA
 ```
 
 ### Typical Configurations

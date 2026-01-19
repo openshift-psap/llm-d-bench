@@ -111,7 +111,7 @@ or you can create your secret file by copying the templates present in the `conf
 
 See [config/secrets/](config/secrets/) for YAML templates.
 
-### 3. Setup Internal Image Registry
+### 3. Setup Internal Image Registry (Optional)
 
 The pipelines build custom container images that need to be pushed to a registry. Setup the OpenShift internal registry:
 
