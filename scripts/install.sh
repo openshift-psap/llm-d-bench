@@ -6,11 +6,12 @@
 # and PVCs in the specified namespace.
 #
 # Usage:
-#   ./scripts/install.sh                              # Install in default namespace
-#   ./scripts/install.sh -n my-namespace              # Install in specific namespace
-#   ./scripts/install.sh -n my-namespace --with-pvcs  # Also create PVCs
-#   ./scripts/install.sh --with-infra                 # Install infrastructure (Kueue, etc.)
-#   ./scripts/install.sh -n my-namespace --with-infra --with-pvcs  # Full installation
+#   ./scripts/install.sh                                    # Install in default namespace
+#   ./scripts/install.sh -n my-namespace                    # Install in specific namespace
+#   ./scripts/install.sh -n my-namespace --with-pvcs        # Also create PVCs
+#   ./scripts/install.sh --with-infra                       # Install infrastructure (Kueue, etc.)
+#   ./scripts/install.sh --setup-image-registry             # Setup internal image registry
+#   ./scripts/install.sh -n my-namespace --with-infra --with-pvcs --setup-image-registry  # Full installation
 #
 
 set -e
@@ -18,6 +19,7 @@ set -e
 NAMESPACE=""
 CREATE_PVCS=false
 INSTALL_INFRA=false
+SETUP_REGISTRY=false
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -33,6 +35,10 @@ while [[ $# -gt 0 ]]; do
             INSTALL_INFRA=true
             shift
             ;;
+        --setup-image-registry)
+            SETUP_REGISTRY=true
+            shift
+            ;;
         -h|--help)
             echo "Usage: $0 [OPTIONS]"
             echo ""
@@ -40,6 +46,7 @@ while [[ $# -gt 0 ]]; do
             echo "  -n, --namespace NAMESPACE   Install in specified namespace"
             echo "  --with-pvcs                 Also create PersistentVolumeClaims"
             echo "  --with-infra                Install infrastructure components (Kueue, etc.)"
+            echo "  --setup-image-registry      Setup OpenShift internal image registry with persistent storage"
             echo "  -h, --help                  Show this help message"
             exit 0
             ;;
@@ -67,6 +74,7 @@ echo "Project root: $PROJECT_ROOT"
 echo "Namespace: $NAMESPACE"
 echo "Create PVCs: $CREATE_PVCS"
 echo "Install Infrastructure: $INSTALL_INFRA"
+echo "Setup Image Registry: $SETUP_REGISTRY"
 echo ""
 
 echo "Configuring Tekton Pipelines Security Context Constraints..."
@@ -215,6 +223,20 @@ if [ "$CREATE_PVCS" = true ]; then
         fi
     done
     echo "✓ PVCs processed"
+    echo ""
+fi
+
+if [ "$SETUP_REGISTRY" = true ]; then
+    echo "Setting up OpenShift internal image registry..."
+    echo ""
+
+    # Run the registry setup script
+    if [ -f "$PROJECT_ROOT/infra/manifests/image-registry/install.sh" ]; then
+        "$PROJECT_ROOT/infra/manifests/image-registry/install.sh"
+    else
+        echo "  ⚠ Registry setup script not found at infra/manifests/image-registry/install.sh"
+        echo "  Skipping registry setup."
+    fi
     echo ""
 fi
 

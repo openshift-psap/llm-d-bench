@@ -51,21 +51,18 @@ This allows PVCs to automatically use the default storage class without explicit
 
 > **Note:** This is a temporary solution. A more automated approach is planned for future releases.
 
-Before running the installation with `--with-pvcs`, choose the appropriate PVC access mode based on your deployment mode:
+The default PVC configuration uses **ReadWriteOnce (RWO)** which is suitable for:
+- RHAIIS deployments (single-pod vLLM)
+- Most single-node clusters
+- Storage classes like `lvms-vg1` that only support RWO
 
-**For RHAIIS deployments (single-pod):**
+**For RHOAI or llm-d deployments (multi-pod) that require ReadWriteMany (RWX):**
 ```bash
-# Use ReadWriteOnce (RWO) for single-node access
-cp config/workspaces/models-storage-pvc-rwo.yaml config/workspaces/models-storage-pvc.yaml
+# Copy the RWX example to use multi-pod access mode
+cp config/workspaces/models-storage-pvc-rwx.example.yaml config/workspaces/models-storage-pvc.yaml
 ```
 
-**For RHOAI or llm-d deployments (multi-pod):**
-```bash
-# Use ReadWriteMany (RWX) for multi-node access
-cp config/workspaces/models-storage-pvc-rwx.yaml config/workspaces/models-storage-pvc.yaml
-```
-
-> **Important:** Your storage class must support the chosen access mode. Use `oc get storageclass` to check capabilities. Most storage classes like `lvms-vg1` support only ReadWriteOnce (RWO).
+> **Important:** Ensure your storage class supports ReadWriteMany before using RWX. Use `oc get storageclass` to check capabilities.
 
 ### 1. Install Tekton Resources
 
@@ -116,24 +113,12 @@ See [config/secrets/](config/secrets/) for YAML templates.
 The pipelines build custom container images that need to be pushed to a registry. Setup the OpenShift internal registry:
 
 ```bash
-# Quick setup with defaults (50Gi storage, lvms-vg1 storage class)
-./scripts/setup-image-registry.sh
-
-# Or customize storage
-STORAGE_SIZE=100Gi STORAGE_CLASS=thin ./scripts/setup-image-registry.sh
+./scripts/install.sh --setup-image-registry
 ```
 
-This will:
-- Enable the OpenShift internal image registry
-- Create a PVC for registry storage
-- Configure the registry to use the PVC
-- Verify the registry is running
+This will automatically enable and configure the internal registry with persistent storage.
 
-The registry will be available at: `image-registry.openshift-image-registry.svc:5000`
-
-> **Note:** For single-node clusters or storage classes that only support ReadWriteOnce (RWO), the script automatically sets registry replicas to 1. For multi-node clusters with ReadWriteMany (RWX) storage, you can increase replicas.
-
-See [infra/manifests/image-registry/README.md](infra/manifests/image-registry/README.md) for detailed documentation, troubleshooting, and manual setup instructions.
+See [docs/ADVANCED.md#image-registry-setup](docs/ADVANCED.md#image-registry-setup) for detailed documentation and troubleshooting.
 
 ### 4. Build Custom Image
 
