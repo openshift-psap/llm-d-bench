@@ -57,6 +57,8 @@ spec:
       value: "0"  # Always disaggregate (0 = always, higher values = selective)
     - name: HASH_BLOCK_SIZE
       value: "5"
+    - name: ENABLE_RDMA
+      value: "false"  # Set to "true" if cluster has InfiniBand/RDMA networking
 
     # vLLM Configuration for Large Model
     - name: VLLM_ARGS

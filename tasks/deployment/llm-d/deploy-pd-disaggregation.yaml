@@ -91,6 +91,12 @@ spec:
       type: array
       default: []
 
+    # Networking Configuration
+    - name: ENABLE_RDMA
+      description: Enable RDMA/InfiniBand networking (requires rdma/ib resources on nodes)
+      type: string
+      default: "true"
+
     # Control Flags
     - name: SKIP_IF_EXISTS
       description: Skip deployment if release already exists
@@ -234,6 +240,18 @@ spec:
             /tmp/yq -i '.decode.containers[0].args += ["'"$arg"'"]' $MS_VALUES_FILE
           fi
         done
+
+        # 7. RDMA Configuration
+        if [ "$(params.ENABLE_RDMA)" != "true" ]; then
+          echo "  Disabling RDMA/InfiniBand resources..."
+          # Remove rdma/ib from prefill resources
+          /tmp/yq -i 'del(.prefill.containers[0].resources.limits."rdma/ib")' $MS_VALUES_FILE
+          /tmp/yq -i 'del(.prefill.containers[0].resources.requests."rdma/ib")' $MS_VALUES_FILE
+          # Remove rdma/ib from decode resources
+          /tmp/yq -i 'del(.decode.containers[0].resources.limits."rdma/ib")' $MS_VALUES_FILE
+          /tmp/yq -i 'del(.decode.containers[0].resources.requests."rdma/ib")' $MS_VALUES_FILE
+          echo "    ✓ RDMA resources removed from prefill and decode workers"
+        fi
 
         # Validate patched ModelService YAML
         if ! /tmp/yq eval '.' $MS_VALUES_FILE > /dev/null; then

@@ -85,6 +85,11 @@ spec:
       type: string
       default: "5"
 
+    - name: ENABLE_RDMA
+      description: Enable RDMA/InfiniBand networking (pd-disaggregation mode only, requires rdma/ib resources)
+      type: string
+      default: "true"
+
     # Common Parameters
     - name: HF_TOKEN_SECRET
       description: Secret name containing HuggingFace token
@@ -375,6 +380,8 @@ spec:
           value: $(params.PD_THRESHOLD)
         - name: HASH_BLOCK_SIZE
           value: $(params.HASH_BLOCK_SIZE)
+        - name: ENABLE_RDMA
+          value: $(params.ENABLE_RDMA)
         - name: HF_TOKEN_SECRET
           value: $(params.HF_TOKEN_SECRET)
         - name: VLLM_ARGS

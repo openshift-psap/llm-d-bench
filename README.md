@@ -331,6 +331,29 @@ oc get pods -n tekton-pipelines
 
 All pods should show `1/1 Running` status.
 
+**If `anyuid` SCC doesn't work:**
+
+In some cases, pods may still fail with errors like:
+```
+pod.metadata.annotations[container.seccomp.security.alpha.kubernetes.io/...]: Forbidden: seccomp may not be set
+```
+
+This happens because Tekton deployments include `seccompProfile.type: RuntimeDefault` in their securityContext, and the `anyuid` SCC doesn't allow seccomp profiles (`Allowed Seccomp Profiles: <none>`).
+
+Use the `privileged` SCC instead:
+
+```bash
+oc adm policy add-scc-to-user privileged system:serviceaccount:tekton-pipelines:tekton-pipelines-controller
+oc adm policy add-scc-to-user privileged system:serviceaccount:tekton-pipelines:tekton-pipelines-webhook
+oc adm policy add-scc-to-user privileged system:serviceaccount:tekton-pipelines:tekton-events-controller
+```
+
+Then restart the deployments:
+
+```bash
+oc rollout restart deployment tekton-pipelines-controller tekton-pipelines-webhook tekton-events-controller -n tekton-pipelines
+```
+
 </details>
 
 ### Image Build Push Failures
