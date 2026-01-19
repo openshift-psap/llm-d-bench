@@ -119,46 +119,46 @@ spec:
       # Update namespace if built in different namespace
       value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
 
-    - name: PROCESSOR
+    - name: GUIDELLM_PROCESSOR
       # DEFAULT: "" (empty, uses MODEL_NAME)
       # Tokenizer/processor model name for GuideLLM
       # Set explicitly if different from MODEL_NAME
       value: "Qwen/Qwen3-0.6B"
 
-    - name: BACKEND_TYPE
+    - name: GUIDELLM_BACKEND_TYPE
       # DEFAULT: "openai_http"
       # Options: "openai_http", "openai_server"
       # Backend type for the inference server
       value: "openai_http"
 
-    - name: RATE_TYPE
+    - name: GUIDELLM_RATE_TYPE
       # DEFAULT: "concurrent"
       # Options: "concurrent", "synchronous"
       # - concurrent: Maintain N concurrent requests
       # - synchronous: Send requests at fixed rate (requests/sec)
       value: "concurrent"
 
-    - name: RATE
+    - name: GUIDELLM_RATE
       # DEFAULT: "1,50,100"
       # Comma-separated list of rates to test
       # For concurrent: number of concurrent requests
       # For synchronous: requests per second
       value: "1,50,100,200"
 
-    - name: DATA
+    - name: GUIDELLM_DATA
       # DEFAULT: "prompt_tokens=1000,output_tokens=1000"
       # Request data profile
       # Format: prompt_tokens=N,output_tokens=M
       # Or use dataset name: "emulated:prompt_tokens=1000,output_tokens=1000"
       value: "prompt_tokens=1000,output_tokens=1000"
 
-    - name: MAX_SECONDS
+    - name: GUIDELLM_MAX_SECONDS
       # DEFAULT: "600"
       # Maximum duration per rate in seconds
       # Set lower for quick tests, higher for stable measurements
       value: "60"
 
-    - name: MAX_REQUESTS
+    - name: GUIDELLM_MAX_REQUESTS
       # DEFAULT: "" (unlimited)
       # Maximum number of requests per rate
       # Leave empty for time-based runs
@@ -173,7 +173,7 @@ spec:
       # Requires MLflow server and mlflow-auth secret
       value: "true"
 
-    - name: EXPERIMENT_NAME
+    - name: MLFLOW_EXPERIMENT_NAME
       # DEFAULT: "guidellm-benchmarks"
       # MLflow experiment name
       value: "qwen-qwen3-06b"
@@ -190,7 +190,7 @@ spec:
       # Examples: "H100", "H200", "A100-80GB", "L40S"
       value: "H200"
 
-    - name: TAGS
+    - name: MLFLOW_TAGS
       # DEFAULT: []
       # Additional tags as array of key=value pairs
       # Recorded in MLflow for filtering/grouping
@@ -207,37 +207,37 @@ spec:
     # MLPerf Benchmark Parameters
     # (Only used when IMAGE contains 'mlperf')
     # ===========================================
-    - name: DATASET_NAME
+    - name: MLPERF_DATASET_NAME
       # DEFAULT: "cnn_eval.json"
       # Dataset filename in /mlperf-data/ PVC mount
       value: "cnn_eval.json"
 
-    - name: SCENARIO
+    - name: MLPERF_SCENARIO
       # DEFAULT: "Offline"
       # Options: "Offline", "Server", "SingleStream", "MultiStream"
       value: "Offline"
 
-    - name: TEST_MODE
+    - name: MLPERF_TEST_MODE
       # DEFAULT: "accuracy"
       # Options: "accuracy", "performance"
       value: "accuracy"
 
-    - name: BATCH_SIZE
+    - name: MLPERF_BATCH_SIZE
       # DEFAULT: "" (auto)
       # Batch size for MLPerf
       value: ""
 
-    - name: NUM_SAMPLES
+    - name: MLPERF_NUM_SAMPLES
       # DEFAULT: "4388"
       # Number of samples to process
       value: "4388"
 
-    - name: OUTPUT_DIR
+    - name: MLPERF_OUTPUT_DIR
       # DEFAULT: "./test-run"
       # Output directory for MLPerf results
       value: "./test-run"
 
-    - name: SERVER_TARGET_QPS
+    - name: MLPERF_SERVER_TARGET_QPS
       # DEFAULT: "10"
       # Target QPS for Server scenario
       value: "10"

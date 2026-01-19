@@ -69,53 +69,35 @@ spec:
     # ===========================================
     # MLPerf-specific parameters
     # ===========================================
-    - name: DATASET_NAME
+    - name: MLPERF_DATASET_NAME
       value: "cnn_eval.json"
-    - name: SCENARIO
+    - name: MLPERF_SCENARIO
       value: "Server"
-    - name: TEST_MODE
+    - name: MLPERF_TEST_MODE
       value: "performance"
-    - name: NUM_SAMPLES
+    - name: MLPERF_NUM_SAMPLES
       value: "13368"
-    - name: SERVER_TARGET_QPS
+    - name: MLPERF_SERVER_TARGET_QPS
       value: "20"
-    - name: BATCH_SIZE
+    - name: MLPERF_BATCH_SIZE
       value: ""
-    - name: OUTPUT_DIR
+    - name: MLPERF_OUTPUT_DIR
       value: "/tmp/mlperf"
     - name: BENCHMARK_ENV_VARS
       value: []
-
-    # ===========================================
-    # GuideLLM parameters (unused but required by pipeline schema)
-    # ===========================================
-    - name: RATE
-      value: "1"
-    - name: DATA
-      value: ""
-    - name: PROCESSOR
-      value: ""
-    - name: MAX_SECONDS
-      value: ""
-    - name: MAX_REQUESTS
-      value: ""
-    - name: BACKEND_TYPE
-      value: ""
-    - name: RATE_TYPE
-      value: ""
 
     # ===========================================
     # MLflow Configuration
     # ===========================================
     - name: MLFLOW_ENABLED
       value: "true"
-    - name: EXPERIMENT_NAME
+    - name: MLFLOW_EXPERIMENT_NAME
       value: "meta-llama-31-8b-mlperf"
     - name: VERSION
       value: "llm-d-0.4"
     - name: ACCELERATOR
       value: "H200"
-    - name: TAGS
+    - name: MLFLOW_TAGS
       value:
         - "deployment=vllm"
         - "benchmark-tool=mlperf"

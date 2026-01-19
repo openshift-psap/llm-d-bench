@@ -31,7 +31,7 @@ spec:
       description: Model name/identifier
       type: string
 
-    - name: EXPERIMENT_NAME
+    - name: MLFLOW_EXPERIMENT_NAME
       description: MLflow experiment name
       type: string
       default: "mlperf-benchmarks"
@@ -41,7 +41,7 @@ spec:
       type: string
       default: "false"
 
-    - name: TAGS
+    - name: MLFLOW_TAGS
       description: Additional tags as array of key=value pairs
       type: array
       default: []
@@ -67,38 +67,38 @@ spec:
       default: []
 
     # MLPerf-specific parameters
-    - name: DATASET_NAME
-      description: Dataset filename
+    - name: MLPERF_DATASET_NAME
+      description: Dataset filename (MLPerf only)
       type: string
       default: "cnn_eval.json"
 
-    - name: SCENARIO
-      description: MLPerf scenario
+    - name: MLPERF_SCENARIO
+      description: MLPerf scenario (MLPerf only)
       type: string
       default: "Offline"
 
-    - name: TEST_MODE
-      description: MLPerf test mode
+    - name: MLPERF_TEST_MODE
+      description: MLPerf test mode (MLPerf only)
       type: string
       default: "accuracy"
 
-    - name: BATCH_SIZE
-      description: Batch size
+    - name: MLPERF_BATCH_SIZE
+      description: Batch size (MLPerf only)
       type: string
       default: ""
 
-    - name: NUM_SAMPLES
-      description: Number of samples
+    - name: MLPERF_NUM_SAMPLES
+      description: Number of samples (MLPerf only)
       type: string
       default: "4388"
 
-    - name: OUTPUT_DIR
-      description: Output directory
+    - name: MLPERF_OUTPUT_DIR
+      description: Output directory (MLPerf only)
       type: string
       default: "./test-run"
 
-    - name: SERVER_TARGET_QPS
-      description: Target QPS for Server scenario
+    - name: MLPERF_SERVER_TARGET_QPS
+      description: Target QPS for Server scenario (MLPerf only)
       type: string
       default: "10"
 
@@ -112,42 +112,6 @@ spec:
       description: Health check timeout in seconds
       type: string
       default: "3600"
-
-    # GuideLLM parameters (unused but for pipeline compatibility)
-    - name: RATE
-      description: Unused by MLPerf
-      type: string
-      default: "1"
-
-    - name: DATA
-      description: Unused by MLPerf
-      type: string
-      default: ""
-
-    - name: PROCESSOR
-      description: Unused by MLPerf
-      type: string
-      default: ""
-
-    - name: MAX_SECONDS
-      description: Unused by MLPerf
-      type: string
-      default: ""
-
-    - name: MAX_REQUESTS
-      description: Unused by MLPerf
-      type: string
-      default: ""
-
-    - name: BACKEND_TYPE
-      description: Unused by MLPerf
-      type: string
-      default: ""
-
-    - name: RATE_TYPE
-      description: Unused by MLPerf
-      type: string
-      default: ""
 
   workspaces:
     - name: models-storage
@@ -190,12 +154,12 @@ spec:
           value: $(params.TARGET)
         - name: MODEL
           value: $(params.MODEL)
-        - name: EXPERIMENT_NAME
-          value: $(params.EXPERIMENT_NAME)
+        - name: MLFLOW_EXPERIMENT_NAME
+          value: $(params.MLFLOW_EXPERIMENT_NAME)
         - name: MLFLOW_ENABLED
           value: $(params.MLFLOW_ENABLED)
-        - name: TAGS
-          value: $(params.TAGS[*])
+        - name: MLFLOW_TAGS
+          value: $(params.MLFLOW_TAGS[*])
         - name: VERSION
           value: $(params.VERSION)
         - name: TP
@@ -204,34 +168,20 @@ spec:
           value: $(params.ACCELERATOR)
         - name: BENCHMARK_ENV_VARS
           value: $(params.BENCHMARK_ENV_VARS[*])
-        - name: DATASET_NAME
-          value: $(params.DATASET_NAME)
-        - name: SCENARIO
-          value: $(params.SCENARIO)
-        - name: TEST_MODE
-          value: $(params.TEST_MODE)
-        - name: BATCH_SIZE
-          value: $(params.BATCH_SIZE)
-        - name: NUM_SAMPLES
-          value: $(params.NUM_SAMPLES)
-        - name: OUTPUT_DIR
-          value: $(params.OUTPUT_DIR)
-        - name: SERVER_TARGET_QPS
-          value: $(params.SERVER_TARGET_QPS)
-        - name: RATE
-          value: $(params.RATE)
-        - name: DATA
-          value: $(params.DATA)
-        - name: PROCESSOR
-          value: $(params.PROCESSOR)
-        - name: MAX_SECONDS
-          value: $(params.MAX_SECONDS)
-        - name: MAX_REQUESTS
-          value: $(params.MAX_REQUESTS)
-        - name: BACKEND_TYPE
-          value: $(params.BACKEND_TYPE)
-        - name: RATE_TYPE
-          value: $(params.RATE_TYPE)
+        - name: MLPERF_DATASET_NAME
+          value: $(params.MLPERF_DATASET_NAME)
+        - name: MLPERF_SCENARIO
+          value: $(params.MLPERF_SCENARIO)
+        - name: MLPERF_TEST_MODE
+          value: $(params.MLPERF_TEST_MODE)
+        - name: MLPERF_BATCH_SIZE
+          value: $(params.MLPERF_BATCH_SIZE)
+        - name: MLPERF_NUM_SAMPLES
+          value: $(params.MLPERF_NUM_SAMPLES)
+        - name: MLPERF_OUTPUT_DIR
+          value: $(params.MLPERF_OUTPUT_DIR)
+        - name: MLPERF_SERVER_TARGET_QPS
+          value: $(params.MLPERF_SERVER_TARGET_QPS)
       workspaces:
         - name: models-storage
           workspace: models-storage

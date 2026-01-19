@@ -51,23 +51,23 @@ spec:
       value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
     - name: TARGET
       value: "https://redhatai-llama-4-maverick-17b-128e-instruc-kserve-workload-svc.llm-d-bench.svc.cluster.local:8000"
-    - name: PROCESSOR
+    - name: GUIDELLM_PROCESSOR
       value: "RedHatAI/Llama-4-Maverick-17B-128E-Instruct-FP8"
-    - name: BACKEND_TYPE
+    - name: GUIDELLM_BACKEND_TYPE
       value: "openai_http"
-    - name: RATE_TYPE
+    - name: GUIDELLM_RATE_TYPE
       value: "concurrent"
-    - name: RATE
+    - name: GUIDELLM_RATE
       value: "650,500,300,200,100,50,1"
-    - name: DATA
+    - name: GUIDELLM_DATA
       value: "prompt_tokens=1000,output_tokens=1000"
-    - name: MAX_SECONDS
+    - name: GUIDELLM_MAX_SECONDS
       value: "600"
-    - name: MAX_REQUESTS
+    - name: GUIDELLM_MAX_REQUESTS
       value: ""
     - name: ACCELERATOR
       value: "H200"
-    - name: EXPERIMENT_NAME
+    - name: MLFLOW_EXPERIMENT_NAME
       value: "redhatai-llama-4-maverick-17b-128e-instruct-fp8-1k-1k"
     - name: VERSION
       value: "RHOAI-3.0"
@@ -77,7 +77,7 @@ spec:
     # MLflow Configuration
     - name: MLFLOW_ENABLED
       value: "true"
-    - name: TAGS
+    - name: MLFLOW_TAGS
       value:
         - "llm-d-version=RHOAI-3.0"
 
