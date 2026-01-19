@@ -6,6 +6,7 @@ This guide covers advanced topics for using, modifying, and extending the llm-d-
 
 - [Repository Structure](#repository-structure)
 - [Infrastructure Requirements](#infrastructure-requirements)
+- [PD Disaggregation Deployment Mode](#pd-disaggregation-deployment-mode)
 - [Tekton Concepts](#tekton-concepts)
 - [Parameter Inheritance and Defaults](#parameter-inheritance-and-defaults)
 - [Using the Tekton CLI](#using-the-tekton-cli)
@@ -112,6 +113,499 @@ This repository supports **RHOAI deployment** using distributed inference throug
 - Network policies and ingress
 
 **Recommendation**: Review the manifests in `infra/manifests/` and adapt them to your cluster's configuration before running downstream e2e pipelines.
+
+---
+
+## PD Disaggregation Deployment Mode
+
+### Overview
+
+**PD (Prefill/Decode) Disaggregation** is an advanced deployment mode for llm-d that separates the prefill and decode phases of LLM inference into specialized worker pools. This architecture enables improved throughput/latency trade-offs for large models with long input sequences.
+
+### When to Use PD Disaggregation
+
+PD Disaggregation is designed for:
+
+- **Large models**: 70B+ parameters
+- **Long input sequences**: 10k+ tokens (ISL - Input Sequence Length)
+- **High-performance clusters**: RDMA networking available
+- **Throughput-critical workloads**: Where separating compute-intensive prefill from latency-sensitive decode provides benefits
+
+**Do NOT use for:**
+- Small models (<13B parameters)
+- Short sequences (<1k tokens)
+- Limited GPU availability (<8 GPUs)
+
+### Requirements
+
+#### Minimum Requirements
+
+- **8 GPUs minimum** for worker pools
+- **RDMA networking** (InfiniBand or RoCE) - *recommended but optional*
+  - Recommended for efficient KV cache transfer between prefill and decode workers
+  - Can be disabled with `ENABLE_RDMA: "false"` for clusters without RDMA
+  - Performance will be reduced without RDMA due to network overhead
+- **llm-d 0.4+** with PD disaggregation support
+- **vLLM with Nixl connector** for KV cache transfer
+
+#### Recommended Hardware
+
+- **GPUs**: H100/H200 with NVLink for best performance
+- **Network**: InfiniBand or RoCE (RDMA over Converged Ethernet)
+- **Memory**: High-bandwidth memory for KV cache operations
+- **Storage**: Fast shared storage for model weights
+
+### How PD Disaggregation Works
+
+#### Architecture
+
+Traditional inference processes each request through prefill → decode phases on the same worker. PD Disaggregation splits this:
+
+```
+┌─────────────────┐
+│   Request       │
+└────────┬────────┘
+         │
+    ┌────▼────────────────────────────────────┐
+    │    GAIE Scheduler                       │
+    │    (PD Profile Handler)                 │
+    └────┬─────────────────────────┬──────────┘
+         │                         │
+         │ Prefill Phase           │ Decode Phase
+         ▼                         ▼
+┌────────────────────┐    ┌────────────────────┐
+│  Prefill Workers   │───▶│  Decode Workers    │
+│  (Horizontal Scale)│ KV │  (Vertical Scale)  │
+│                    │Txfr│                    │
+│  4 replicas × 1 TP │────│  1 replica × 4 TP  │
+└────────────────────┘    └────────────────────┘
+```
+
+#### Prefill Workers
+
+- **Purpose**: Process input tokens, generate KV cache
+- **Optimization**: Horizontal scaling (more replicas, less TP)
+- **Characteristics**:
+  - Compute-bound workload
+  - Benefits from parallel processing
+  - Typical config: 4-8 replicas with TP=1
+  - Example: 4 workers × 1 GPU = 4 GPUs total
+
+#### Decode Workers
+
+- **Purpose**: Autoregressive generation using KV cache
+- **Optimization**: Vertical scaling (fewer replicas, more TP)
+- **Characteristics**:
+  - Latency-sensitive workload
+  - Benefits from larger TP for memory bandwidth
+  - Typical config: 1-2 replicas with TP=4-8
+  - Example: 1 worker × 4 GPUs = 4 GPUs total
+
+#### KV Cache Transfer
+
+- Uses **Nixl connector** for efficient KV cache transfer via RDMA
+- Prefill workers generate KV cache and transfer to decode workers
+- Decode workers use transferred cache for generation
+- Requires RDMA networking for performance
+
+### Configuration Parameters
+
+#### Deployment Mode Selection
+
+```yaml
+params:
+  - name: DEPLOYMENT_MODE
+    value: "pd-disaggregation"  # or "inference-scheduling" (default)
+```
+
+#### Gateway Provider
+
+```yaml
+- name: GATEWAY_PROVIDER
+  value: "istio"              # Gateway provider for inference endpoint
+                              # Options: istio (default), kgateway, standalone, gke
+```
+
+#### Worker Pool Configuration
+
+**Prefill Workers:**
+```yaml
+- name: PREFILL_REPLICAS
+  value: "4"              # Number of prefill worker replicas
+- name: PREFILL_TP
+  value: "1"              # Tensor parallelism per prefill worker
+```
+
+**Decode Workers:**
+```yaml
+- name: DECODE_REPLICAS
+  value: "1"              # Number of decode worker replicas
+- name: DECODE_TP
+  value: "4"              # Tensor parallelism per decode worker
+```
+
+**Total GPUs = (PREFILL_REPLICAS × PREFILL_TP) + (DECODE_REPLICAS × DECODE_TP)**
+
+#### PD Scheduler Configuration
+
+```yaml
+- name: PD_THRESHOLD
+  value: "0"              # Selective PD threshold
+                          # 0 = always disaggregate
+                          # Higher values = selective disaggregation based on input length
+
+- name: HASH_BLOCK_SIZE
+  value: "5"              # Hash block size for PD profiling in GAIE
+                          # Used for KV cache profiling and matching
+```
+
+#### Networking Configuration
+
+```yaml
+- name: ENABLE_RDMA
+  value: "true"           # Enable RDMA/InfiniBand networking (default: true)
+                          # Set to "false" for clusters without RDMA hardware
+                          # Performance will be reduced without RDMA
+```
+
+### Typical Configurations
+
+#### 8 GPU Configuration (Entry Level)
+
+```yaml
+# Balanced configuration
+PREFILL_REPLICAS: "4"
+PREFILL_TP: "1"
+DECODE_REPLICAS: "1"
+DECODE_TP: "4"
+# Total: 4 + 4 = 8 GPUs
+```
+
+**Use case**: Initial testing, moderate throughput requirements
+
+#### 16 GPU Configuration (High Throughput)
+
+```yaml
+# More prefill throughput
+PREFILL_REPLICAS: "8"
+PREFILL_TP: "1"
+DECODE_REPLICAS: "2"
+DECODE_TP: "4"
+# Total: 8 + 8 = 16 GPUs
+```
+
+**Use case**: High request rate, long input sequences
+
+#### 16 GPU Configuration (Memory-Bound Models)
+
+```yaml
+# Larger prefill TP for memory-intensive models
+PREFILL_REPLICAS: "4"
+PREFILL_TP: "2"
+DECODE_REPLICAS: "2"
+DECODE_TP: "4"
+# Total: 8 + 8 = 16 GPUs
+```
+
+**Use case**: Very large models requiring more TP even for prefill
+
+### Example PipelineRun
+
+Complete example for Llama-3.1-70B:
+
+```yaml
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: llama-70b-pd-
+spec:
+  pipelineRef:
+    name: llm-d-end-to-end-benchmark
+
+  params:
+    # Model Configuration
+    - name: MODEL_NAME
+      value: "meta-llama/Llama-3.1-70B-Instruct"
+
+    # Deployment Mode
+    - name: DEPLOYMENT_MODE
+      value: "pd-disaggregation"
+
+    # PD Worker Configuration (8 GPUs)
+    - name: PREFILL_REPLICAS
+      value: "4"
+    - name: PREFILL_TP
+      value: "1"
+    - name: DECODE_REPLICAS
+      value: "1"
+    - name: DECODE_TP
+      value: "4"
+
+    # PD Scheduler
+    - name: PD_THRESHOLD
+      value: "0"
+
+    # vLLM Configuration
+    - name: VLLM_ARGS
+      value:
+        - "--max-model-len=8192"
+        - "--gpu-memory-utilization=0.92"
+        - "--distributed-executor-backend=mp"
+
+    # Benchmark Configuration
+    - name: TARGET
+      value: "http://infra-llama-70b-pd-inference-gateway-istio.llm-d-bench.svc.cluster.local:80/v1"
+    - name: RATE
+      value: "1,50,100,200"
+```
+
+See `pipelineruns/llm-d/redhatai-llama-3.3-70b-instruct-fp8-dynamic-pd-disagg.yaml` for a complete example.
+
+### Technical Details
+
+#### Values File Differences
+
+**Inference-Scheduling Mode** (`ms-inference-scheduling/values.yaml`):
+- Single `decode` section with unified worker pool
+- Simple configuration for standard deployments
+
+**PD Disaggregation Mode** (`ms-pd/values.yaml`):
+- Separate `prefill` and `decode` sections
+- Independent configuration for each worker pool
+- KV transfer configuration in both pools
+
+#### GAIE Configuration
+
+The PD disaggregation mode uses specialized GAIE plugins:
+
+- **prefill-header-handler**: Marks requests for prefill routing
+- **prefill-filter**: Routes prefill phase to prefill workers
+- **decode-filter**: Routes decode phase to decode workers
+- **queue-scorer**: Scores workers based on KV cache availability
+- **pd-profile-handler**: Determines when to apply disaggregation based on `PD_THRESHOLD`
+
+Configuration in `gaie-pd/values.yaml`:
+```yaml
+plugins:
+  - type: pd-profile-handler
+    parameters:
+      threshold: 0              # From PD_THRESHOLD parameter
+      hashBlockSize: 5          # From HASH_BLOCK_SIZE parameter
+```
+
+#### HTTPRoute Configuration
+
+Same as inference-scheduling - points to InferencePool, not individual workers:
+```yaml
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: llm-d-${RELEASE_NAME}
+spec:
+  parentRefs:
+    - kind: Gateway
+      name: infra-${RELEASE_NAME}-inference-gateway
+  rules:
+    - backendRefs:
+        - kind: InferencePool
+          name: gaie-${RELEASE_NAME}
+          port: 8000
+```
+
+The GAIE scheduler handles routing between prefill and decode pools transparently.
+
+### Verification
+
+After deployment, verify both worker pools are running:
+
+```bash
+NAMESPACE=llm-d-bench
+RELEASE_NAME=llama-70b-pd
+
+# Check all model service pods
+kubectl get pods -n $NAMESPACE -l llm-d.ai/inferenceServing=true
+
+# Expected output (for 8 GPU configuration):
+# ms-llama-70b-pd-prefill-0  1/1  Running
+# ms-llama-70b-pd-prefill-1  1/1  Running
+# ms-llama-70b-pd-prefill-2  1/1  Running
+# ms-llama-70b-pd-prefill-3  1/1  Running
+# ms-llama-70b-pd-decode-0   1/1  Running
+
+# Verify GAIE scheduler
+kubectl get pods -n $NAMESPACE -l inferencepool=gaie-$RELEASE_NAME-epp
+
+# Verify gateway
+kubectl get gateway -n $NAMESPACE infra-$RELEASE_NAME-inference-gateway
+
+# Verify InferencePool
+kubectl get inferencepool -n $NAMESPACE gaie-$RELEASE_NAME
+```
+
+### Troubleshooting
+
+#### Workers Not Starting
+
+**Symptom**: Prefill or decode pods remain in Pending state
+
+**Causes**:
+- Insufficient GPUs available
+- GPU resource fragmentation
+- Node selector constraints
+
+**Solution**:
+```bash
+# Check GPU availability
+kubectl describe nodes | grep -A 5 "nvidia.com/gpu"
+
+# Verify total GPU requirement
+# TOTAL = (PREFILL_REPLICAS × PREFILL_TP) + (DECODE_REPLICAS × DECODE_TP)
+
+# Check pod events
+kubectl describe pod ms-<release>-prefill-0 -n $NAMESPACE
+kubectl describe pod ms-<release>-decode-0 -n $NAMESPACE
+```
+
+#### KV Cache Transfer Failures
+
+**Symptom**: High latency, decode phase failures, RDMA errors in logs
+
+**Causes**:
+- RDMA networking not configured
+- Incorrect RDMA device specification
+- Network connectivity issues
+
+**Solution**:
+```bash
+# Check RDMA resources in pod spec
+kubectl get pod ms-<release>-prefill-0 -n $NAMESPACE -o yaml | grep -A 5 "rdma/ib"
+
+# Verify RDMA devices available on nodes
+kubectl describe nodes | grep rdma
+
+# Check vLLM logs for Nixl connector errors
+kubectl logs ms-<release>-prefill-0 -n $NAMESPACE | grep -i "nixl\|rdma"
+```
+
+#### Unbalanced Worker Utilization
+
+**Symptom**: Some workers overloaded while others idle
+
+**Causes**:
+- Incorrect PD_THRESHOLD setting
+- Workload doesn't benefit from disaggregation (short sequences)
+- GAIE scheduler configuration issues
+
+**Solution**:
+```bash
+# Check worker metrics
+kubectl port-forward svc/ms-<release>-prefill 8000:8000 -n $NAMESPACE
+curl http://localhost:8000/metrics
+
+# Adjust PD_THRESHOLD based on workload
+# 0 = always disaggregate (good for long sequences)
+# Higher values = only disaggregate when beneficial
+
+# Check GAIE logs for routing decisions
+kubectl logs -l inferencepool=gaie-<release>-epp -n $NAMESPACE
+```
+
+#### Deployment Task Fails
+
+**Symptom**: `deploy-llm-d-pd-disaggregation` task fails validation
+
+**Causes**:
+- Total GPUs < 8
+- Invalid worker configuration
+
+**Solution**:
+```bash
+# Review task logs
+tkn pipelinerun logs <run-name> -t deploy-llm-d-pd-disaggregation -n $NAMESPACE
+
+# Verify GPU calculation
+# Example error: "PD disaggregation requires minimum 8 GPUs (current: 5)"
+
+# Adjust worker pool configuration to meet minimum requirements
+```
+
+### Performance Tuning
+
+#### Optimizing Prefill Throughput
+
+Increase prefill replicas for higher request throughput:
+```yaml
+PREFILL_REPLICAS: "8"  # More prefill workers
+PREFILL_TP: "1"        # Keep TP low for horizontal scaling
+```
+
+#### Optimizing Decode Latency
+
+Increase decode TP for lower latency:
+```yaml
+DECODE_REPLICAS: "1"   # Fewer decode workers
+DECODE_TP: "8"         # Higher TP for memory bandwidth
+```
+
+#### Balancing for Mixed Workloads
+
+For workloads with varying input lengths, use selective disaggregation:
+```yaml
+PD_THRESHOLD: "512"    # Only disaggregate requests >512 tokens
+                       # Shorter requests bypass disaggregation overhead
+```
+
+### Cleanup
+
+Cleanup works the same as inference-scheduling mode (uses Helm release names):
+
+```bash
+# Using pipeline cleanup task
+SKIP_CLEANUP: "false"
+
+# Manual cleanup
+kubectl delete httproute llm-d-$RELEASE_NAME -n $NAMESPACE
+helm uninstall ms-$RELEASE_NAME -n $NAMESPACE
+helm uninstall gaie-$RELEASE_NAME -n $NAMESPACE
+helm uninstall infra-$RELEASE_NAME -n $NAMESPACE
+```
+
+### Switching Between Modes
+
+To switch an existing deployment between modes, change the PipelineRun:
+
+**From inference-scheduling to PD:**
+```yaml
+# Change these parameters:
+- name: DEPLOYMENT_MODE
+  value: "pd-disaggregation"  # Was: "inference-scheduling"
+
+# Remove:
+- name: MODEL_REPLICAS
+- name: TP
+
+# Add:
+- name: PREFILL_REPLICAS
+  value: "4"
+- name: PREFILL_TP
+  value: "1"
+- name: DECODE_REPLICAS
+  value: "1"
+- name: DECODE_TP
+  value: "4"
+```
+
+**Note**: Requires cleanup of existing deployment first (different Helm charts).
+
+### Best Practices
+
+1. **Start with baseline configuration**: Use 8 GPU (4 prefill × 1 TP + 1 decode × 4 TP) for initial testing
+2. **Monitor worker utilization**: Use Prometheus metrics to identify bottlenecks
+3. **Match TP to model size**: Very large models may need higher prefill TP
+4. **Use selective disaggregation**: Set PD_THRESHOLD for mixed workloads
+5. **Verify RDMA**: Ensure RDMA is functioning before production deployment
+6. **Test at scale**: Benchmark with realistic request patterns before production
+7. **Document configuration**: Tag MLflow runs with worker pool configuration for analysis
 
 ---
 

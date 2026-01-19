@@ -1,6 +1,17 @@
-# This file contains the example definition of a GuideLLM pipelinerun for RHOAI.
-# Parameters are marked if they are required, match default or not.
-# Use this pipelinerun as an example to create new RHOAI pipelineruns.
+# ===========================================
+# RHOAI End-to-End Benchmark Example
+# ===========================================
+# This file contains ALL available parameters for the rhoai-end-to-end-benchmark pipeline.
+# Use this as a reference to create new RHOAI pipelineruns.
+#
+# Parameters are annotated with:
+#   - REQUIRED: Must be provided, no default value
+#   - DEFAULT: Shows the default value if not specified
+#   - Options: Lists available choices for the parameter
+#
+# RHOAI deploys models using KServe LLMInferenceService (Red Hat OpenShift AI).
+# Requires RHOAI 3.0+ with KServe and Service Mesh configured.
+#
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
@@ -9,17 +20,19 @@ metadata:
     app: llm-d-bench
     pipeline: rhoai-end-to-end-benchmark
     experiment: qwen-qwen3-06b-example
+    benchmark-tool: guidellm
     deployment-mode: rhoai
 spec:
   pipelineRef:
     name: rhoai-end-to-end-benchmark
 
-  # Use service account with permissions for LLMInferenceService resources
+  # Service account with permissions for LLMInferenceService resources
   taskRunTemplate:
     serviceAccountName: deploy-model-sa
     podTemplate:
       labels:
-        # Kueue integration for GPU quota management
+        # Kueue integration for GPU quota management (optional)
+        # Remove these labels if not using Kueue
         kueue.x-k8s.io/queue-name: psap-releases-queue
         kueue.x-k8s.io/priority-class: psap-releases
 
@@ -31,82 +44,226 @@ spec:
     # Model Configuration
     # ===========================================
     - name: MODEL_NAME
-      value: "Qwen/Qwen3-0.6B"  # Required - no default
+      # REQUIRED - HuggingFace model identifier
+      # Examples: "meta-llama/Llama-3.1-8B", "Qwen/Qwen3-0.6B", "mistralai/Mistral-7B-v0.1"
+      value: "Qwen/Qwen3-0.6B"
+
     - name: MODEL_REVISION
-      value: "main"  # DEFAULT
+      # DEFAULT: "main"
+      # Git branch, tag, or commit hash for the model
+      value: "main"
 
     # ===========================================
     # Deployment Configuration (RHOAI-specific)
     # ===========================================
     - name: NAMESPACE
-      value: "llm-d-bench"  # Required - no default
+      # REQUIRED - Kubernetes namespace for deployment
+      # Must have RHOAI/KServe configured
+      value: "llm-d-bench"
+
+    - name: REPLICAS
+      # DEFAULT: "1"
+      # Number of LLMInferenceService replicas
+      value: "1"
+
+    - name: TP
+      # DEFAULT: "1"
+      # Tensor parallelism size (GPUs per replica)
+      # Common values: 1, 2, 4, 8
+      # Total GPUs = REPLICAS × TP
+      value: "1"
+
+    - name: ENABLE_AUTH
+      # DEFAULT: "false"
+      # Enable authentication on the inference service
+      # When true, requires auth token for API calls
+      value: "false"
+
     - name: VLLM_ARGS
-      value:  # DEFAULT: []
+      # DEFAULT: []
+      # Additional vLLM command-line arguments
+      # Common options:
+      #   --max-model-len=N        Maximum sequence length
+      #   --gpu-memory-utilization=0.95   GPU memory fraction to use
+      #   --trust-remote-code      Trust remote code in model repo
+      #   --quantization=awq|gptq  Enable quantization
+      #   --enforce-eager          Disable CUDA graphs
+      #   --distributed-executor-backend=mp|ray  Distributed backend
+      value:
         - "--max-model-len=8192"
         - "--gpu-memory-utilization=0.95"
-    - name: ENABLE_AUTH
-      value: "false"  # DEFAULT
-    - name: REPLICAS
-      value: "1"  # DEFAULT
-    - name: TP
-      value: "1"  # DEFAULT
 
     # ===========================================
-    # Benchmark Configuration
+    # Benchmark Configuration - GuideLLM
     # ===========================================
     - name: IMAGE
-      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"  # DEFAULT
+      # DEFAULT: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
+      # GuideLLM benchmark container image
+      # Update namespace if built in different namespace
+      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
+
     - name: TARGET
-      value: "https://qwen-qwen3-06b-kserve-workload-svc.llm-d-bench.svc.cluster.local:8000"  # Required - no default
+      # REQUIRED - Inference endpoint URL
+      # Format for RHOAI/KServe:
+      #   https://{sanitized-model-name}-kserve-workload-svc.{namespace}.svc.cluster.local:8000
+      # Model name is sanitized: lowercase, slashes replaced with hyphens
+      # Example: "meta-llama/Llama-3.1-8B" -> "meta-llama-llama-3.1-8b"
+      value: "https://qwen-qwen3-06b-kserve-workload-svc.llm-d-bench.svc.cluster.local:8000"
+
     - name: PROCESSOR
-      value: "Qwen/Qwen3-0.6B"  # DEFAULT: "" (empty)
+      # DEFAULT: "" (empty, uses MODEL_NAME)
+      # Tokenizer/processor model name for GuideLLM
+      # Set explicitly if different from MODEL_NAME
+      value: "Qwen/Qwen3-0.6B"
+
     - name: BACKEND_TYPE
-      value: "openai_http"  # DEFAULT
+      # DEFAULT: "openai_http"
+      # Options: "openai_http", "openai_server"
+      # Backend type for the inference server
+      value: "openai_http"
+
     - name: RATE_TYPE
-      value: "concurrent"  # DEFAULT
+      # DEFAULT: "concurrent"
+      # Options: "concurrent", "synchronous"
+      # - concurrent: Maintain N concurrent requests
+      # - synchronous: Send requests at fixed rate (requests/sec)
+      value: "concurrent"
+
     - name: RATE
-      value: "1"  # DEFAULT: "1,50,100"
+      # DEFAULT: "1,50,100"
+      # Comma-separated list of rates to test
+      # For concurrent: number of concurrent requests
+      # For synchronous: requests per second
+      value: "1"
+
     - name: DATA
-      value: "prompt_tokens=1000,output_tokens=1000"  # DEFAULT
+      # DEFAULT: "prompt_tokens=1000,output_tokens=1000"
+      # Request data profile
+      # Format: prompt_tokens=N,output_tokens=M
+      # Or use dataset name: "emulated:prompt_tokens=1000,output_tokens=1000"
+      value: "prompt_tokens=1000,output_tokens=1000"
+
     - name: MAX_SECONDS
-      value: "60"  # DEFAULT: "600"
+      # DEFAULT: "600"
+      # Maximum duration per rate in seconds
+      # Set lower for quick tests, higher for stable measurements
+      value: "60"
+
     - name: MAX_REQUESTS
-      value: ""  # DEFAULT
-    - name: ACCELERATOR
-      value: "H200"  # DEFAULT: "" (empty)
-    - name: EXPERIMENT_NAME
-      value: "qwen-qwen3-06b"  # DEFAULT: "guidellm-benchmarks"
-    - name: VERSION
-      value: "RHOAI-3.0"  # DEFAULT: "" (empty)
-    - name: BENCHMARK_ENV_VARS
-      value: []  # DEFAULT
+      # DEFAULT: "" (unlimited)
+      # Maximum number of requests per rate
+      # Leave empty for time-based runs
+      value: ""
 
     # ===========================================
     # MLflow Configuration
     # ===========================================
     - name: MLFLOW_ENABLED
-      value: "true"  # DEFAULT: "false"
+      # DEFAULT: "false"
+      # Enable MLflow experiment tracking
+      # Requires MLflow server and mlflow-auth secret
+      value: "true"
+
+    - name: EXPERIMENT_NAME
+      # DEFAULT: "guidellm-benchmarks"
+      # MLflow experiment name
+      value: "qwen-qwen3-06b"
+
+    - name: VERSION
+      # DEFAULT: "" (empty)
+      # Version identifier for visualization reports
+      # Useful for comparing different configurations
+      value: "RHOAI-3.0"
+
+    - name: ACCELERATOR
+      # DEFAULT: "" (empty)
+      # GPU/accelerator type tag for MLflow
+      # Examples: "H100", "H200", "A100-80GB", "L40S"
+      value: "H200"
+
     - name: TAGS
-      value:  # DEFAULT: []
+      # DEFAULT: []
+      # Additional tags as array of key=value pairs
+      # Recorded in MLflow for filtering/grouping
+      value:
         - "deployment=RHOAI"
+
+    - name: BENCHMARK_ENV_VARS
+      # DEFAULT: []
+      # Additional environment variables for benchmark container
+      # Format: ["VAR1=value1", "VAR2=value2"]
+      value: []
+
+    # ===========================================
+    # MLPerf Benchmark Parameters
+    # (Only used when IMAGE contains 'mlperf')
+    # ===========================================
+    - name: DATASET_NAME
+      # DEFAULT: "cnn_eval.json"
+      # Dataset filename in /mlperf-data/ PVC mount
+      value: "cnn_eval.json"
+
+    - name: SCENARIO
+      # DEFAULT: "Offline"
+      # Options: "Offline", "Server", "SingleStream", "MultiStream"
+      value: "Offline"
+
+    - name: TEST_MODE
+      # DEFAULT: "accuracy"
+      # Options: "accuracy", "performance"
+      value: "accuracy"
+
+    - name: BATCH_SIZE
+      # DEFAULT: "" (auto)
+      # Batch size for MLPerf
+      value: ""
+
+    - name: NUM_SAMPLES
+      # DEFAULT: "4388"
+      # Number of samples to process
+      value: "4388"
+
+    - name: OUTPUT_DIR
+      # DEFAULT: "./test-run"
+      # Output directory for MLPerf results
+      value: "./test-run"
+
+    - name: SERVER_TARGET_QPS
+      # DEFAULT: "10"
+      # Target QPS for Server scenario
+      value: "10"
 
     # ===========================================
     # Health Check Configuration
     # ===========================================
     - name: HEALTH_CHECK_TIMEOUT
-      value: "3600"  # DEFAULT
+      # DEFAULT: "3600"
+      # Endpoint health check timeout in seconds
+      # Increase for large models that take longer to load
+      value: "3600"
 
     # ===========================================
     # Stage Control
     # ===========================================
     - name: SKIP_DOWNLOAD
-      value: "false"  # DEFAULT
+      # DEFAULT: "false"
+      # Skip model download stage (use if model already exists on PVC)
+      value: "false"
+
     - name: SKIP_DEPLOY
-      value: "false"  # DEFAULT
+      # DEFAULT: "false"
+      # Skip deployment stage (use if model already deployed)
+      value: "false"
+
     - name: SKIP_BENCHMARK
-      value: "false"  # DEFAULT
+      # DEFAULT: "false"
+      # Skip benchmark stage (use for deployment-only runs)
+      value: "false"
+
     - name: SKIP_CLEANUP
-      value: "false"  # DEFAULT
+      # DEFAULT: "false"
+      # Skip cleanup stage (keep deployment running after benchmark)
+      value: "false"
 
   # ===========================================
   # Timeouts
@@ -119,9 +276,14 @@ spec:
   # Workspaces
   # ===========================================
   workspaces:
+    # Model storage PVC (required)
+    # Must be RWX for multi-replica deployments
+    # RWO is sufficient for single replica
     - name: models-storage
       persistentVolumeClaim:
         claimName: models-storage
 
+    # Results workspace (optional, only for non-MLflow mode)
+    # Use emptyDir for MLflow mode, PVC for file-based results
     - name: results
       emptyDir: {}

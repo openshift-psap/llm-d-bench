@@ -111,7 +111,7 @@ or you can create your secret file by copying the templates present in the `conf
 
 See [config/secrets/](config/secrets/) for YAML templates.
 
-### 3. Setup Internal Image Registry
+### 3. Setup Internal Image Registry (Optional)
 
 The pipelines build custom container images that need to be pushed to a registry. Setup the OpenShift internal registry:
 
@@ -141,6 +141,9 @@ oc create -f pipelineruns/rhoai/qwen-qwen3-06b-example.yaml -n $NAMESPACE
 
 # MLPerf example (llm-d mode, end-to-end)
 oc create -f pipelineruns/llm-d/meta-llama-3.1-8b-mlperf.yaml -n $NAMESPACE
+
+# PD Disaggregation example (llm-d mode, large models 70B+)
+oc create -f pipelineruns/llm-d/meta-llama-3.1-70b-pd-disaggregation.yaml -n $NAMESPACE
 
 # Watch logs
 tkn pipelinerun logs -f -n $NAMESPACE
@@ -198,8 +201,7 @@ The repo architecture is designed for extensibility. To add new benchmark tools,
 
 | Pipeline | Purpose | Tasks |
 |----------|---------|-------|
-| `llm-d-end-to-end-benchmark` | Full lifecycle with llm-d deployment (GuideLLM) | download → deploy-helmfile → wait → benchmark → cleanup |
-| `llm-d-end-to-end-benchmark-mlperf` | Full lifecycle with llm-d deployment (MLPerf) | download → deploy-helmfile → wait → benchmark → cleanup |
+| `llm-d-end-to-end-benchmark` | Full lifecycle with llm-d deployment (GuideLLM or MLPerf)<br/>Supports both inference-scheduling and pd-disaggregation modes | download → deploy-helmfile/deploy-pd-disaggregation → wait → benchmark → cleanup |
 | `rhoai-end-to-end-benchmark` | Full lifecycle with RHOAI deployment (GuideLLM) | download → deploy-rhoai → wait → benchmark → cleanup |
 | `rhaiis-end-to-end-benchmark` | Full lifecycle with RHAIIS Pod deployment (GuideLLM) | download → deploy-rhaiis → wait → benchmark → cleanup |
 
@@ -329,6 +331,29 @@ oc get pods -n tekton-pipelines
 
 All pods should show `1/1 Running` status.
 
+**If `anyuid` SCC doesn't work:**
+
+In some cases, pods may still fail with errors like:
+```
+pod.metadata.annotations[container.seccomp.security.alpha.kubernetes.io/...]: Forbidden: seccomp may not be set
+```
+
+This happens because Tekton deployments include `seccompProfile.type: RuntimeDefault` in their securityContext, and the `anyuid` SCC doesn't allow seccomp profiles (`Allowed Seccomp Profiles: <none>`).
+
+Use the `privileged` SCC instead:
+
+```bash
+oc adm policy add-scc-to-user privileged system:serviceaccount:tekton-pipelines:tekton-pipelines-controller
+oc adm policy add-scc-to-user privileged system:serviceaccount:tekton-pipelines:tekton-pipelines-webhook
+oc adm policy add-scc-to-user privileged system:serviceaccount:tekton-pipelines:tekton-events-controller
+```
+
+Then restart the deployments:
+
+```bash
+oc rollout restart deployment tekton-pipelines-controller tekton-pipelines-webhook tekton-events-controller -n tekton-pipelines
+```
+
 </details>
 
 ### Image Build Push Failures
@@ -350,5 +375,46 @@ oc policy add-role-to-user system:image-builder -z default -n $NAMESPACE
 ```
 
 This allows the service account to push images to the internal OpenShift registry.
+
+</details>
+
+### HTTPRoute Backend Not Recognized (llm-d)
+
+<details>
+<summary>llm-d deployment completes and HTTPRoute is configured but requests don't reach the pods</summary>
+
+**Symptoms:**
+- llm-d deployment completes successfully
+- HTTPRoute is created and shows no errors
+- Gateway is running
+- Requests to the inference endpoint return 404 or timeout
+- InferencePool pods are running but receive no traffic
+
+**Cause:**
+
+Some versions of the Gateway API or cluster configurations expect the `x-k8s.io` experimental API group for InferencePool backends instead of the standard `k8s.io` group.
+
+**Solution:**
+
+Patch the HTTPRoute to use the experimental API group:
+
+```bash
+NAMESPACE=llm-d-bench
+RELEASE_NAME=your-release-name
+
+oc patch httproute llm-d-$RELEASE_NAME -n $NAMESPACE --type='json' -p='[
+  {"op": "replace", "path": "/spec/rules/0/backendRefs/0/group", "value": "inference.networking.x-k8s.io"}
+]'
+```
+
+**Verify:**
+
+```bash
+# Check the HTTPRoute configuration
+oc get httproute llm-d-$RELEASE_NAME -n $NAMESPACE -o yaml | grep -A5 backendRefs
+
+# Test the endpoint
+curl -s http://infra-$RELEASE_NAME-inference-gateway-istio.$NAMESPACE.svc.cluster.local/v1/models
+```
 
 </details>

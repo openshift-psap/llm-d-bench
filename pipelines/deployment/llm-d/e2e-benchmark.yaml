@@ -25,6 +25,11 @@ spec:
       default: "main"
 
     # Deployment Configuration
+    - name: DEPLOYMENT_MODE
+      description: "Deployment mode: inference-scheduling (default) or pd-disaggregation"
+      type: string
+      default: "inference-scheduling"
+
     - name: RELEASE_NAME
       description: Unique release name for this deployment
       type: string
@@ -38,11 +43,54 @@ spec:
       type: string
       default: "istio"
 
+    # Inference-Scheduling Mode Parameters (only used when DEPLOYMENT_MODE=inference-scheduling)
     - name: MODEL_REPLICAS
-      description: Number of model replicas
+      description: Number of model replicas (inference-scheduling mode only)
       type: string
       default: "1"
 
+    - name: TP
+      description: Tensor parallelism size (inference-scheduling mode and benchmark)
+      type: string
+      default: "1"
+
+    # PD Disaggregation Mode Parameters (only used when DEPLOYMENT_MODE=pd-disaggregation)
+    - name: PREFILL_REPLICAS
+      description: Number of prefill worker replicas (pd-disaggregation mode only)
+      type: string
+      default: "4"
+
+    - name: PREFILL_TP
+      description: Tensor parallelism for prefill workers (pd-disaggregation mode only)
+      type: string
+      default: "1"
+
+    - name: DECODE_REPLICAS
+      description: Number of decode worker replicas (pd-disaggregation mode only)
+      type: string
+      default: "1"
+
+    - name: DECODE_TP
+      description: Tensor parallelism for decode workers (pd-disaggregation mode only)
+      type: string
+      default: "4"
+
+    - name: PD_THRESHOLD
+      description: Selective PD threshold (pd-disaggregation mode only, 0 = always disaggregate)
+      type: string
+      default: "0"
+
+    - name: HASH_BLOCK_SIZE
+      description: Hash block size for PD profiling in GAIE (pd-disaggregation mode only)
+      type: string
+      default: "5"
+
+    - name: ENABLE_RDMA
+      description: Enable RDMA/InfiniBand networking (pd-disaggregation mode only, requires rdma/ib resources)
+      type: string
+      default: "true"
+
+    # Common Parameters
     - name: HF_TOKEN_SECRET
       description: Secret name containing HuggingFace token
       type: string
@@ -137,11 +185,6 @@ spec:
       description: Version identifier for visualization reports
       type: string
       default: ""
-
-    - name: TP
-      description: Tensor parallelism size (number of GPUs for deployment and benchmark)
-      type: string
-      default: "1"
 
     - name: BENCHMARK_ENV_VARS
       description: Additional environment variables for the benchmark container as array of name=value pairs
@@ -263,7 +306,7 @@ spec:
         - name: output
           workspace: source
 
-    # Stage 2b: Deploy with Helmfile (GitOps)
+    # Stage 2b: Deploy with Helmfile - Inference Scheduling Mode
     - name: deploy-llm-d-helmfile
       runAfter:
         - git-clone-llm-d
@@ -271,6 +314,9 @@ spec:
         - input: "$(params.SKIP_DEPLOY)"
           operator: in
           values: ["false"]
+        - input: "$(params.DEPLOYMENT_MODE)"
+          operator: in
+          values: ["inference-scheduling"]
       taskRef:
         name: deploy-llm-d-helmfile
       params:
@@ -298,10 +344,59 @@ spec:
         - name: source
           workspace: source
 
+    # Stage 2c: Deploy with Helmfile - PD Disaggregation Mode
+    - name: deploy-llm-d-pd-disaggregation
+      runAfter:
+        - git-clone-llm-d
+      when:
+        - input: "$(params.SKIP_DEPLOY)"
+          operator: in
+          values: ["false"]
+        - input: "$(params.DEPLOYMENT_MODE)"
+          operator: in
+          values: ["pd-disaggregation"]
+      taskRef:
+        name: deploy-llm-d-pd-disaggregation
+      params:
+        - name: MODEL_NAME
+          value: $(params.MODEL_NAME)
+        - name: MODEL_REVISION
+          value: $(params.MODEL_REVISION)
+        - name: RELEASE_NAME
+          value: $(params.RELEASE_NAME)
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: GATEWAY_PROVIDER
+          value: $(params.GATEWAY_PROVIDER)
+        - name: PREFILL_REPLICAS
+          value: $(params.PREFILL_REPLICAS)
+        - name: PREFILL_TP
+          value: $(params.PREFILL_TP)
+        - name: DECODE_REPLICAS
+          value: $(params.DECODE_REPLICAS)
+        - name: DECODE_TP
+          value: $(params.DECODE_TP)
+        - name: PD_THRESHOLD
+          value: $(params.PD_THRESHOLD)
+        - name: HASH_BLOCK_SIZE
+          value: $(params.HASH_BLOCK_SIZE)
+        - name: ENABLE_RDMA
+          value: $(params.ENABLE_RDMA)
+        - name: HF_TOKEN_SECRET
+          value: $(params.HF_TOKEN_SECRET)
+        - name: VLLM_ARGS
+          value: $(params.VLLM_ARGS[*])
+        - name: SKIP_IF_EXISTS
+          value: "true"
+      workspaces:
+        - name: source
+          workspace: source
+
     # Stage 3: Wait for Endpoint
     - name: wait-for-endpoint
       runAfter:
         - deploy-llm-d-helmfile
+        - deploy-llm-d-pd-disaggregation
       when:
         - input: "$(params.SKIP_BENCHMARK)"
           operator: in
