@@ -31,7 +31,7 @@ spec:
       description: Model name/identifier
       type: string
 
-    - name: EXPERIMENT_NAME
+    - name: MLFLOW_EXPERIMENT_NAME
       description: MLflow experiment name
       type: string
       default: "mlperf-benchmarks"
@@ -41,7 +41,7 @@ spec:
       type: string
       default: "false"
 
-    - name: TAGS
+    - name: MLFLOW_TAGS
       description: Additional tags as array of key=value pairs
       type: array
       default: []
@@ -154,12 +154,12 @@ spec:
           value: $(params.TARGET)
         - name: MODEL
           value: $(params.MODEL)
-        - name: EXPERIMENT_NAME
-          value: $(params.EXPERIMENT_NAME)
+        - name: MLFLOW_EXPERIMENT_NAME
+          value: $(params.MLFLOW_EXPERIMENT_NAME)
         - name: MLFLOW_ENABLED
           value: $(params.MLFLOW_ENABLED)
-        - name: TAGS
-          value: $(params.TAGS[*])
+        - name: MLFLOW_TAGS
+          value: $(params.MLFLOW_TAGS[*])
         - name: VERSION
           value: $(params.VERSION)
         - name: TP

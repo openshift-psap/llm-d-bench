@@ -72,7 +72,7 @@ spec:
       type: string
       default: ""
 
-    - name: EXPERIMENT_NAME
+    - name: MLFLOW_EXPERIMENT_NAME
       description: MLflow experiment name
       type: string
       default: "guidellm-benchmarks"
@@ -87,7 +87,7 @@ spec:
       type: string
       default: ""
 
-    - name: TAGS
+    - name: MLFLOW_TAGS
       description: Additional tags as JSON object
       type: string
       default: "{}"
@@ -166,14 +166,14 @@ spec:
           value: $(params.GUIDELLM_MAX_REQUESTS)
         - name: ACCELERATOR
           value: $(params.ACCELERATOR)
-        - name: EXPERIMENT_NAME
-          value: $(params.EXPERIMENT_NAME)
+        - name: MLFLOW_EXPERIMENT_NAME
+          value: $(params.MLFLOW_EXPERIMENT_NAME)
         - name: MLFLOW_ENABLED
           value: $(params.MLFLOW_ENABLED)
         - name: MLFLOW_TRACKING_URI
           value: $(params.MLFLOW_TRACKING_URI)
-        - name: TAGS
-          value: $(params.TAGS)
+        - name: MLFLOW_TAGS
+          value: $(params.MLFLOW_TAGS)
         - name: VERSION
           value: $(params.VERSION)
         - name: TP

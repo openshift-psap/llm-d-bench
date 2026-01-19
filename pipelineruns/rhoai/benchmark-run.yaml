@@ -49,9 +49,9 @@ spec:
     # MLflow configuration
     - name: MLFLOW_ENABLED
       value: "true"
-    - name: EXPERIMENT_NAME
+    - name: MLFLOW_EXPERIMENT_NAME
       value: "guidellm-benchmarks"
-    - name: TAGS
+    - name: MLFLOW_TAGS
       value:
         - "llm-d-version=RHOAI 3.0"
         - "team=ai"

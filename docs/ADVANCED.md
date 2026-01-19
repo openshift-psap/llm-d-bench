@@ -807,12 +807,12 @@ tkn pipeline start llm-d-end-to-end-benchmark \
   --param GUIDELLM_MAX_SECONDS="600" \
   --param GUIDELLM_MAX_REQUESTS="" \
   --param ACCELERATOR="H200" \
-  --param EXPERIMENT_NAME="redhatai-llama-33-70b-instruct-fp8-dynamic-1k-1k" \
+  --param MLFLOW_EXPERIMENT_NAME="redhatai-llama-33-70b-instruct-fp8-dynamic-1k-1k" \
   --param VERSION="RHOAI-3.0" \
   --param TP="1" \
   --param BENCHMARK_ENV_VARS="GUIDELLM__MAX_WORKER_PROCESSES=100" \
   --param MLFLOW_ENABLED="true" \
-  --param TAGS="llm-d-version=RHOAI-3.0" \
+  --param MLFLOW_TAGS="llm-d-version=RHOAI-3.0" \
   --param HEALTH_CHECK_TIMEOUT="3600" \
   --param SKIP_DOWNLOAD="true" \
   --param SKIP_DEPLOY="false" \
@@ -1139,10 +1139,10 @@ Default tags automatically set:
 - `guidellm` - GuideLLM version
 - `accelerator` - GPU type (if specified)
 
-Custom tags from PipelineRun `TAGS` parameter:
+Custom tags from PipelineRun `MLFLOW_TAGS` parameter:
 ```yaml
 params:
-  - name: TAGS
+  - name: MLFLOW_TAGS
     value:
       - "llm-d-version=RHOAI-3.0"
       - "team=ai"
@@ -1236,7 +1236,7 @@ params:
 |-----------|----------|--------|-------|
 | **TARGET** | ✓ | ✓ | Inference endpoint URL |
 | **MODEL** | ✓ | ✓ | Model identifier (MLPerf derives category) |
-| **EXPERIMENT_NAME** | ✓ | ✓ | MLflow experiment name |
+| **MLFLOW_EXPERIMENT_NAME** | ✓ | ✓ | MLflow experiment name |
 | **MLFLOW_TRACKING_URI** | ✓ | ✓ | MLflow server |
 | **GUIDELLM_RATE** | ✓ | ✗ | Concurrency levels (GuideLLM only) |
 | **GUIDELLM_DATA** | ✓ | ✗ | Token counts (GuideLLM only) |
@@ -1868,7 +1868,7 @@ spec:
     - name: TARGET
     - name: MODEL
     - name: MLFLOW_ENABLED
-    - name: TAGS
+    - name: MLFLOW_TAGS
     # Tool-specific params with prefix
     - name: LOCUST_RATE
     - name: LOCUST_MAX_SECONDS

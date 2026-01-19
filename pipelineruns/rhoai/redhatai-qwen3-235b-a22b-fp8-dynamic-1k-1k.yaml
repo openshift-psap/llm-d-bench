@@ -67,7 +67,7 @@ spec:
       value: ""
     - name: ACCELERATOR
       value: "H200"
-    - name: EXPERIMENT_NAME
+    - name: MLFLOW_EXPERIMENT_NAME
       value: "redhatai-qwen3-235b-a22b-fp8-dynamic-1k-1k"
     - name: VERSION
       value: "RHOAI-3.0"
@@ -80,7 +80,7 @@ spec:
     # MLflow Configuration
     - name: MLFLOW_ENABLED
       value: "true"
-    - name: TAGS
+    - name: MLFLOW_TAGS
       value:
         - "llm-d-version=RHOAI-3.0"
 

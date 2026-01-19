@@ -149,18 +149,18 @@ affinity:
 
 ### Use Array Parameters for Lists
 
-Use array parameters for TAGS, VLLM_ARGS, BENCHMARK_ENV_VARS. Expand with `[*]` syntax.
+Use array parameters for MLFLOW_TAGS, VLLM_ARGS, BENCHMARK_ENV_VARS. Expand with `[*]` syntax.
 
 ```yaml
 params:
-  - name: TAGS
+  - name: MLFLOW_TAGS
     type: array
     default: []
 
 # In task invocation - expand array
 params:
-  - name: TAGS
-    value: $(params.TAGS[*])
+  - name: MLFLOW_TAGS
+    value: $(params.MLFLOW_TAGS[*])
 
 # In script - iterate over array
 for tag in "${TAGS_ARRAY[@]}"; do
@@ -777,16 +777,16 @@ Is it used by multiple pipelines?
 ### Common Parameters (All Tools/Modes)
 
 ```yaml
-MODEL_NAME          # HuggingFace model identifier (required)
-TARGET              # Inference endpoint URL (required)
-NAMESPACE           # Kubernetes namespace (required)
-MLFLOW_ENABLED      # Enable MLflow tracking (default: "false")
-EXPERIMENT_NAME     # MLflow experiment name (default varies by tool)
-TAGS                # Additional tags array (default: [])
-VERSION             # Version identifier (default: "")
-TP                  # Tensor parallelism size (default: "1")
-BENCHMARK_ENV_VARS  # Additional env vars array (default: [])
-ACCELERATOR         # Accelerator type tag (default: "")
+MODEL_NAME               # HuggingFace model identifier (required)
+TARGET                   # Inference endpoint URL (required)
+NAMESPACE                # Kubernetes namespace (required)
+MLFLOW_ENABLED           # Enable MLflow tracking (default: "false")
+MLFLOW_EXPERIMENT_NAME   # MLflow experiment name (default varies by tool)
+MLFLOW_TAGS              # Additional tags array (default: [])
+VERSION                  # Version identifier (default: "")
+TP                       # Tensor parallelism size (default: "1")
+BENCHMARK_ENV_VARS       # Additional env vars array (default: [])
+ACCELERATOR              # Accelerator type tag (default: "")
 ```
 
 ### GuideLLM Parameters (GUIDELLM_* prefix)
@@ -873,8 +873,8 @@ Use `[*]` syntax:
 
 ```yaml
 params:
-  - name: TAGS
-    value: $(params.TAGS[*])  # Expand array
+  - name: MLFLOW_TAGS
+    value: $(params.MLFLOW_TAGS[*])  # Expand array
 ```
 
 ### When Secrets Are Missing

@@ -53,7 +53,7 @@ spec:
     # ===========================================
     - name: MLFLOW_ENABLED
       value: "false"  # Set to "true" if using MLflow
-    - name: EXPERIMENT_NAME
+    - name: MLFLOW_EXPERIMENT_NAME
       value: "mlperf-benchmarks"
     - name: VERSION
       value: ""
@@ -61,7 +61,7 @@ spec:
       value: ""
     - name: TP
       value: "1"
-    - name: TAGS
+    - name: MLFLOW_TAGS
       value: []
 
     # ===========================================

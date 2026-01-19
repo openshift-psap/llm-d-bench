@@ -66,7 +66,7 @@ spec:
       type: string
       default: ""
 
-    - name: EXPERIMENT_NAME
+    - name: MLFLOW_EXPERIMENT_NAME
       description: MLflow experiment name
       type: string
       default: "guidellm-benchmarks"
@@ -76,7 +76,7 @@ spec:
       type: string
       default: "false"
 
-    - name: TAGS
+    - name: MLFLOW_TAGS
       description: Additional tags as array of key=value pairs (e.g., ["version=3.0", "team=ai"])
       type: array
       default: []
@@ -174,7 +174,7 @@ spec:
       args:
         - $(params.BENCHMARK_ENV_VARS[*])
         - "---SEPARATOR---"
-        - $(params.TAGS[*])
+        - $(params.MLFLOW_TAGS[*])
       script: |
         #!/bin/bash
         set -e
@@ -222,7 +222,7 @@ spec:
         [ -n "$(params.TP)" ] && ARGS+=(--tp "$(params.TP)")
 
         if [ "$(params.MLFLOW_ENABLED)" = "true" ]; then
-          ARGS+=(--experiment-name "$(params.EXPERIMENT_NAME)")
+          ARGS+=(--experiment-name "$(params.MLFLOW_EXPERIMENT_NAME)")
           [ -n "$MLFLOW_TRACKING_URI" ] && ARGS+=(--mlflow-tracking-uri "$MLFLOW_TRACKING_URI")
         fi
 

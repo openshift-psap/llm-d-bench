@@ -75,45 +75,27 @@ spec:
       value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
     - name: TARGET
       value: "http://infra-llama-70b-pd-inference-gateway-istio.llm-d-bench.svc.cluster.local:80"
-    - name: RATE
+    - name: GUIDELLM_RATE
       value: "1"
-    - name: DATA
+    - name: GUIDELLM_DATA
       value: "prompt_tokens=1000,output_tokens=1000"
-    - name: PROCESSOR
+    - name: GUIDELLM_PROCESSOR
       value: "RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic"
-    - name: BACKEND_TYPE
+    - name: GUIDELLM_BACKEND_TYPE
       value: "openai_http"
-    - name: RATE_TYPE
+    - name: GUIDELLM_RATE_TYPE
       value: "concurrent"
-    - name: MAX_SECONDS
+    - name: GUIDELLM_MAX_SECONDS
       value: "60"
-    - name: MAX_REQUESTS
+    - name: GUIDELLM_MAX_REQUESTS
       value: ""
-
-    # ===========================================
-    # MLPerf parameters (unused but required for now)
-    # ===========================================
-    - name: DATASET_NAME
-      value: "cnn_eval.json"
-    - name: SCENARIO
-      value: "Offline"
-    - name: TEST_MODE
-      value: "accuracy"
-    - name: BATCH_SIZE
-      value: ""
-    - name: NUM_SAMPLES
-      value: "4388"
-    - name: OUTPUT_DIR
-      value: "./test-run"
-    - name: SERVER_TARGET_QPS
-      value: "10"
 
     # ===========================================
     # MLflow Configuration
     # ===========================================
     - name: MLFLOW_ENABLED
       value: "true"
-    - name: EXPERIMENT_NAME
+    - name: MLFLOW_EXPERIMENT_NAME
       value: "meta-llama-31-70b-pd-disaggregation"
     - name: VERSION
       value: "llm-d-0.4-pd"
@@ -121,7 +103,7 @@ spec:
       value: "H200"
     - name: TP
       value: "4"  # Used for benchmark tagging (decode TP value)
-    - name: TAGS
+    - name: MLFLOW_TAGS
       value:
         - "deployment=llm-d-pd-disaggregation"
         - "benchmark-tool=guidellm"

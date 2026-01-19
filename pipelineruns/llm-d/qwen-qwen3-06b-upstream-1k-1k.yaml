@@ -64,7 +64,7 @@ spec:
       value: ""
     - name: ACCELERATOR
       value: "H200"
-    - name: EXPERIMENT_NAME
+    - name: MLFLOW_EXPERIMENT_NAME
       value: "qwen-qwen3-06b-upstream-1k-1k"
     - name: VERSION
       value: "RHOAI-3.0"
@@ -76,7 +76,7 @@ spec:
     # MLflow Configuration
     - name: MLFLOW_ENABLED
       value: "true"
-    - name: TAGS
+    - name: MLFLOW_TAGS
       value:
         - "deployment=upstream"
         - "llm-d-version=RHOAI 3.0"

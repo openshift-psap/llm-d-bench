@@ -73,7 +73,7 @@ spec:
       value: ""
     - name: ACCELERATOR
       value: "H200"
-    - name: EXPERIMENT_NAME
+    - name: MLFLOW_EXPERIMENT_NAME
       value: "qwen-25-7b-cache-aware-1k-1k"
     - name: VERSION
       value: "RHOAI-3.0"
@@ -86,7 +86,7 @@ spec:
     # MLflow Configuration
     - name: MLFLOW_ENABLED
       value: "true"
-    - name: TAGS
+    - name: MLFLOW_TAGS
       value:
         - "deployment=upstream"
         - "profile=precise-cache"

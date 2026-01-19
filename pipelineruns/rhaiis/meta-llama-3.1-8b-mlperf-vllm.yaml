@@ -91,13 +91,13 @@ spec:
     # ===========================================
     - name: MLFLOW_ENABLED
       value: "true"
-    - name: EXPERIMENT_NAME
+    - name: MLFLOW_EXPERIMENT_NAME
       value: "meta-llama-31-8b-mlperf"
     - name: VERSION
       value: "llm-d-0.4"
     - name: ACCELERATOR
       value: "H200"
-    - name: TAGS
+    - name: MLFLOW_TAGS
       value:
         - "deployment=vllm"
         - "benchmark-tool=mlperf"

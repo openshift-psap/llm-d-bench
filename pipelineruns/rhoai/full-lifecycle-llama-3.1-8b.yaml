@@ -61,7 +61,7 @@ spec:
       value: ""
     - name: ACCELERATOR
       value: "H200"
-    - name: EXPERIMENT_NAME
+    - name: MLFLOW_EXPERIMENT_NAME
       value: "llama-3.1-8b-full-lifecycle"
     - name: VERSION
       value: ""
@@ -71,7 +71,7 @@ spec:
     # MLflow Configuration
     - name: MLFLOW_ENABLED
       value: "false"
-    - name: TAGS
+    - name: MLFLOW_TAGS
       value: []
 
     # Health Check Configuration

@@ -27,7 +27,7 @@ spec:
       description: Model name/identifier
       type: string
 
-    - name: EXPERIMENT_NAME
+    - name: MLFLOW_EXPERIMENT_NAME
       description: MLflow experiment name
       type: string
       default: "mlperf-benchmarks"
@@ -37,7 +37,7 @@ spec:
       type: string
       default: "false"
 
-    - name: TAGS
+    - name: MLFLOW_TAGS
       description: Additional tags as array of key=value pairs
       type: array
       default: []
@@ -225,7 +225,7 @@ spec:
         [ -n "$(params.MLPERF_BATCH_SIZE)" ] && ARGS+=(--batch-size "$(params.MLPERF_BATCH_SIZE)")
 
         if [ "$(params.MLFLOW_ENABLED)" = "true" ]; then
-          ARGS+=(--experiment-name "$(params.EXPERIMENT_NAME)")
+          ARGS+=(--experiment-name "$(params.MLFLOW_EXPERIMENT_NAME)")
           [ -n "$MLFLOW_TRACKING_URI" ] && ARGS+=(--mlflow-tracking-uri "$MLFLOW_TRACKING_URI")
         fi
 

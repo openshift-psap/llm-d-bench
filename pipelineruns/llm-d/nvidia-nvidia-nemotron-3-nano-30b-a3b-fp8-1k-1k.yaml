@@ -63,23 +63,23 @@ spec:
       value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
     - name: TARGET
       value: "http://infra-nvidia-nemotron-3-inference-gateway-istio.llm-d-bench.svc.cluster.local:80"
-    - name: PROCESSOR
+    - name: GUIDELLM_PROCESSOR
       value: "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8"
-    - name: BACKEND_TYPE
+    - name: GUIDELLM_BACKEND_TYPE
       value: "openai_http"
-    - name: RATE_TYPE
+    - name: GUIDELLM_RATE_TYPE
       value: "concurrent"
-    - name: RATE
+    - name: GUIDELLM_RATE
       value: "650,500,300,200,100,50,1"
-    - name: DATA
+    - name: GUIDELLM_DATA
       value: "prompt_tokens=1000,output_tokens=1000"
-    - name: MAX_SECONDS
+    - name: GUIDELLM_MAX_SECONDS
       value: "600"
-    - name: MAX_REQUESTS
+    - name: GUIDELLM_MAX_REQUESTS
       value: ""
     - name: ACCELERATOR
       value: "H200"
-    - name: EXPERIMENT_NAME
+    - name: MLFLOW_EXPERIMENT_NAME
       value: "nvidia-nvidia-nemotron-3-nano-30b-a3b-fp8-1k-1k"
     - name: VERSION
       value: "llm-d-0.4"
@@ -94,7 +94,7 @@ spec:
     # ===========================================
     - name: MLFLOW_ENABLED
       value: "true"
-    - name: TAGS
+    - name: MLFLOW_TAGS
       value:
         - "deployment=llm-d"
         - "benchmark-tool=guidellm"
