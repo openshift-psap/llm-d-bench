@@ -366,7 +366,7 @@ spec:
         - name: IMAGE
           value: $(params.IMAGE)
         - name: TARGET
-          value: $(params.TARGET)
+          value: $(tasks.deploy-rhaiis.results.ENDPOINT_URL)
         - name: MODEL
           value: $(params.MODEL_NAME)
         - name: ACCELERATOR
