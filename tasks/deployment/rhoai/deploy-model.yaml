@@ -85,11 +85,15 @@ spec:
         fi
 
         MODEL_DIR_NAME=$(echo "$(params.MODEL_NAME)" | sed 's/\//-/g')
-        MODEL_URI="pvc://models-storage$(params.CACHE_DIR)/${MODEL_DIR_NAME}"
+        # Mount entire PVC to avoid subPath mount failures with NFS
+        MODEL_URI="pvc://models-storage"
+        # Full path on PVC where model is located
+        MODEL_PATH="/mnt/models$(params.CACHE_DIR)/${MODEL_DIR_NAME}"
 
         echo "Configuration:"
         echo "  Model: $(params.MODEL_NAME)"
-        echo "  Model URI: $MODEL_URI"
+        echo "  Model URI: $MODEL_URI (entire PVC)"
+        echo "  Model Path: $MODEL_PATH"
         echo "  TP (Tensor Parallel / GPU Count): $(params.TP)"
         echo "  Replicas: $(params.REPLICAS)"
         echo ""
@@ -128,7 +132,7 @@ spec:
               args:
                 - "--port=8000"
                 - "--host=0.0.0.0"
-                - "--model=/mnt/models"
+                - "--model=${MODEL_PATH}"
                 - "--served-model-name=$(params.MODEL_NAME)"
                 - "--tensor-parallel-size=$(params.TP)"
                 - "--enable-ssl-refresh"
