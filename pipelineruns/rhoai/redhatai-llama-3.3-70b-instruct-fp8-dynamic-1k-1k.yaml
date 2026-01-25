@@ -89,7 +89,7 @@ spec:
 
     # Stage Control - skip download, enable deploy/benchmark/cleanup
     - name: SKIP_DOWNLOAD
-      value: "true"
+      value: "false"
     - name: SKIP_DEPLOY
       value: "false"
     - name: SKIP_BENCHMARK

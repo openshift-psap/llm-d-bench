@@ -38,8 +38,8 @@ spec:
         - "--uvicorn-log-level=debug"
         - "--trust-remote-code"
         - "--gpu-memory-utilization=0.92"
-        - "--disable-log-requests"
         - "--no-enable-prefix-caching"
+        - "--disable-log-requests"
     - name: ENABLE_AUTH
       value: "false"
     - name: REPLICAS
@@ -71,10 +71,10 @@ spec:
     - name: VERSION
       value: "RHOAI-3.0"
     - name: TP
-      value: "1"
+      value: "4"
     - name: BENCHMARK_ENV_VARS
       value:
-        - "GUIDELLM__MAX_WORKER_PROCESSES=80"
+        - "GUIDELLM__MAX_WORKER_PROCESSES=50"
 
     # MLflow Configuration
     - name: MLFLOW_ENABLED
