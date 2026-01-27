@@ -54,6 +54,7 @@ spec:
         - "--gpu-memory-utilization=0.92"
         - "--no-enable-prefix-caching"
         - "--disable-log-requests"
+        - "--kv-cache-dtype=fp8"
         # TODO: Check for additional params
 
     # ===========================================
@@ -84,7 +85,7 @@ spec:
     - name: VERSION
       value: "llm-d-0.4"
     - name: TP
-      value: "4"
+      value: "1"
     - name: BENCHMARK_ENV_VARS
       value:
         - "GUIDELLM__MAX_WORKER_PROCESSES=100"
