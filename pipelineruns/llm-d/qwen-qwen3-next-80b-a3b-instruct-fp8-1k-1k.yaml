@@ -54,7 +54,6 @@ spec:
         - "--gpu-memory-utilization=0.92"
         - "--no-enable-prefix-caching"
         - "--disable-log-requests"
-        - "--kv-cache-dtype=fp8"
 
     # ===========================================
     # Benchmark Configuration
