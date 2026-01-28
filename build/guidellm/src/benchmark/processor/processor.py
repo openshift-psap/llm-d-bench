@@ -38,22 +38,25 @@ def _parse_request_data(requests_data: Any) -> Dict[str, int]:
     data_str = ""
 
     if isinstance(requests_data, str):
-        if "=" in requests_data:
+        # Try to evaluate as a Python literal first (handles "['...']" format)
+        try:
+            evaluated_data = ast.literal_eval(requests_data)
+            if isinstance(evaluated_data, list) and evaluated_data:
+                data_str = evaluated_data[0]
+            elif isinstance(evaluated_data, str):
+                data_str = evaluated_data
+        except (ValueError, SyntaxError):
+            # If evaluation fails, use the string directly
             data_str = requests_data
-        else:
-            try:
-                evaluated_data = ast.literal_eval(requests_data)
-                if isinstance(evaluated_data, list) and evaluated_data:
-                    data_str = evaluated_data[0]
-            except (ValueError, SyntaxError):
-                pass  # Not a list string, treat as empty
     elif isinstance(requests_data, list) and requests_data:
         data_str = requests_data[0]
 
     if data_str:
         for part in data_str.split(","):
             if "=" in part:
-                key, value = part.strip().split("=")
+                key, value = part.strip().split("=", 1)
+                key = key.strip()
+                value = value.strip()
                 try:
                     if key == "prompt_tokens":
                         prompt_tokens = int(value)
