@@ -44,7 +44,7 @@ spec:
       default: "istio"
 
     # Inference-Scheduling Mode Parameters (only used when DEPLOYMENT_MODE=inference-scheduling)
-    - name: MODEL_REPLICAS
+    - name: REPLICAS
       description: Number of model replicas (inference-scheduling mode only)
       type: string
       default: "1"
@@ -331,8 +331,8 @@ spec:
           value: $(params.NAMESPACE)
         - name: GATEWAY_PROVIDER
           value: $(params.GATEWAY_PROVIDER)
-        - name: MODEL_REPLICAS
-          value: $(params.MODEL_REPLICAS)
+        - name: REPLICAS
+          value: $(params.REPLICAS)
         - name: TP
           value: $(params.TP)
         - name: HF_TOKEN_SECRET
@@ -477,6 +477,12 @@ spec:
           value: $(params.VERSION)
         - name: TP
           value: $(params.TP)
+        - name: REPLICAS
+          value: $(params.REPLICAS)
+        - name: PREFILL_REPLICAS
+          value: $(params.PREFILL_REPLICAS)
+        - name: DECODE_REPLICAS
+          value: $(params.DECODE_REPLICAS)
         - name: BENCHMARK_ENV_VARS
           value: $(params.BENCHMARK_ENV_VARS[*])
       workspaces:

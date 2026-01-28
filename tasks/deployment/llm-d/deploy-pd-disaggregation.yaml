@@ -41,6 +41,12 @@ spec:
       type: string
       default: "istio"
 
+    # Replica Configuration
+    - name: REPLICAS
+      description: Number of replicas (not used for P/D disaggregation, use PREFILL_REPLICAS and DECODE_REPLICAS instead)
+      type: string
+      default: ""
+
     # Prefill Worker Configuration
     - name: PREFILL_REPLICAS
       description: Number of prefill worker replicas (recommend 4+ for horizontal scaling)
@@ -116,6 +122,24 @@ spec:
         set -e
 
         echo "=== Step 1: Validating GPU Requirements ==="
+
+        # Validate P/D disaggregation parameters
+        if [ -z "$(params.PREFILL_REPLICAS)" ] || [ -z "$(params.DECODE_REPLICAS)" ]; then
+          echo "ERROR: P/D disaggregation mode requires both PREFILL_REPLICAS and DECODE_REPLICAS"
+          echo "  PREFILL_REPLICAS: $(params.PREFILL_REPLICAS)"
+          echo "  DECODE_REPLICAS: $(params.DECODE_REPLICAS)"
+          echo ""
+          echo "For standard mode deployments (without P/D disaggregation), use deploy-llm-d-helmfile task instead."
+          exit 1
+        fi
+
+        # Warn if REPLICAS is provided
+        if [ -n "$(params.REPLICAS)" ]; then
+          echo "⚠ WARNING: REPLICAS parameter is not used for P/D disaggregation mode"
+          echo "  This task uses PREFILL_REPLICAS and DECODE_REPLICAS instead."
+          echo "  REPLICAS=$(params.REPLICAS) will be ignored."
+          echo ""
+        fi
 
         PREFILL_REPLICAS=$(params.PREFILL_REPLICAS)
         PREFILL_TP=$(params.PREFILL_TP)

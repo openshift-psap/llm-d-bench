@@ -44,6 +44,16 @@ spec:
       type: string
       default: "1"
 
+    - name: PREFILL_REPLICAS
+      description: Number of prefill worker replicas for P/D disaggregation
+      type: string
+      default: "N/A"
+
+    - name: DECODE_REPLICAS
+      description: Number of decode worker replicas for P/D disaggregation
+      type: string
+      default: "N/A"
+
     # Benchmark Configuration
     - name: IMAGE
       description: |
@@ -332,6 +342,12 @@ spec:
           value: $(params.VERSION)
         - name: TP
           value: $(params.TP)
+        - name: REPLICAS
+          value: $(params.REPLICAS)
+        - name: PREFILL_REPLICAS
+          value: $(params.PREFILL_REPLICAS)
+        - name: DECODE_REPLICAS
+          value: $(params.DECODE_REPLICAS)
         - name: BENCHMARK_ENV_VARS
           value: $(params.BENCHMARK_ENV_VARS[*])
       workspaces:

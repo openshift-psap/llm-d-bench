@@ -40,7 +40,7 @@ spec:
       value: "llm-d-bench"
     - name: GATEWAY_PROVIDER
       value: "istio"
-    - name: MODEL_REPLICAS
+    - name: REPLICAS
       value: "1"
     - name: HF_TOKEN_SECRET
       value: "huggingface-token"

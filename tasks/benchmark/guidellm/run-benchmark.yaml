@@ -91,6 +91,21 @@ spec:
       type: string
       default: "1"
 
+    - name: REPLICAS
+      description: Number of replicas for standard deployment mode
+      type: string
+      default: "N/A"
+
+    - name: PREFILL_REPLICAS
+      description: Number of prefill worker replicas for P/D disaggregation
+      type: string
+      default: "N/A"
+
+    - name: DECODE_REPLICAS
+      description: Number of decode worker replicas for P/D disaggregation
+      type: string
+      default: "N/A"
+
     - name: LOG_LEVEL
       description: Logging level (DEBUG, INFO, WARNING, ERROR)
       type: string
@@ -220,6 +235,9 @@ spec:
         [ -n "$(params.ACCELERATOR)" ] && ARGS+=(--accelerator "$(params.ACCELERATOR)")
         [ -n "$(params.VERSION)" ] && ARGS+=(--version "$(params.VERSION)")
         [ -n "$(params.TP)" ] && ARGS+=(--tp "$(params.TP)")
+        [ -n "$(params.REPLICAS)" ] && ARGS+=(--replicas "$(params.REPLICAS)")
+        [ -n "$(params.PREFILL_REPLICAS)" ] && ARGS+=(--prefill-replicas "$(params.PREFILL_REPLICAS)")
+        [ -n "$(params.DECODE_REPLICAS)" ] && ARGS+=(--decode-replicas "$(params.DECODE_REPLICAS)")
 
         if [ "$(params.MLFLOW_ENABLED)" = "true" ]; then
           ARGS+=(--experiment-name "$(params.MLFLOW_EXPERIMENT_NAME)")

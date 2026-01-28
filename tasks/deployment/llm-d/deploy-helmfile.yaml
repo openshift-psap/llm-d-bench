@@ -41,10 +41,20 @@ spec:
       default: "istio"
 
     # Scaling & Resources
-    - name: MODEL_REPLICAS
+    - name: REPLICAS
       description: Number of vLLM worker replicas
       type: string
       default: "1"
+
+    - name: PREFILL_REPLICAS
+      description: Number of prefill worker replicas for P/D disaggregation (not supported by this task)
+      type: string
+      default: ""
+
+    - name: DECODE_REPLICAS
+      description: Number of decode worker replicas for P/D disaggregation (not supported by this task)
+      type: string
+      default: ""
 
     - name: TP
       description: Tensor parallelism size (GPUs per pod)
@@ -94,6 +104,15 @@ spec:
 
         echo "=== Step 1: Patching Values with yq ==="
 
+        # Validate P/D disaggregation parameters
+        if [ -n "$(params.PREFILL_REPLICAS)" ] || [ -n "$(params.DECODE_REPLICAS)" ]; then
+          echo "⚠ WARNING: PREFILL_REPLICAS and DECODE_REPLICAS are not supported by this task"
+          echo "  This task uses standard mode deployment (single worker pool)."
+          echo "  For P/D disaggregation mode, use deploy-llm-d-pd-disaggregation task instead."
+          echo "  These parameters will be ignored. Using REPLICAS=$(params.REPLICAS) instead."
+          echo ""
+        fi
+
         if [ ! -d "$(workspaces.source.path)/llm-d-repo/guides/inference-scheduling" ]; then
           echo "ERROR: llm-d repository not found at $(workspaces.source.path)/llm-d-repo/guides/inference-scheduling"
           exit 1
@@ -124,7 +143,7 @@ spec:
         /tmp/yq -i '.modelArtifacts.authSecretName = "$(params.HF_TOKEN_SECRET)"' $VALUES_FILE
 
         # 2. Replicas
-        /tmp/yq -i '.decode.replicas = $(params.MODEL_REPLICAS)' $VALUES_FILE
+        /tmp/yq -i '.decode.replicas = $(params.REPLICAS)' $VALUES_FILE
 
         # 3. Tensor Parallelism
         # The chart automatically computes GPU resources from .decode.parallelism.tensor

@@ -60,7 +60,7 @@ spec:
     - name: DEPLOYMENT_MODE
       # DEFAULT: "inference-scheduling"
       # Options: "inference-scheduling", "pd-disaggregation"
-      # - inference-scheduling: Standard mode, uses MODEL_REPLICAS and TP
+      # - inference-scheduling: Standard mode, uses REPLICAS and TP
       # - pd-disaggregation: Advanced mode for 70B+ models, uses PREFILL_*/DECODE_* params
       value: "inference-scheduling"
 
@@ -87,7 +87,7 @@ spec:
     # Inference-Scheduling Mode Parameters
     # (Only used when DEPLOYMENT_MODE=inference-scheduling)
     # ===========================================
-    - name: MODEL_REPLICAS
+    - name: REPLICAS
       # DEFAULT: "1"
       # Number of vLLM worker replicas (horizontal scaling)
       value: "1"
@@ -96,7 +96,7 @@ spec:
       # DEFAULT: "1"
       # Tensor parallelism size (GPUs per replica)
       # Common values: 1, 2, 4, 8
-      # Total GPUs = MODEL_REPLICAS × TP
+      # Total GPUs = REPLICAS × TP
       value: "1"
 
     # ===========================================
