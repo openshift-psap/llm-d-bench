@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: concurrent-1k-1k
+  name: concurrent-8k-1k
   namespace: llm-d-bench
   annotations:
-    description: "Full 1k/1k load test with high concurrency levels"
+    description: "Full 8k/1k load test with high concurrency levels"
   labels:
     config-type: benchmark
 data:
