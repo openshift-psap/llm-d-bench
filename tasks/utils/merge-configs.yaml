@@ -99,6 +99,26 @@ spec:
       description: EPP profile name if EPP_CONFIG was specified
     - name: target-url
       description: Computed or provided target endpoint URL
+    - name: guidellm-processor
+      description: GuideLLM processor/tokenizer model
+    - name: guidellm-backend-type
+      description: GuideLLM backend type
+    - name: guidellm-rate-type
+      description: GuideLLM rate type
+    - name: guidellm-rate
+      description: GuideLLM rate values
+    - name: guidellm-data
+      description: GuideLLM data profile
+    - name: guidellm-max-seconds
+      description: GuideLLM max seconds
+    - name: guidellm-max-requests
+      description: GuideLLM max requests
+    - name: replicas
+      description: Number of replicas (standard or inferred from deployment mode)
+    - name: prefill-replicas
+      description: Number of prefill replicas (PD mode only)
+    - name: decode-replicas
+      description: Number of decode replicas (PD mode only)
 
   steps:
     - name: merge
@@ -221,35 +241,73 @@ spec:
         DEPLOYMENT_MODE=$(echo "$MERGED" | jq -r '.DEPLOYMENT_MODE // "inference-scheduling"')
         echo -n "$DEPLOYMENT_MODE" > $(results.deployment-mode.path)
 
+        # GuideLLM benchmark parameters
+        echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_PROCESSOR // ""')" > $(results.guidellm-processor.path)
+        echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_BACKEND_TYPE // ""')" > $(results.guidellm-backend-type.path)
+        echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_RATE_TYPE // ""')" > $(results.guidellm-rate-type.path)
+        echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_RATE // ""')" > $(results.guidellm-rate.path)
+        echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_DATA // ""')" > $(results.guidellm-data.path)
+        echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_MAX_SECONDS // ""')" > $(results.guidellm-max-seconds.path)
+        echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_MAX_REQUESTS // ""')" > $(results.guidellm-max-requests.path)
+
+        # Replica parameters
+        echo -n "$(echo "$MERGED" | jq -r '.REPLICAS // "1"')" > $(results.replicas.path)
+        echo -n "$(echo "$MERGED" | jq -r '.PREFILL_REPLICAS // "N/A"')" > $(results.prefill-replicas.path)
+        echo -n "$(echo "$MERGED" | jq -r '.DECODE_REPLICAS // "N/A"')" > $(results.decode-replicas.path)
+
         # Compute TARGET_URL
         if [ -n "$(params.TARGET)" ]; then
           echo "Using provided TARGET: $(params.TARGET)"
           echo -n "$(params.TARGET)" > $(results.target-url.path)
         else
-          GATEWAY_PROVIDER="$(params.GATEWAY_PROVIDER)"
-          RELEASE_NAME="$(params.RELEASE_NAME)"
+          # Get deployment type from merged config
+          DEPLOYMENT_TYPE=$(echo "$MERGED" | jq -r '.DEPLOYMENT_TYPE // ""')
           NAMESPACE="$(params.NAMESPACE)"
 
-          case "$GATEWAY_PROVIDER" in
-            istio)
-              TARGET_URL="http://infra-${RELEASE_NAME}-inference-gateway-istio.${NAMESPACE}.svc.cluster.local:80"
+          case "$DEPLOYMENT_TYPE" in
+            rhoai)
+              # RHOAI: Service name based on sanitized MODEL_NAME
+              MODEL_NAME="$(params.MODEL_NAME)"
+              DEPLOYMENT_NAME=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-42)
+              TARGET_URL="http://${DEPLOYMENT_NAME}.${NAMESPACE}.svc.cluster.local:80"
+              echo "Computed TARGET_URL for RHOAI: $TARGET_URL"
               ;;
-            kgateway)
-              TARGET_URL="http://infra-${RELEASE_NAME}-inference-gateway.${NAMESPACE}.svc.cluster.local:80"
+
+            rhaiis)
+              # RHAIIS: Direct service based on MODEL_NAME
+              MODEL_NAME="$(params.MODEL_NAME)"
+              DEPLOYMENT_NAME=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | cut -c1-63)
+              TARGET_URL="http://${DEPLOYMENT_NAME}.${NAMESPACE}.svc.cluster.local:8000"
+              echo "Computed TARGET_URL for RHAIIS: $TARGET_URL"
               ;;
-            standalone)
-              TARGET_URL="http://ms-${RELEASE_NAME}.${NAMESPACE}.svc.cluster.local:8000"
-              ;;
-            gke)
-              TARGET_URL="http://infra-${RELEASE_NAME}-inference-gateway.${NAMESPACE}.svc.cluster.local:80"
-              ;;
-            *)
-              echo "ERROR: Unknown GATEWAY_PROVIDER: $GATEWAY_PROVIDER"
-              exit 1
+
+            llm-d|*)
+              # llm-d: Use GATEWAY_PROVIDER and RELEASE_NAME
+              GATEWAY_PROVIDER="$(params.GATEWAY_PROVIDER)"
+              RELEASE_NAME="$(params.RELEASE_NAME)"
+
+              case "$GATEWAY_PROVIDER" in
+                istio)
+                  TARGET_URL="http://infra-${RELEASE_NAME}-inference-gateway-istio.${NAMESPACE}.svc.cluster.local:80"
+                  ;;
+                kgateway)
+                  TARGET_URL="http://infra-${RELEASE_NAME}-inference-gateway.${NAMESPACE}.svc.cluster.local:80"
+                  ;;
+                standalone)
+                  TARGET_URL="http://ms-${RELEASE_NAME}.${NAMESPACE}.svc.cluster.local:8000"
+                  ;;
+                gke)
+                  TARGET_URL="http://infra-${RELEASE_NAME}-inference-gateway.${NAMESPACE}.svc.cluster.local:80"
+                  ;;
+                *)
+                  echo "ERROR: Unknown GATEWAY_PROVIDER: $GATEWAY_PROVIDER"
+                  exit 1
+                  ;;
+              esac
+              echo "Computed TARGET_URL for llm-d ($GATEWAY_PROVIDER): $TARGET_URL"
               ;;
           esac
 
-          echo "Computed TARGET_URL: $TARGET_URL"
           echo -n "$TARGET_URL" > $(results.target-url.path)
         fi
 

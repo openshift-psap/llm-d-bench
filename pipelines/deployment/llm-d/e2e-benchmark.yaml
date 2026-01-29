@@ -513,19 +513,19 @@ spec:
         - name: MODEL
           value: $(params.MODEL_NAME)
         - name: GUIDELLM_PROCESSOR
-          value: $(params.GUIDELLM_PROCESSOR)
+          value: $(tasks.merge-configs.results.guidellm-processor)
         - name: GUIDELLM_BACKEND_TYPE
-          value: $(params.GUIDELLM_BACKEND_TYPE)
+          value: $(tasks.merge-configs.results.guidellm-backend-type)
         - name: GUIDELLM_RATE_TYPE
-          value: $(params.GUIDELLM_RATE_TYPE)
+          value: $(tasks.merge-configs.results.guidellm-rate-type)
         - name: GUIDELLM_RATE
-          value: $(params.GUIDELLM_RATE)
+          value: $(tasks.merge-configs.results.guidellm-rate)
         - name: GUIDELLM_DATA
-          value: $(params.GUIDELLM_DATA)
+          value: $(tasks.merge-configs.results.guidellm-data)
         - name: GUIDELLM_MAX_SECONDS
-          value: $(params.GUIDELLM_MAX_SECONDS)
+          value: $(tasks.merge-configs.results.guidellm-max-seconds)
         - name: GUIDELLM_MAX_REQUESTS
-          value: $(params.GUIDELLM_MAX_REQUESTS)
+          value: $(tasks.merge-configs.results.guidellm-max-requests)
         - name: ACCELERATOR
           value: $(params.ACCELERATOR)
         - name: MLFLOW_EXPERIMENT_NAME
@@ -539,11 +539,11 @@ spec:
         - name: TP
           value: $(params.TP)
         - name: REPLICAS
-          value: $(params.REPLICAS)
+          value: $(tasks.merge-configs.results.replicas)
         - name: PREFILL_REPLICAS
-          value: $(params.PREFILL_REPLICAS)
+          value: $(tasks.merge-configs.results.prefill-replicas)
         - name: DECODE_REPLICAS
-          value: $(params.DECODE_REPLICAS)
+          value: $(tasks.merge-configs.results.decode-replicas)
         - name: BENCHMARK_ENV_VARS
           value: $(params.BENCHMARK_ENV_VARS[*])
       workspaces:
