@@ -61,7 +61,7 @@ oc create secret generic mlflow-s3-secret \
   -n llm-d-bench
 ```
 
-Or copy templates from [config/secrets/](config/secrets/) and apply them.
+Or copy templates from [config/cluster/secrets/](config/cluster/secrets/) and apply them.
 
 See [MLflow Integration](docs/MLFLOW.md) for detailed setup.
 

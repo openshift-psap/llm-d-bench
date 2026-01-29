@@ -56,18 +56,18 @@ Alternatively, create secrets from YAML templates:
 
 ```bash
 # Copy templates
-cp config/secrets/mlflow-ui-auth.example.yaml config/secrets/mlflow-ui-auth.yaml
-cp config/secrets/mlflow-s3-secret.example.yaml config/secrets/mlflow-s3-secret.yaml
+cp config/cluster/secrets/mlflow-auth.example.yaml config/cluster/secrets/mlflow-auth.yaml
+cp config/cluster/secrets/mlflow-s3-creds.example.yaml config/cluster/secrets/mlflow-s3-creds.yaml
 
 # Edit with your credentials
-vim config/secrets/mlflow-ui-auth.yaml
-vim config/secrets/mlflow-s3-secret.yaml
+vim config/cluster/secrets/mlflow-auth.yaml
+vim config/cluster/secrets/mlflow-s3-creds.yaml
 
 # Remove .example suffix and install script will apply them
 ./scripts/install.sh -n llm-d-bench
 ```
 
-Templates are located in: [config/secrets/](../config/secrets/)
+Templates are located in: [config/cluster/secrets/](../config/cluster/secrets/)
 
 ## Enabling MLflow in Benchmarks
 
