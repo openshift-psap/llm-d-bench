@@ -116,6 +116,7 @@ rules:
       - inferencepools
       - inferencepoolrefs
       - inferenceobjectives
+      - inferencemodelrewrites
     verbs:
       - create
       - get
@@ -353,6 +354,7 @@ rules:
       - inferencepools
       - inferencepoolrefs
       - inferenceobjectives
+      - inferencemodelrewrites
     verbs:
       - create
       - get
