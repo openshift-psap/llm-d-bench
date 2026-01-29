@@ -78,6 +78,16 @@ spec:
       type: string
       default: ""
 
+    - name: GATEWAY_PROVIDER
+      description: Gateway provider for computing TARGET_URL
+      type: string
+      default: "istio"
+
+    - name: TARGET
+      description: Override TARGET_URL (if provided, computation is skipped)
+      type: string
+      default: ""
+
   results:
     - name: merged-config
       description: JSON object with merged configuration
@@ -87,6 +97,8 @@ spec:
       description: Deployment mode extracted from config
     - name: epp-profile
       description: EPP profile name if EPP_CONFIG was specified
+    - name: target-url
+      description: Computed or provided target endpoint URL
 
   steps:
     - name: merge
@@ -208,5 +220,37 @@ spec:
         # Deployment mode
         DEPLOYMENT_MODE=$(echo "$MERGED" | jq -r '.DEPLOYMENT_MODE // "inference-scheduling"')
         echo -n "$DEPLOYMENT_MODE" > $(results.deployment-mode.path)
+
+        # Compute TARGET_URL
+        if [ -n "$(params.TARGET)" ]; then
+          echo "Using provided TARGET: $(params.TARGET)"
+          echo -n "$(params.TARGET)" > $(results.target-url.path)
+        else
+          GATEWAY_PROVIDER="$(params.GATEWAY_PROVIDER)"
+          RELEASE_NAME="$(params.RELEASE_NAME)"
+          NAMESPACE="$(params.NAMESPACE)"
+
+          case "$GATEWAY_PROVIDER" in
+            istio)
+              TARGET_URL="http://infra-${RELEASE_NAME}-inference-gateway-istio.${NAMESPACE}.svc.cluster.local:80"
+              ;;
+            kgateway)
+              TARGET_URL="http://infra-${RELEASE_NAME}-inference-gateway.${NAMESPACE}.svc.cluster.local:80"
+              ;;
+            standalone)
+              TARGET_URL="http://ms-${RELEASE_NAME}.${NAMESPACE}.svc.cluster.local:8000"
+              ;;
+            gke)
+              TARGET_URL="http://infra-${RELEASE_NAME}-inference-gateway.${NAMESPACE}.svc.cluster.local:80"
+              ;;
+            *)
+              echo "ERROR: Unknown GATEWAY_PROVIDER: $GATEWAY_PROVIDER"
+              exit 1
+              ;;
+          esac
+
+          echo "Computed TARGET_URL: $TARGET_URL"
+          echo -n "$TARGET_URL" > $(results.target-url.path)
+        fi
 
         echo "✓ Configuration merge completed successfully"

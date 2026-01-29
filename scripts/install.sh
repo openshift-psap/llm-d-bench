@@ -130,17 +130,8 @@ echo ""
 echo "Installing Configuration Profiles..."
 # Apply ConfigMaps using kustomize
 if [ -d "$PROJECT_ROOT/config/profiles" ]; then
-    # Check if kubectl is available
-    if command -v kubectl &> /dev/null; then
-        echo "  Using kubectl to apply ConfigMaps..."
-        kubectl apply -k "$PROJECT_ROOT/config/profiles" $NS_FLAG
-    elif command -v oc &> /dev/null; then
-        echo "  Using oc to apply ConfigMaps..."
-        oc apply -k "$PROJECT_ROOT/config/profiles" $NS_FLAG
-    else
-        echo "  ERROR: Neither kubectl nor oc found. Cannot apply ConfigMaps."
-        exit 1
-    fi
+    echo "  Using oc to apply ConfigMaps..."
+    oc apply -k "$PROJECT_ROOT/config/profiles" $NS_FLAG
 
     # Count installed profiles
     VLLM_COUNT=$(oc get cm $NS_FLAG -l config-type=vllm -o name 2>/dev/null | wc -l || echo "0")
