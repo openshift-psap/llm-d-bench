@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deployment-llm-d-pd-disaggregation
+  namespace: llm-d-bench
+  annotations:
+    description: "llm-d Prefill/Decode disaggregation for large models"
+  labels:
+    config-type: deployment
+data:
+  DEPLOYMENT_TYPE: "llm-d"
+  DEPLOYMENT_MODE: "pd-disaggregation"
+  LLM_D_REPO_REF: "v0.4.0"
+  GATEWAY_PROVIDER: "istio"
+  PREFILL_REPLICAS: "4"
+  DECODE_REPLICAS: "1"
+  DECODE_TP: "4"

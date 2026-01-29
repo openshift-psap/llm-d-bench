@@ -14,6 +14,27 @@ spec:
     and cleanup deployment. Each stage can be optionally skipped via parameters.
 
   params:
+    # Profile References
+    - name: VLLM_CONFIG
+      description: vLLM profile ConfigMap name (e.g., vllm-default, vllm-fp8-cache)
+      type: string
+      default: ""
+
+    - name: DEPLOYMENT_CONFIG
+      description: Deployment profile ConfigMap name (e.g., deployment-llm-d-inference-scheduling)
+      type: string
+      default: ""
+
+    - name: BENCHMARK_CONFIG
+      description: Benchmark profile ConfigMap name (e.g., concurrent-1k-1k, concurrent-8k-1k)
+      type: string
+      default: ""
+
+    - name: EPP_CONFIG
+      description: EPP/GAIE scheduler ConfigMap name (e.g., scheduler-precise-prefix-cache, scheduler-cache-aware)
+      type: string
+      default: ""
+
     # Model Configuration
     - name: MODEL_NAME
       description: HuggingFace model identifier (e.g., meta-llama/Llama-3.1-8B)
@@ -267,8 +288,40 @@ spec:
       optional: true
 
   tasks:
+    # Stage 0: Merge Configuration Profiles
+    - name: merge-configs
+      taskRef:
+        name: merge-configs
+      params:
+        - name: VLLM_CONFIG
+          value: $(params.VLLM_CONFIG)
+        - name: DEPLOYMENT_CONFIG
+          value: $(params.DEPLOYMENT_CONFIG)
+        - name: BENCHMARK_CONFIG
+          value: $(params.BENCHMARK_CONFIG)
+        - name: EPP_CONFIG
+          value: $(params.EPP_CONFIG)
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: MODEL_NAME
+          value: $(params.MODEL_NAME)
+        - name: MODEL_REVISION
+          value: $(params.MODEL_REVISION)
+        - name: TP
+          value: $(params.TP)
+        - name: REPLICAS
+          value: $(params.REPLICAS)
+        - name: ACCELERATOR
+          value: $(params.ACCELERATOR)
+        - name: RELEASE_NAME
+          value: $(params.RELEASE_NAME)
+        - name: MLFLOW_EXPERIMENT_NAME
+          value: $(params.MLFLOW_EXPERIMENT_NAME)
+
     # Stage 1: Download Model
     - name: download-model
+      runAfter:
+        - merge-configs
       when:
         - input: "$(params.SKIP_DOWNLOAD)"
           operator: in
@@ -339,6 +392,8 @@ spec:
           value: $(params.HF_TOKEN_SECRET)
         - name: VLLM_ARGS
           value: $(params.VLLM_ARGS[*])
+        - name: EPP_CONFIG
+          value: $(params.EPP_CONFIG)
         - name: SKIP_IF_EXISTS
           value: "true"
       workspaces:

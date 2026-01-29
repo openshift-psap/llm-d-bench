@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deployment-rhaiis-vllm-pod
+  namespace: llm-d-bench
+  annotations:
+    description: "Simple vLLM Pod deployment for RHAIIS"
+  labels:
+    config-type: deployment
+data:
+  DEPLOYMENT_TYPE: "rhaiis"
+  DEPLOYMENT_MODE: "vllm-pod"
+  VERSION: "rhaiis"
+  MLFLOW_ENABLED: "true"
+  MLFLOW_TAGS: |
+    deployment=rhaiis
+    platform=vllm-pod
+    benchmark-tool=guidellm

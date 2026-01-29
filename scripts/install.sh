@@ -95,7 +95,7 @@ fi
 echo ""
 
 echo "Installing RBAC resources..."
-for rbac in "$PROJECT_ROOT"/config/rbac/*.yaml; do
+for rbac in "$PROJECT_ROOT"/config/cluster/rbac/*.yaml; do
     if [ -f "$rbac" ]; then
         echo "  - $(basename "$rbac")"
         # Replace namespace in ClusterRoleBinding to match target namespace
@@ -113,7 +113,7 @@ echo ""
 
 echo "Installing Secrets..."
 SECRET_COUNT=0
-for secret in "$PROJECT_ROOT"/config/secrets/*.yaml; do
+for secret in "$PROJECT_ROOT"/config/cluster/secrets/*.yaml; do
     # Skip .example.yaml files and check if file exists (not just glob pattern)
     if [ -f "$secret" ] && [[ ! "$secret" =~ \.example\.yaml$ ]]; then
         echo "  - $(basename "$secret")"
@@ -125,6 +125,38 @@ if [ $SECRET_COUNT -eq 0 ]; then
     echo "  No secrets found to install"
 fi
 echo "✓ Secrets processed"
+echo ""
+
+echo "Installing Configuration Profiles..."
+# Apply ConfigMaps using kustomize
+if [ -d "$PROJECT_ROOT/config/profiles" ]; then
+    # Check if kubectl is available
+    if command -v kubectl &> /dev/null; then
+        echo "  Using kubectl to apply ConfigMaps..."
+        kubectl apply -k "$PROJECT_ROOT/config/profiles" $NS_FLAG
+    elif command -v oc &> /dev/null; then
+        echo "  Using oc to apply ConfigMaps..."
+        oc apply -k "$PROJECT_ROOT/config/profiles" $NS_FLAG
+    else
+        echo "  ERROR: Neither kubectl nor oc found. Cannot apply ConfigMaps."
+        exit 1
+    fi
+
+    # Count installed profiles
+    VLLM_COUNT=$(oc get cm $NS_FLAG -l config-type=vllm -o name 2>/dev/null | wc -l || echo "0")
+    DEPLOY_COUNT=$(oc get cm $NS_FLAG -l config-type=deployment -o name 2>/dev/null | wc -l || echo "0")
+    BENCH_COUNT=$(oc get cm $NS_FLAG -l config-type=benchmark -o name 2>/dev/null | wc -l || echo "0")
+    SCHED_COUNT=$(oc get cm $NS_FLAG -l config-type=scheduler -o name 2>/dev/null | wc -l || echo "0")
+
+    echo "  Installed profiles:"
+    echo "    vLLM: $VLLM_COUNT profiles"
+    echo "    Deployments: $DEPLOY_COUNT profiles"
+    echo "    Benchmarks: $BENCH_COUNT profiles"
+    echo "    Schedulers: $SCHED_COUNT profiles"
+else
+    echo "  Warning: config/profiles/ directory not found. Skipping profile installation."
+fi
+echo "✓ Configuration profiles installed"
 echo ""
 
 echo "Installing Tasks..."
@@ -211,16 +243,16 @@ if [ "$CREATE_PVCS" = true ]; then
     echo "Creating PersistentVolumeClaims..."
 
     # Check if models-storage-pvc.yaml exists (user must copy from template)
-    if [ ! -f "$PROJECT_ROOT/config/workspaces/models-storage-pvc.yaml" ]; then
+    if [ ! -f "$PROJECT_ROOT/config/cluster/workspaces/models-storage-pvc.yaml" ]; then
         echo "  models-storage-pvc.yaml not found!"
         echo "  Please copy the appropriate template based on your deployment:"
-        echo "    For RHAIIS/single-node: cp config/workspaces/models-storage-pvc-rwo.yaml config/workspaces/models-storage-pvc.yaml"
-        echo "    For RHOAI/llm-d multi-pod: cp config/workspaces/models-storage-pvc-rwx.example.yaml config/workspaces/models-storage-pvc.yaml"
+        echo "    For RHAIIS/single-node: cp config/cluster/workspaces/models-storage-pvc-rwo.yaml config/cluster/workspaces/models-storage-pvc.yaml"
+        echo "    For RHOAI/llm-d multi-pod: cp config/cluster/workspaces/models-storage-pvc-rwx.example.yaml config/cluster/workspaces/models-storage-pvc.yaml"
         echo ""
     fi
 
     PVC_COUNT=0
-    for pvc in "$PROJECT_ROOT"/config/workspaces/*.yaml; do
+    for pvc in "$PROJECT_ROOT"/config/cluster/workspaces/*.yaml; do
         # Skip .example.yaml files and template files (those with -rwo or -rwx in the name)
         if [ -f "$pvc" ] && [[ ! "$pvc" =~ \.example\.yaml$ ]] && [[ ! "$pvc" =~ -rwo\.yaml$ ]] && [[ ! "$pvc" =~ -rwx\.yaml$ ]]; then
             # Extract PVC name from the YAML file

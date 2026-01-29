@@ -14,119 +14,52 @@ spec:
 
   taskRunTemplate:
     serviceAccountName: deploy-model-sa
-    podTemplate:
-      labels:
-        # Kueue integration for GPU quota management
-        kueue.x-k8s.io/queue-name: psap-releases-queue
-        kueue.x-k8s.io/priority-class: psap-releases
 
   ttlSecondsAfterFinished: 3600
 
   params:
-    # ===========================================
-    # Model Configuration
-    # ===========================================
     - name: MODEL_NAME
       value: "RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic"
-    - name: MODEL_REVISION
-      value: "main"
 
-    # ===========================================
-    # Deployment Configuration (PD Disaggregation)
-    # ===========================================
+    - name: VLLM_CONFIG
+      value: "vllm-default"
+    - name: DEPLOYMENT_CONFIG
+      value: "deployment-llm-d-inference-scheduling"
+    - name: BENCHMARK_CONFIG
+      value: "concurrent-1k-1k"
+
     - name: DEPLOYMENT_MODE
       value: "pd-disaggregation"
     - name: RELEASE_NAME
       value: "llama-70b-pd"
-    - name: NAMESPACE
-      value: "llm-d-bench"
-    - name: GATEWAY_PROVIDER
-      value: "istio"
-
-    # PD Disaggregation Worker Configuration
-    # Total: 8 GPUs (4 prefill × 1 TP + 1 decode × 4 TP)
-    - name: PREFILL_REPLICAS
-      value: "4"
     - name: PREFILL_TP
-      value: "1"
-    - name: DECODE_REPLICAS
       value: "1"
     - name: DECODE_TP
       value: "4"
     - name: PD_THRESHOLD
-      value: "0"  # Always disaggregate (0 = always, higher values = selective)
+      value: "0"
     - name: HASH_BLOCK_SIZE
       value: "5"
     - name: ENABLE_RDMA
-      value: "false"  # Set to "true" if cluster has InfiniBand/RDMA networking
+      value: "false"
+    - name: TP
+      value: "4"
 
-    # vLLM Configuration for Large Model
-    - name: VLLM_ARGS
-      value:
-        - "--max-model-len=8192"
-        - "--gpu-memory-utilization=0.92"
-        - "--disable-log-requests"
-        - "--distributed-executor-backend=mp"
+    - name: ACCELERATOR
+      value: "H200"
+    - name: BENCHMARK_ENV_VARS
+      value: []
 
-    # ===========================================
-    # Benchmark Configuration - GuideLLM
-    # ===========================================
-    - name: IMAGE
-      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
-    - name: TARGET
-      value: "http://infra-llama-70b-pd-inference-gateway-istio.llm-d-bench.svc.cluster.local:80"
-    - name: GUIDELLM_RATE
-      value: "1"
-    - name: GUIDELLM_DATA
-      value: "prompt_tokens=1000,output_tokens=1000"
-    - name: GUIDELLM_PROCESSOR
-      value: "RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic"
-    - name: GUIDELLM_BACKEND_TYPE
-      value: "openai_http"
-    - name: GUIDELLM_RATE_TYPE
-      value: "concurrent"
-    - name: GUIDELLM_MAX_SECONDS
-      value: "60"
-    - name: GUIDELLM_MAX_REQUESTS
-      value: ""
-
-    # ===========================================
-    # MLflow Configuration
-    # ===========================================
     - name: MLFLOW_ENABLED
       value: "true"
     - name: MLFLOW_EXPERIMENT_NAME
       value: "meta-llama-31-70b-pd-disaggregation"
     - name: VERSION
       value: "llm-d-0.4-pd"
-    - name: ACCELERATOR
-      value: "H200"
-    - name: TP
-      value: "4"  # Used for benchmark tagging (decode TP value)
     - name: MLFLOW_TAGS
       value:
         - "deployment=llm-d-pd-disaggregation"
         - "benchmark-tool=guidellm"
-    - name: BENCHMARK_ENV_VARS
-      value: []
-
-    # ===========================================
-    # Health Check Configuration
-    # ===========================================
-    - name: HEALTH_CHECK_TIMEOUT
-      value: "3600"
-
-    # ===========================================
-    # Stage Control
-    # ===========================================
-    - name: SKIP_DOWNLOAD
-      value: "false"
-    - name: SKIP_DEPLOY
-      value: "false"
-    - name: SKIP_BENCHMARK
-      value: "true"
-    - name: SKIP_CLEANUP
-      value: "true"
 
   timeouts:
     pipeline: "4h"

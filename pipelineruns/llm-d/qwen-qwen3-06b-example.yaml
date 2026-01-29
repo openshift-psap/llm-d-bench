@@ -1,5 +1,5 @@
 # ===========================================
-# llm-d End-to-End Benchmark Example
+# llm-d End-to-End Benchmark - Comprehensive Example
 # ===========================================
 # This file contains ALL available parameters for the llm-d-end-to-end-benchmark pipeline.
 # Use this as a reference to create new llm-d pipelineruns.
@@ -49,10 +49,39 @@ spec:
       # Examples: "meta-llama/Llama-3.1-8B", "Qwen/Qwen3-0.6B", "mistralai/Mistral-7B-v0.1"
       value: "Qwen/Qwen3-0.6B"
 
-    - name: MODEL_REVISION
-      # DEFAULT: "main"
-      # Git branch, tag, or commit hash for the model
-      value: "main"
+    # - name: MODEL_REVISION
+    #   # DEFAULT: "main"
+    #   # Git branch, tag, or commit hash for the model
+    #   value: "main"
+
+    # ===========================================
+    # Profile References (ConfigMap-based configs)
+    # ===========================================
+    # See docs/PROFILES.md for full documentation
+
+    - name: VLLM_CONFIG
+      # DEFAULT: "vllm-default"
+      # vLLM engine configuration profile
+      # Options:
+      #   - vllm-default: Standard config with prefix caching disabled
+      #   - vllm-fp8-cache: FP8 KV cache dtype for FP8 models
+      #   - vllm-experts-parallel: MoE models requiring expert parallelism
+      value: "vllm-default"
+
+    - name: DEPLOYMENT_CONFIG
+      # DEFAULT: "deployment-llm-d-inference-scheduling"
+      # Deployment platform configuration
+      # Options:
+      #   - deployment-llm-d-inference-scheduling: Standard llm-d deployment
+      value: "deployment-llm-d-inference-scheduling"
+
+    - name: BENCHMARK_CONFIG
+      # DEFAULT: "concurrent-1k-1k"
+      # Benchmark workload configuration
+      # Options:
+      #   - concurrent-1k-1k: 1000 prompt tokens, 1000 output tokens
+      #   - concurrent-8k-1k: 8000 prompt tokens, 1000 output tokens (long context)
+      value: "concurrent-1k-1k"
 
     # ===========================================
     # Deployment Configuration
@@ -61,7 +90,7 @@ spec:
       # DEFAULT: "inference-scheduling"
       # Options: "inference-scheduling", "pd-disaggregation"
       # - inference-scheduling: Standard mode, uses REPLICAS and TP
-      # - pd-disaggregation: Advanced mode for 70B+ models, uses PREFILL_*/DECODE_* params
+      # - pd-disaggregation: Advanced mode for 70B+ models, uses PREFILL_TP/DECODE_TP
       value: "inference-scheduling"
 
     - name: RELEASE_NAME
@@ -70,9 +99,10 @@ spec:
       # Must be DNS-compatible (lowercase, alphanumeric, hyphens)
       value: "qwen-06b-example"
 
-    - name: NAMESPACE
-      # REQUIRED - Kubernetes namespace for deployment
-      value: "llm-d-bench"
+    # - name: NAMESPACE
+    #   # DEFAULT: "llm-d-bench"
+    #   # Kubernetes namespace for deployment
+    #   value: "llm-d-bench"
 
     - name: GATEWAY_PROVIDER
       # DEFAULT: "istio"
@@ -104,24 +134,26 @@ spec:
     # (Only used when DEPLOYMENT_MODE=pd-disaggregation)
     # Requires minimum 8 GPUs total
     # ===========================================
-    - name: PREFILL_REPLICAS
-      # DEFAULT: "4"
-      # Number of prefill worker replicas (horizontal scaling for prefill phase)
-      value: "4"
+    # - name: PREFILL_REPLICAS
+    #   # DEFAULT: "0" (not used in standard mode)
+    #   # Number of prefill worker replicas (horizontal scaling for prefill phase)
+    #   value: "4"
 
     - name: PREFILL_TP
       # DEFAULT: "1"
       # Tensor parallelism for prefill workers
+      # Only used when DEPLOYMENT_MODE=pd-disaggregation
       value: "1"
 
-    - name: DECODE_REPLICAS
-      # DEFAULT: "1"
-      # Number of decode worker replicas
-      value: "1"
+    # - name: DECODE_REPLICAS
+    #   # DEFAULT: "0" (not used in standard mode)
+    #   # Number of decode worker replicas
+    #   value: "1"
 
     - name: DECODE_TP
       # DEFAULT: "4"
       # Tensor parallelism for decode workers (vertical scaling)
+      # Only used when DEPLOYMENT_MODE=pd-disaggregation
       value: "4"
 
     - name: PD_THRESHOLD
@@ -129,20 +161,22 @@ spec:
       # Selective PD threshold
       # - 0: Always disaggregate (all requests go through PD pipeline)
       # - >0: Only disaggregate requests with input length > threshold
+      # Only used when DEPLOYMENT_MODE=pd-disaggregation
       value: "0"
 
     - name: HASH_BLOCK_SIZE
       # DEFAULT: "5"
       # Hash block size for PD profiling in GAIE
       # Used for KV cache profiling and matching
+      # Only used when DEPLOYMENT_MODE=pd-disaggregation
       value: "5"
 
     - name: ENABLE_RDMA
-      # DEFAULT: "true"
+      # DEFAULT: "false"
       # Enable RDMA/InfiniBand networking for KV cache transfer
-      # Set to "false" for clusters without RDMA hardware
-      # Performance will be reduced without RDMA
-      value: "true"
+      # Set to "true" for clusters with RDMA hardware (performance improvement)
+      # Only used when DEPLOYMENT_MODE=pd-disaggregation
+      value: "false"
 
     # ===========================================
     # Storage & Authentication
@@ -153,95 +187,54 @@ spec:
       # Secret must have key "HF_TOKEN"
       value: "huggingface-token"
 
-    - name: VLLM_ARGS
-      # DEFAULT: []
-      # Additional vLLM command-line arguments
-      # Common options:
-      #   --max-model-len=N        Maximum sequence length
-      #   --gpu-memory-utilization=0.95   GPU memory fraction to use
-      #   --trust-remote-code      Trust remote code in model repo
-      #   --quantization=awq|gptq  Enable quantization
-      #   --enforce-eager          Disable CUDA graphs
-      #   --distributed-executor-backend=mp|ray  Distributed backend
-      value:
-        - "--max-model-len=8192"
-        - "--gpu-memory-utilization=0.95"
+    # ===========================================
+    # vLLM Arguments Override (optional)
+    # ===========================================
+    # Uncomment to override or extend profile vLLM args
+    # - name: VLLM_ARGS
+    #   # DEFAULT: [] (uses profile config)
+    #   # Additional vLLM command-line arguments
+    #   # Common options:
+    #   #   --max-model-len=N        Maximum sequence length
+    #   #   --gpu-memory-utilization=0.95   GPU memory fraction to use
+    #   #   --trust-remote-code      Trust remote code in model repo
+    #   #   --quantization=awq|gptq  Enable quantization
+    #   #   --enforce-eager          Disable CUDA graphs
+    #   #   --distributed-executor-backend=mp|ray  Distributed backend
+    #   value:
+    #     - "--max-model-len=8192"
+    #     - "--gpu-memory-utilization=0.95"
 
     # ===========================================
-    # llm-d Repository Configuration
+    # EPP/GAIE Scheduler Configuration (optional)
     # ===========================================
-    - name: LLM_D_REPO_URL
-      # DEFAULT: "https://github.com/llm-d/llm-d.git"
-      # llm-d repository URL (use fork URL for testing changes)
-      value: "https://github.com/llm-d/llm-d.git"
-
-    - name: LLM_D_REPO_REF
-      # DEFAULT: "main"
-      # Git branch, tag, or commit for llm-d repository
-      # Use specific version tags for reproducibility (e.g., "v0.4.0")
-      value: "v0.4.0"
+    # - name: EPP_CONFIG
+    #   # DEFAULT: "" (empty, uses default GAIE configuration)
+    #   # EPP/GAIE scheduler ConfigMap name for intelligent request routing
+    #   # Available profiles (see config/profiles/deployments/llm-d/epp/):
+    #   #   scheduler-precise-prefix-cache  - Precise prefix caching with KV-events (requires ZMQ port)
+    #   #   scheduler-cache-aware           - Approximate cache awareness with autoTune
+    #   #   scheduler-pd-disaggregation     - Prefill/Decode disaggregation scheduler
+    #   # Leave empty for standard round-robin scheduling
+    #   value: ""
 
     # ===========================================
-    # Benchmark Configuration - GuideLLM
+    # Benchmark Configuration Overrides
     # ===========================================
-    - name: IMAGE
-      # DEFAULT: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
-      # GuideLLM benchmark container image
-      # Update namespace if built in different namespace
-      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
+    # - name: TARGET
+    #   # DEFAULT: Auto-computed from GATEWAY_PROVIDER and RELEASE_NAME
+    #   # Inference endpoint URL
+    #   # Format depends on GATEWAY_PROVIDER:
+    #   #   istio: http://infra-{RELEASE_NAME}-inference-gateway-istio.{NAMESPACE}.svc.cluster.local:80
+    #   #   kgateway: http://infra-{RELEASE_NAME}-inference-gateway.{NAMESPACE}.svc.cluster.local:80
+    #   #   standalone: http://{service-name}.{NAMESPACE}.svc.cluster.local:8000
+    #   value: "http://infra-qwen-06b-example-inference-gateway-istio.llm-d-bench.svc.cluster.local:80"
 
-    - name: TARGET
-      # REQUIRED - Inference endpoint URL
-      # Format depends on GATEWAY_PROVIDER:
-      #   istio: http://infra-{RELEASE_NAME}-inference-gateway-istio.{NAMESPACE}.svc.cluster.local:80
-      #   kgateway: http://infra-{RELEASE_NAME}-inference-gateway.{NAMESPACE}.svc.cluster.local:80
-      #   standalone: http://{service-name}.{NAMESPACE}.svc.cluster.local:8000
-      value: "http://infra-qwen-06b-example-inference-gateway-istio.llm-d-bench.svc.cluster.local:80"
-
-    - name: GUIDELLM_PROCESSOR
-      # DEFAULT: "" (empty, uses MODEL_NAME)
-      # Tokenizer/processor model name for GuideLLM
-      # Set explicitly if different from MODEL_NAME
-      value: "Qwen/Qwen3-0.6B"
-
-    - name: GUIDELLM_BACKEND_TYPE
-      # DEFAULT: "openai_http"
-      # Options: "openai_http", "openai_server"
-      # Backend type for the inference server
-      value: "openai_http"
-
-    - name: GUIDELLM_RATE_TYPE
-      # DEFAULT: "concurrent"
-      # Options: "concurrent", "synchronous"
-      # - concurrent: Maintain N concurrent requests
-      # - synchronous: Send requests at fixed rate (requests/sec)
-      value: "concurrent"
-
-    - name: GUIDELLM_RATE
-      # DEFAULT: "1,50,100"
-      # Comma-separated list of rates to test
-      # For concurrent: number of concurrent requests
-      # For synchronous: requests per second
-      value: "1"
-
-    - name: GUIDELLM_DATA
-      # DEFAULT: "prompt_tokens=1000,output_tokens=1000"
-      # Request data profile
-      # Format: prompt_tokens=N,output_tokens=M
-      # Or use dataset name: "emulated:prompt_tokens=1000,output_tokens=1000"
-      value: "prompt_tokens=1000,output_tokens=1000"
-
-    - name: GUIDELLM_MAX_SECONDS
-      # DEFAULT: "600"
-      # Maximum duration per rate in seconds
-      # Set lower for quick tests, higher for stable measurements
-      value: "60"
-
-    - name: GUIDELLM_MAX_REQUESTS
-      # DEFAULT: "" (unlimited)
-      # Maximum number of requests per rate
-      # Leave empty for time-based runs
-      value: ""
+    # - name: GUIDELLM_PROCESSOR
+    #   # DEFAULT: "" (empty, uses MODEL_NAME)
+    #   # Tokenizer/processor model name for GuideLLM
+    #   # Set explicitly if different from MODEL_NAME
+    #   value: "Qwen/Qwen3-0.6B"
 
     # ===========================================
     # MLflow Configuration
@@ -255,13 +248,13 @@ spec:
     - name: MLFLOW_EXPERIMENT_NAME
       # DEFAULT: "guidellm-benchmarks-llm-d"
       # MLflow experiment name
-      value: "qwen-qwen3-06b"
+      value: "qwen-qwen3-06b-example"
 
     - name: VERSION
       # DEFAULT: "" (empty)
       # Version identifier for visualization reports
       # Useful for comparing different configurations
-      value: "llm-d-upstream"
+      value: "llm-d-0.4"
 
     - name: ACCELERATOR
       # DEFAULT: "" (empty)
@@ -275,61 +268,62 @@ spec:
       # Recorded in MLflow for filtering/grouping
       value:
         - "deployment=llm-d"
-        - "gateway=istio"
+        - "benchmark-tool=guidellm"
 
     - name: BENCHMARK_ENV_VARS
       # DEFAULT: []
       # Additional environment variables for benchmark container
       # Format: ["VAR1=value1", "VAR2=value2"]
+      # Example: ["GUIDELLM__MAX_WORKER_PROCESSES=100"]
       value: []
 
     # ===========================================
     # MLPerf Benchmark Parameters
-    # (Only used when IMAGE contains 'mlperf')
+    # (Only used when using MLPerf instead of GuideLLM)
     # ===========================================
-    - name: MLPERF_DATASET_NAME
-      # DEFAULT: "cnn_eval.json"
-      # Dataset filename in /mlperf-data/ PVC mount
-      value: "cnn_eval.json"
+    # - name: MLPERF_DATASET_NAME
+    #   # DEFAULT: "cnn_eval.json"
+    #   # Dataset filename in /mlperf-data/ PVC mount
+    #   value: "cnn_eval.json"
 
-    - name: MLPERF_SCENARIO
-      # DEFAULT: "Offline"
-      # Options: "Offline", "Server", "SingleStream", "MultiStream"
-      value: "Offline"
+    # - name: MLPERF_SCENARIO
+    #   # DEFAULT: "Offline"
+    #   # Options: "Offline", "Server", "SingleStream", "MultiStream"
+    #   value: "Server"
 
-    - name: MLPERF_TEST_MODE
-      # DEFAULT: "accuracy"
-      # Options: "accuracy", "performance"
-      value: "accuracy"
+    # - name: MLPERF_TEST_MODE
+    #   # DEFAULT: "accuracy"
+    #   # Options: "accuracy", "performance"
+    #   value: "performance"
 
-    - name: MLPERF_BATCH_SIZE
-      # DEFAULT: "" (auto)
-      # Batch size for MLPerf
-      value: ""
+    # - name: MLPERF_BATCH_SIZE
+    #   # DEFAULT: "" (auto)
+    #   # Batch size for MLPerf
+    #   value: ""
 
-    - name: MLPERF_NUM_SAMPLES
-      # DEFAULT: "4388"
-      # Number of samples to process
-      value: "4388"
+    # - name: MLPERF_NUM_SAMPLES
+    #   # DEFAULT: "4388"
+    #   # Number of samples to process
+    #   value: "13368"
 
-    - name: MLPERF_OUTPUT_DIR
-      # DEFAULT: "./test-run"
-      # Output directory for MLPerf results
-      value: "./test-run"
+    # - name: MLPERF_OUTPUT_DIR
+    #   # DEFAULT: "/tmp/mlperf"
+    #   # Output directory for MLPerf results
+    #   value: "/tmp/mlperf"
 
-    - name: MLPERF_SERVER_TARGET_QPS
-      # DEFAULT: "10"
-      # Target QPS for Server scenario
-      value: "10"
+    # - name: MLPERF_SERVER_TARGET_QPS
+    #   # DEFAULT: "10"
+    #   # Target QPS for Server scenario
+    #   value: "20"
 
     # ===========================================
     # Health Check Configuration
     # ===========================================
-    - name: HEALTH_CHECK_TIMEOUT
-      # DEFAULT: "3600"
-      # Endpoint health check timeout in seconds
-      # Increase for large models that take longer to load
-      value: "3600"
+    # - name: HEALTH_CHECK_TIMEOUT
+    #   # DEFAULT: "3600"
+    #   # Endpoint health check timeout in seconds
+    #   # Increase for large models that take longer to load
+    #   value: "3600"
 
     # ===========================================
     # Stage Control

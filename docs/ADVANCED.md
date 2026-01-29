@@ -1,24 +1,21 @@
 # Advanced Guide
 
-This guide covers advanced topics for using, modifying, and extending the llm-d-bench project.
+Quick reference for advanced topics. Engineers should already know Tekton/Kubernetes basics.
 
 ## Table of Contents
 
 - [Repository Structure](#repository-structure)
-- [Infrastructure Requirements](#infrastructure-requirements)
-- [PD Disaggregation Deployment Mode](#pd-disaggregation-deployment-mode)
-- [Tekton Concepts](#tekton-concepts)
-- [Parameter Inheritance and Defaults](#parameter-inheritance-and-defaults)
-- [Using the Tekton CLI](#using-the-tekton-cli)
+- [PD Disaggregation](#pd-disaggregation)
+- [Parameter Inheritance](#parameter-inheritance)
 - [Model Name Sanitization](#model-name-sanitization)
+- [Custom EPP/GAIE Configurations](#custom-eppgaie-configurations)
 - [Creating Custom Tasks](#creating-custom-tasks)
 - [Creating Custom Pipelines](#creating-custom-pipelines)
 - [MLflow Integration](#mlflow-integration)
 - [Image Registry Setup](#image-registry-setup)
 - [Building Custom Images](#building-custom-images)
-- [Adding New Benchmark Tools](#adding-new-benchmark-tools)
+- [Adding Benchmark Tools](#adding-benchmark-tools)
 - [Troubleshooting](#troubleshooting)
-- [Additional Resources](#additional-resources)
 
 ---
 
@@ -27,849 +24,135 @@ This guide covers advanced topics for using, modifying, and extending the llm-d-
 ```
 llm-d-bench/
 ├── build/                    # Custom benchmark image source
-│   ├── guidellm/             # GuideLLM with MLflow integration
-│   └── mlperf/               # MLPerf benchmark wrapper
-│
 ├── config/                   # Configuration resources
-│   ├── rbac/                 # Service accounts and roles
-│   ├── secrets/              # Secret templates
-│   └── workspaces/           # PVC definitions
-│
-├── docs/                     # Documentation
-│   └── ADVANCED.md           # This file
-│
+│   ├── cluster/              # RBAC, secrets, PVCs
+│   └── profiles/             # Workload configuration profiles
 ├── pipelineruns/             # Pipeline execution definitions
-│   ├── llm-d/                # llm-d (Helmfile) deployments
-│   ├── rhoai/                # RHOAI (KServe) deployments
-│   ├── rhaiis/               # RHAIIS (Pod) deployments
-│   └── benchmark/            # Standalone benchmarks
-│       ├── guidellm/         # GuideLLM examples
-│       └── mlperf/           # MLPerf examples
-│
 ├── pipelines/                # Pipeline definitions (orchestration)
-│   ├── deployment/           # Deployment mode pipelines
-│   │   ├── llm-d/            # llm-d end-to-end
-│   │   ├── rhoai/            # RHOAI end-to-end
-│   │   └── rhaiis/           # RHAIIS end-to-end
-│   └── benchmark/            # Benchmark pipelines
-│       ├── guidellm/         # GuideLLM pipelines
-│       └── mlperf/           # MLPerf pipelines
-│
-├── scripts/                  # Utility scripts
-│   └── install.sh            # Installation automation
-│
 ├── tasks/                    # Task definitions (atomic operations)
-│   ├── deployment/           # Deployment-specific tasks
-│   │   ├── llm-d/            # llm-d deployment tasks
-│   │   ├── rhoai/            # RHOAI deployment tasks
-│   │   ├── rhaiis/           # RHAIIS deployment tasks
-│   │   └── common/           # Shared deployment tasks
-│   └── benchmark/guidellm/   # Benchmark tool tasks
-│
-└── README.md                 # Quick start guide
+└── scripts/                  # install.sh
 ```
 
-### Directory Purposes
-
-- **`tasks/`**: Atomic, reusable operations (build, deploy, benchmark, cleanup)
-  - `deployment/`: Mode-specific deployment tasks
-  - `benchmark/`: Tool-specific benchmark tasks
-- **`pipelines/`**: Orchestration of tasks into workflows
-  - `deployment/`: Full end-to-end workflows per deployment mode
-  - `benchmark/`: Standalone benchmark pipelines
-- **`pipelineruns/`**: Concrete executions with specific parameters
-  - Organized by deployment mode and benchmark tool
-- **`build/`**: Benchmark tool container images
-  - Each tool has its own subdirectory
-- **`config/`**: Kubernetes resources (RBAC, secrets, PVCs)
-- **`scripts/`**: Installation and utility automation
-
 ---
 
-## Infrastructure Requirements
+## PD Disaggregation
 
-### RHOAI Deployment (LLMInferenceService)
-
-This repository supports **RHOAI deployment** using distributed inference through `LLMInferenceService` via RHOAI 3.0. However, infrastructure provisioning is **not yet fully automated** and may require manual adjustments.
-
-**Key Points:**
-
-- **Deployment Mechanism**: Uses KServe's `LLMInferenceService` custom resource for distributed inference
-- **Infrastructure**: Requires RHOAI 3.0 (Red Hat OpenShift AI) or compatible KServe installation
-- **Manual Setup**: Infrastructure components may need manual configuration
-- **Reference Manifests**: See `infra/manifests/rhoai/` and `infra/manifests/rhcl/` for example configurations
-
-**What's Automated:**
-- Model download from HuggingFace
-- `LLMInferenceService` deployment and configuration
-- Benchmark execution
-- Deployment cleanup
-
-**What May Require Manual Setup:**
-- RHOAI/KServe operator installation
-- Service mesh configuration (Istio/OpenShift Service Mesh)
-- GPU node configuration and scheduling
-- Storage class provisioning
-- Network policies and ingress
-
-**Recommendation**: Review the manifests in `infra/manifests/` and adapt them to your cluster's configuration before running downstream e2e pipelines.
-
----
-
-## PD Disaggregation Deployment Mode
-
-### Overview
-
-**PD (Prefill/Decode) Disaggregation** is an advanced deployment mode for llm-d that separates the prefill and decode phases of LLM inference into specialized worker pools. This architecture enables improved throughput/latency trade-offs for large models with long input sequences.
-
-### When to Use PD Disaggregation
-
-PD Disaggregation is designed for:
-
-- **Large models**: 70B+ parameters
-- **Long input sequences**: 10k+ tokens (ISL - Input Sequence Length)
-- **High-performance clusters**: RDMA networking available
-- **Throughput-critical workloads**: Where separating compute-intensive prefill from latency-sensitive decode provides benefits
-
-**Do NOT use for:**
-- Small models (<13B parameters)
-- Short sequences (<1k tokens)
-- Limited GPU availability (<8 GPUs)
+Prefill/Decode disaggregation separates inference phases into specialized worker pools for 70B+ models.
 
 ### Requirements
 
-#### Minimum Requirements
+- **Minimum 8 GPUs** total
+- **RDMA networking** (recommended)
+- **llm-d 0.4+**
+- Large models (70B+), long sequences (10k+ tokens)
 
-- **8 GPUs minimum** for worker pools
-- **RDMA networking** (InfiniBand or RoCE) - *recommended but optional*
-  - Recommended for efficient KV cache transfer between prefill and decode workers
-  - Can be disabled with `ENABLE_RDMA: "false"` for clusters without RDMA
-  - Performance will be reduced without RDMA due to network overhead
-- **llm-d 0.4+** with PD disaggregation support
-- **vLLM with Nixl connector** for KV cache transfer
-
-#### Recommended Hardware
-
-- **GPUs**: H100/H200 with NVLink for best performance
-- **Network**: InfiniBand or RoCE (RDMA over Converged Ethernet)
-- **Memory**: High-bandwidth memory for KV cache operations
-- **Storage**: Fast shared storage for model weights
-
-### How PD Disaggregation Works
-
-#### Architecture
-
-Traditional inference processes each request through prefill → decode phases on the same worker. PD Disaggregation splits this:
-
-```
-┌─────────────────┐
-│   Request       │
-└────────┬────────┘
-         │
-    ┌────▼────────────────────────────────────┐
-    │    GAIE Scheduler                       │
-    │    (PD Profile Handler)                 │
-    └────┬─────────────────────────┬──────────┘
-         │                         │
-         │ Prefill Phase           │ Decode Phase
-         ▼                         ▼
-┌────────────────────┐    ┌────────────────────┐
-│  Prefill Workers   │───▶│  Decode Workers    │
-│  (Horizontal Scale)│ KV │  (Vertical Scale)  │
-│                    │Txfr│                    │
-│  4 replicas × 1 TP │────│  1 replica × 4 TP  │
-└────────────────────┘    └────────────────────┘
-```
-
-#### Prefill Workers
-
-- **Purpose**: Process input tokens, generate KV cache
-- **Optimization**: Horizontal scaling (more replicas, less TP)
-- **Characteristics**:
-  - Compute-bound workload
-  - Benefits from parallel processing
-  - Typical config: 4-8 replicas with TP=1
-  - Example: 4 workers × 1 GPU = 4 GPUs total
-
-#### Decode Workers
-
-- **Purpose**: Autoregressive generation using KV cache
-- **Optimization**: Vertical scaling (fewer replicas, more TP)
-- **Characteristics**:
-  - Latency-sensitive workload
-  - Benefits from larger TP for memory bandwidth
-  - Typical config: 1-2 replicas with TP=4-8
-  - Example: 1 worker × 4 GPUs = 4 GPUs total
-
-#### KV Cache Transfer
-
-- Uses **Nixl connector** for efficient KV cache transfer via RDMA
-- Prefill workers generate KV cache and transfer to decode workers
-- Decode workers use transferred cache for generation
-- Requires RDMA networking for performance
-
-### Configuration Parameters
-
-#### Deployment Mode Selection
-
-```yaml
-params:
-  - name: DEPLOYMENT_MODE
-    value: "pd-disaggregation"  # or "inference-scheduling" (default)
-```
-
-#### Gateway Provider
-
-```yaml
-- name: GATEWAY_PROVIDER
-  value: "istio"              # Gateway provider for inference endpoint
-                              # Options: istio (default), kgateway, standalone, gke
-```
-
-#### Worker Pool Configuration
-
-**Prefill Workers:**
-```yaml
-- name: PREFILL_REPLICAS
-  value: "4"              # Number of prefill worker replicas
-- name: PREFILL_TP
-  value: "1"              # Tensor parallelism per prefill worker
-```
-
-**Decode Workers:**
-```yaml
-- name: DECODE_REPLICAS
-  value: "1"              # Number of decode worker replicas
-- name: DECODE_TP
-  value: "4"              # Tensor parallelism per decode worker
-```
+### Worker Configuration
 
 **Total GPUs = (PREFILL_REPLICAS × PREFILL_TP) + (DECODE_REPLICAS × DECODE_TP)**
 
-#### PD Scheduler Configuration
-
 ```yaml
-- name: PD_THRESHOLD
-  value: "0"              # Selective PD threshold
-                          # 0 = always disaggregate
-                          # Higher values = selective disaggregation based on input length
-
-- name: HASH_BLOCK_SIZE
-  value: "5"              # Hash block size for PD profiling in GAIE
-                          # Used for KV cache profiling and matching
-```
-
-#### Networking Configuration
-
-```yaml
-- name: ENABLE_RDMA
-  value: "true"           # Enable RDMA/InfiniBand networking (default: true)
-                          # Set to "false" for clusters without RDMA hardware
-                          # Performance will be reduced without RDMA
-```
-
-### Typical Configurations
-
-#### 8 GPU Configuration (Entry Level)
-
-```yaml
-# Balanced configuration
+# 8 GPU configuration
+DEPLOYMENT_MODE: "pd-disaggregation"
 PREFILL_REPLICAS: "4"
 PREFILL_TP: "1"
 DECODE_REPLICAS: "1"
 DECODE_TP: "4"
-# Total: 4 + 4 = 8 GPUs
+PD_THRESHOLD: "0"          # Always disaggregate
+HASH_BLOCK_SIZE: "5"
+ENABLE_RDMA: "true"
 ```
 
-**Use case**: Initial testing, moderate throughput requirements
+### Example
 
-#### 16 GPU Configuration (High Throughput)
-
-```yaml
-# More prefill throughput
-PREFILL_REPLICAS: "8"
-PREFILL_TP: "1"
-DECODE_REPLICAS: "2"
-DECODE_TP: "4"
-# Total: 8 + 8 = 16 GPUs
-```
-
-**Use case**: High request rate, long input sequences
-
-#### 16 GPU Configuration (Memory-Bound Models)
-
-```yaml
-# Larger prefill TP for memory-intensive models
-PREFILL_REPLICAS: "4"
-PREFILL_TP: "2"
-DECODE_REPLICAS: "2"
-DECODE_TP: "4"
-# Total: 8 + 8 = 16 GPUs
-```
-
-**Use case**: Very large models requiring more TP even for prefill
-
-### Example PipelineRun
-
-Complete example for Llama-3.1-70B:
-
-```yaml
-apiVersion: tekton.dev/v1
-kind: PipelineRun
-metadata:
-  generateName: llama-70b-pd-
-spec:
-  pipelineRef:
-    name: llm-d-end-to-end-benchmark
-
-  params:
-    # Model Configuration
-    - name: MODEL_NAME
-      value: "meta-llama/Llama-3.1-70B-Instruct"
-
-    # Deployment Mode
-    - name: DEPLOYMENT_MODE
-      value: "pd-disaggregation"
-
-    # PD Worker Configuration (8 GPUs)
-    - name: PREFILL_REPLICAS
-      value: "4"
-    - name: PREFILL_TP
-      value: "1"
-    - name: DECODE_REPLICAS
-      value: "1"
-    - name: DECODE_TP
-      value: "4"
-
-    # PD Scheduler
-    - name: PD_THRESHOLD
-      value: "0"
-
-    # vLLM Configuration
-    - name: VLLM_ARGS
-      value:
-        - "--max-model-len=8192"
-        - "--gpu-memory-utilization=0.92"
-        - "--distributed-executor-backend=mp"
-
-    # Benchmark Configuration
-    - name: TARGET
-      value: "http://infra-llama-70b-pd-inference-gateway-istio.llm-d-bench.svc.cluster.local:80/v1"
-    - name: RATE
-      value: "1,50,100,200"
-```
-
-See `pipelineruns/llm-d/redhatai-llama-3.3-70b-instruct-fp8-dynamic-pd-disagg.yaml` for a complete example.
-
-### Technical Details
-
-#### Values File Differences
-
-**Inference-Scheduling Mode** (`ms-inference-scheduling/values.yaml`):
-- Single `decode` section with unified worker pool
-- Simple configuration for standard deployments
-
-**PD Disaggregation Mode** (`ms-pd/values.yaml`):
-- Separate `prefill` and `decode` sections
-- Independent configuration for each worker pool
-- KV transfer configuration in both pools
-
-#### GAIE Configuration
-
-The PD disaggregation mode uses specialized GAIE plugins:
-
-- **prefill-header-handler**: Marks requests for prefill routing
-- **prefill-filter**: Routes prefill phase to prefill workers
-- **decode-filter**: Routes decode phase to decode workers
-- **queue-scorer**: Scores workers based on KV cache availability
-- **pd-profile-handler**: Determines when to apply disaggregation based on `PD_THRESHOLD`
-
-Configuration in `gaie-pd/values.yaml`:
-```yaml
-plugins:
-  - type: pd-profile-handler
-    parameters:
-      threshold: 0              # From PD_THRESHOLD parameter
-      hashBlockSize: 5          # From HASH_BLOCK_SIZE parameter
-```
-
-#### HTTPRoute Configuration
-
-Same as inference-scheduling - points to InferencePool, not individual workers:
-```yaml
-apiVersion: gateway.networking.k8s.io/v1
-kind: HTTPRoute
-metadata:
-  name: llm-d-${RELEASE_NAME}
-spec:
-  parentRefs:
-    - kind: Gateway
-      name: infra-${RELEASE_NAME}-inference-gateway
-  rules:
-    - backendRefs:
-        - kind: InferencePool
-          name: gaie-${RELEASE_NAME}
-          port: 8000
-```
-
-The GAIE scheduler handles routing between prefill and decode pools transparently.
+See `pipelineruns/llm-d/redhatai-llama-3.3-70b-instruct-fp8-dynamic-pd-disagg.yaml`
 
 ### Verification
 
-After deployment, verify both worker pools are running:
-
 ```bash
-NAMESPACE=llm-d-bench
-RELEASE_NAME=llama-70b-pd
-
-# Check all model service pods
-kubectl get pods -n $NAMESPACE -l llm-d.ai/inferenceServing=true
-
-# Expected output (for 8 GPU configuration):
-# ms-llama-70b-pd-prefill-0  1/1  Running
-# ms-llama-70b-pd-prefill-1  1/1  Running
-# ms-llama-70b-pd-prefill-2  1/1  Running
-# ms-llama-70b-pd-prefill-3  1/1  Running
-# ms-llama-70b-pd-decode-0   1/1  Running
-
-# Verify GAIE scheduler
-kubectl get pods -n $NAMESPACE -l inferencepool=gaie-$RELEASE_NAME-epp
-
-# Verify gateway
-kubectl get gateway -n $NAMESPACE infra-$RELEASE_NAME-inference-gateway
-
-# Verify InferencePool
-kubectl get inferencepool -n $NAMESPACE gaie-$RELEASE_NAME
+kubectl get pods -n llm-d-bench -l llm-d.ai/inferenceServing=true
+kubectl get inferencepool -n llm-d-bench gaie-$RELEASE_NAME
 ```
 
 ### Troubleshooting
 
-#### Workers Not Starting
-
-**Symptom**: Prefill or decode pods remain in Pending state
-
-**Causes**:
-- Insufficient GPUs available
-- GPU resource fragmentation
-- Node selector constraints
-
-**Solution**:
+**Workers not starting**: Check GPU availability
 ```bash
-# Check GPU availability
 kubectl describe nodes | grep -A 5 "nvidia.com/gpu"
-
-# Verify total GPU requirement
-# TOTAL = (PREFILL_REPLICAS × PREFILL_TP) + (DECODE_REPLICAS × DECODE_TP)
-
-# Check pod events
-kubectl describe pod ms-<release>-prefill-0 -n $NAMESPACE
-kubectl describe pod ms-<release>-decode-0 -n $NAMESPACE
 ```
 
-#### KV Cache Transfer Failures
-
-**Symptom**: High latency, decode phase failures, RDMA errors in logs
-
-**Causes**:
-- RDMA networking not configured
-- Incorrect RDMA device specification
-- Network connectivity issues
-
-**Solution**:
+**KV cache transfer failures**: Verify RDMA
 ```bash
-# Check RDMA resources in pod spec
-kubectl get pod ms-<release>-prefill-0 -n $NAMESPACE -o yaml | grep -A 5 "rdma/ib"
-
-# Verify RDMA devices available on nodes
-kubectl describe nodes | grep rdma
-
-# Check vLLM logs for Nixl connector errors
-kubectl logs ms-<release>-prefill-0 -n $NAMESPACE | grep -i "nixl\|rdma"
+kubectl logs ms-<release>-prefill-0 -n llm-d-bench | grep -i "nixl\|rdma"
 ```
-
-#### Unbalanced Worker Utilization
-
-**Symptom**: Some workers overloaded while others idle
-
-**Causes**:
-- Incorrect PD_THRESHOLD setting
-- Workload doesn't benefit from disaggregation (short sequences)
-- GAIE scheduler configuration issues
-
-**Solution**:
-```bash
-# Check worker metrics
-kubectl port-forward svc/ms-<release>-prefill 8000:8000 -n $NAMESPACE
-curl http://localhost:8000/metrics
-
-# Adjust PD_THRESHOLD based on workload
-# 0 = always disaggregate (good for long sequences)
-# Higher values = only disaggregate when beneficial
-
-# Check GAIE logs for routing decisions
-kubectl logs -l inferencepool=gaie-<release>-epp -n $NAMESPACE
-```
-
-#### Deployment Task Fails
-
-**Symptom**: `deploy-llm-d-pd-disaggregation` task fails validation
-
-**Causes**:
-- Total GPUs < 8
-- Invalid worker configuration
-
-**Solution**:
-```bash
-# Review task logs
-tkn pipelinerun logs <run-name> -t deploy-llm-d-pd-disaggregation -n $NAMESPACE
-
-# Verify GPU calculation
-# Example error: "PD disaggregation requires minimum 8 GPUs (current: 5)"
-
-# Adjust worker pool configuration to meet minimum requirements
-```
-
-### Performance Tuning
-
-#### Optimizing Prefill Throughput
-
-Increase prefill replicas for higher request throughput:
-```yaml
-PREFILL_REPLICAS: "8"  # More prefill workers
-PREFILL_TP: "1"        # Keep TP low for horizontal scaling
-```
-
-#### Optimizing Decode Latency
-
-Increase decode TP for lower latency:
-```yaml
-DECODE_REPLICAS: "1"   # Fewer decode workers
-DECODE_TP: "8"         # Higher TP for memory bandwidth
-```
-
-#### Balancing for Mixed Workloads
-
-For workloads with varying input lengths, use selective disaggregation:
-```yaml
-PD_THRESHOLD: "512"    # Only disaggregate requests >512 tokens
-                       # Shorter requests bypass disaggregation overhead
-```
-
-### Cleanup
-
-Cleanup works the same as inference-scheduling mode (uses Helm release names):
-
-```bash
-# Using pipeline cleanup task
-SKIP_CLEANUP: "false"
-
-# Manual cleanup
-kubectl delete httproute llm-d-$RELEASE_NAME -n $NAMESPACE
-helm uninstall ms-$RELEASE_NAME -n $NAMESPACE
-helm uninstall gaie-$RELEASE_NAME -n $NAMESPACE
-helm uninstall infra-$RELEASE_NAME -n $NAMESPACE
-```
-
-### Switching Between Modes
-
-To switch an existing deployment between modes, change the PipelineRun:
-
-**From inference-scheduling to PD:**
-```yaml
-# Change these parameters:
-- name: DEPLOYMENT_MODE
-  value: "pd-disaggregation"  # Was: "inference-scheduling"
-
-# Remove:
-- name: MODEL_REPLICAS
-- name: TP
-
-# Add:
-- name: PREFILL_REPLICAS
-  value: "4"
-- name: PREFILL_TP
-  value: "1"
-- name: DECODE_REPLICAS
-  value: "1"
-- name: DECODE_TP
-  value: "4"
-```
-
-**Note**: Requires cleanup of existing deployment first (different Helm charts).
-
-### Best Practices
-
-1. **Start with baseline configuration**: Use 8 GPU (4 prefill × 1 TP + 1 decode × 4 TP) for initial testing
-2. **Monitor worker utilization**: Use Prometheus metrics to identify bottlenecks
-3. **Match TP to model size**: Very large models may need higher prefill TP
-4. **Use selective disaggregation**: Set PD_THRESHOLD for mixed workloads
-5. **Verify RDMA**: Ensure RDMA is functioning before production deployment
-6. **Test at scale**: Benchmark with realistic request patterns before production
-7. **Document configuration**: Tag MLflow runs with worker pool configuration for analysis
 
 ---
 
-## Tekton Concepts
+## Custom EPP/GAIE Configurations
 
-### Tasks
+Predefined EPP profiles for intelligent inference scheduling.
 
-A **Task** is the smallest unit of work in Tekton. It defines:
-- **Parameters**: Inputs that customize the task behavior
-- **Steps**: Sequential shell scripts or container commands
-- **Workspaces**: Shared storage volumes
-- **Results**: Outputs passed to other tasks
+### Available Profiles
 
-Example task structure:
+| Profile | Description | Requirements |
+|---------|-------------|--------------|
+| `default` | Standard load-aware | None |
+| `precise-cache` | KV-events precise caching | ZMQ port 5557, prefix caching |
+| `cache-aware` | Approximate cache awareness | Prefix caching |
+| `custom` | User-provided config | Advanced use |
+
+### Usage
+
 ```yaml
-apiVersion: tekton.dev/v1
-kind: Task
-metadata:
-  name: my-task
-spec:
-  params:
-    - name: INPUT
-      type: string
-      default: "default-value"
-  steps:
-    - name: step-1
-      image: registry.access.redhat.com/ubi9/ubi:latest
-      script: |
-        #!/bin/bash
-        echo "Input: $(params.INPUT)"
+params:
+  - name: EPP_PROFILE
+    value: "precise-cache"
+  - name: VLLM_ARGS
+    value:
+      - "--enable-prefix-caching"
 ```
 
-**Tasks in this repo:**
-- `download-model`: Downloads HuggingFace models to PVC (common)
-- `deploy-rhoai-model`: Creates LLMInferenceService deployments
-- `deploy-llm-d-helmfile`: Deploys using Helmfile GitOps
-- `deploy-rhaiis-pod`: Deploys as simple Pod with RHAIIS/vLLM
-- `wait-for-endpoint`: Polls endpoint until ready (common)
-- `run-guidellm-benchmark`: Executes GuideLLM benchmarks
-- `cleanup-rhoai-deployment`, `cleanup-llm-d-deployment`, `cleanup-rhaiis-deployment`: Remove deployments
+### Custom Configuration
 
-### Pipelines
-
-A **Pipeline** chains tasks together into a workflow. It defines:
-- **Parameters**: Inputs for the entire pipeline
-- **Tasks**: Ordered task invocations
-- **Workspaces**: Shared volumes across tasks
-- **When conditions**: Conditional task execution
-
-Example pipeline structure:
 ```yaml
-apiVersion: tekton.dev/v1
-kind: Pipeline
-metadata:
-  name: my-pipeline
-spec:
-  params:
-    - name: MODEL_NAME
-      type: string
-  tasks:
-    - name: task-1
-      taskRef:
-        name: my-task
-      params:
-        - name: INPUT
-          value: $(params.MODEL_NAME)
+params:
+  - name: EPP_PROFILE
+    value: "custom"
+  - name: EPP_CUSTOM_CONFIG
+    value: |
+      apiVersion: inference.networking.x-k8s.io/v1alpha1
+      kind: EndpointPickerConfig
+      plugins:
+        - type: prefix-cache-scorer
+          parameters:
+            autoTune: true
 ```
 
-**Pipelines in this repo:**
-- `guidellm-build-image`: Builds custom GuideLLM container
-- `guidellm-run-benchmark-pipeline`: Standalone benchmark execution
-- `llm-d-end-to-end-benchmark`: Complete llm-d workflow (download → deploy-helmfile → wait → benchmark → cleanup)
-- `rhoai-end-to-end-benchmark`: Complete RHOAI workflow (download → deploy-rhoai → wait → benchmark → cleanup)
-- `rhaiis-end-to-end-benchmark`: Complete RHAIIS workflow (download → deploy-rhaiis → wait → benchmark → cleanup)
+### Verification
 
-### PipelineRuns
-
-A **PipelineRun** is a concrete execution of a pipeline with specific parameter values. It:
-- References a pipeline
-- Provides all required parameter values
-- Binds workspaces to PVCs
-- Can specify service accounts, timeouts, and cleanup policies
-
-**PipelineRuns in this repo:**
-- Located in `pipelineruns/llm-d/`, `pipelineruns/rhoai/`, `pipelineruns/rhaiis/`, and `pipelineruns/benchmark/guidellm/`
-- Each represents a specific benchmark experiment
-- Uses `generateName` for unique run names
+```bash
+kubectl logs -l inferencepool=gaie-<release>-epp -n llm-d-bench
+kubectl get svc -n llm-d-bench | grep 5557  # For precise-cache
+```
 
 ---
 
-## Parameter Inheritance and Defaults
+## Parameter Inheritance
 
-Parameters flow through three levels: **Task → Pipeline → PipelineRun**
+Parameters flow: **Task → Pipeline → PipelineRun**
 
-### Level 1: Task Default Values
-
-Tasks define default values for parameters:
-
-```yaml
-# tasks/benchmark/guidellm/run-benchmark.yaml
-spec:
-  params:
-    - name: GUIDELLM_MAX_SECONDS
-      type: string
-      default: "600"    # Default value
-```
-
-### Level 2: Pipeline Overrides
-
-Pipelines can override task defaults:
-
-```yaml
-# pipelines/deployment/llm-d/e2e-benchmark.yaml
-spec:
-  params:
-    - name: GUIDELLM_MAX_SECONDS
-      type: string
-      default: "600"    # Pipeline-level default
-  tasks:
-    - name: run-benchmark
-      params:
-        - name: GUIDELLM_MAX_SECONDS
-          value: $(params.GUIDELLM_MAX_SECONDS)    # Pass pipeline param to task
-```
-
-### Level 3: PipelineRun Overrides
-
-PipelineRuns override pipeline defaults:
-
-```yaml
-# pipelineruns/llm-d/my-benchmark.yaml
-spec:
-  params:
-    - name: GUIDELLM_MAX_SECONDS
-      value: "1200"    # Override for this specific run
-```
-
-### Inheritance Rules
-
-1. **If not specified in PipelineRun**: Uses pipeline default
-2. **If not specified in Pipeline**: Uses task default
-3. **If not specified in Task**: Parameter is required
-
-**Example:**
 ```
 Task:        GUIDELLM_MAX_SECONDS = "600"  (default)
-Pipeline:    GUIDELLM_MAX_SECONDS = "600"  (optional override)
-PipelineRun: GUIDELLM_MAX_SECONDS = "1200" (final value used)
+Pipeline:    GUIDELLM_MAX_SECONDS = "600"  (override)
+PipelineRun: GUIDELLM_MAX_SECONDS = "1200" (final value)
 ```
 
-This means you only need to specify parameters that differ from defaults!
-
----
-
-## Using the Tekton CLI
-
-### Installation
-
-```bash
-# macOS
-brew install tektoncd-cli
-
-# Linux
-curl -LO https://github.com/tektoncd/cli/releases/download/v0.38.0/tkn_0.38.0_Linux_x86_64.tar.gz
-tar xvzf tkn_0.38.0_Linux_x86_64.tar.gz -C /usr/local/bin/ tkn
-```
-
-### Creating a PipelineRun from CLI
-
-Instead of YAML files, you can use `tkn` to start pipelines:
-
-#### Example: Complete Benchmark Lifecycle
-
-This example replicates `pipelineruns/llm-d/redhatai-llama-3.3-70b-instruct-fp8-dynamic-1k-1k.yaml`:
-
-```bash
-tkn pipeline start llm-d-end-to-end-benchmark \
-  --namespace llm-d-bench \
-  --serviceaccount deploy-model-sa \
-  --workspace name=models-storage,claimName=models-storage \
-  --param MODEL_NAME="RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic" \
-  --param MODEL_REVISION="main" \
-  --param NAMESPACE="llm-d-bench" \
-  --param VLLM_ARGS="--max-model-len=8192" \
-  --param VLLM_ARGS="--uvicorn-log-level=debug" \
-  --param VLLM_ARGS="--trust-remote-code" \
-  --param VLLM_ARGS="--gpu-memory-utilization=0.92" \
-  --param VLLM_ARGS="--no-enable-prefix-caching" \
-  --param VLLM_ARGS="--disable-log-requests" \
-  --param ENABLE_AUTH="false" \
-  --param REPLICAS="1" \
-  --param IMAGE="image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest" \
-  --param TARGET="https://redhatai-llama-33-70b-instruct-fp8-dynamic-kserve-workload-svc.llm-d-bench.svc.cluster.local:8000" \
-  --param GUIDELLM_PROCESSOR="RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic" \
-  --param GUIDELLM_BACKEND_TYPE="openai_http" \
-  --param GUIDELLM_RATE_TYPE="concurrent" \
-  --param GUIDELLM_RATE="650,500,300,200,100,50,1" \
-  --param GUIDELLM_DATA="prompt_tokens=1000,output_tokens=1000" \
-  --param GUIDELLM_MAX_SECONDS="600" \
-  --param GUIDELLM_MAX_REQUESTS="" \
-  --param ACCELERATOR="H200" \
-  --param MLFLOW_EXPERIMENT_NAME="redhatai-llama-33-70b-instruct-fp8-dynamic-1k-1k" \
-  --param VERSION="RHOAI-3.0" \
-  --param TP="1" \
-  --param BENCHMARK_ENV_VARS="GUIDELLM__MAX_WORKER_PROCESSES=100" \
-  --param MLFLOW_ENABLED="true" \
-  --param MLFLOW_TAGS="llm-d-version=RHOAI-3.0" \
-  --param HEALTH_CHECK_TIMEOUT="3600" \
-  --param SKIP_DOWNLOAD="true" \
-  --param SKIP_DEPLOY="false" \
-  --param SKIP_BENCHMARK="false" \
-  --param SKIP_CLEANUP="false" \
-  --showlog
-```
-
-**Note**: For array parameters like `VLLM_ARGS`, repeat the `--param` flag for each element.
-
-#### Simplified Example (Using Defaults)
-
-Most parameters have defaults, so you can simplify:
-
-```bash
-tkn pipeline start llm-d-end-to-end-benchmark \
-  --namespace llm-d-bench \
-  --serviceaccount deploy-model-sa \
-  --workspace name=models-storage,claimName=models-storage \
-  --param MODEL_NAME="meta-llama/Llama-3.1-8B" \
-  --param NAMESPACE="llm-d-bench" \
-  --param TARGET="https://meta-llama-llama-31-8b-kserve-workload-svc.llm-d-bench.svc.cluster.local:8000" \
-  --param GUIDELLM_RATE="1,50,100" \
-  --param MLFLOW_ENABLED="true" \
-  --showlog
-```
-
-### Useful tkn Commands
-
-```bash
-# List pipelines
-tkn pipeline list -n llm-d-bench
-
-# List recent runs
-tkn pipelinerun list -n llm-d-bench
-
-# Watch logs
-tkn pipelinerun logs -f <pipelinerun-name> -n llm-d-bench
-
-# View specific task logs
-tkn pipelinerun logs <pipelinerun-name> -t run-benchmark -n llm-d-bench
-
-# Describe a pipeline
-tkn pipeline describe full-benchmark-lifecycle -n llm-d-bench
-
-# Cancel a running pipeline
-tkn pipelinerun cancel <pipelinerun-name> -n llm-d-bench
-
-# Delete completed runs
-tkn pipelinerun delete <pipelinerun-name> -n llm-d-bench
-```
+Only specify parameters that differ from defaults.
 
 ---
 
 ## Model Name Sanitization
 
-Deployment names in Kubernetes have strict naming requirements. The project automatically sanitizes model names using this logic:
+Kubernetes deployment names are auto-sanitized:
 
 ```bash
 DEPLOYMENT_NAME=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-42)
@@ -879,192 +162,82 @@ DEPLOYMENT_NAME=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/
 
 ## Creating Custom Tasks
 
-### Task Template
+### Template
 
 ```yaml
 apiVersion: tekton.dev/v1
 kind: Task
 metadata:
   name: my-custom-task
-  labels:
-    app.kubernetes.io/version: "0.1"
-  annotations:
-    tekton.dev/displayName: "My Custom Task"
-    tekton.dev/tags: custom, example
-    tekton.dev/platforms: "linux/amd64"
 spec:
-  description: |
-    A custom task for my specific use case.
-    Provide detailed documentation here.
-
   params:
     - name: INPUT_PARAM
-      description: Description of what this parameter does
       type: string
       default: "default-value"
-
-    - name: ARRAY_PARAM
-      description: Array parameter example
-      type: array
-      default: []
-
-  workspaces:
-    - name: shared-data
-      description: Shared workspace for data
-      optional: false
 
   steps:
     - name: main-step
       image: registry.access.redhat.com/ubi9/ubi:latest
-      workingDir: /tmp
       script: |
         #!/bin/bash
         set -e
-
         echo "Input: $(params.INPUT_PARAM)"
-
-        # Access workspace
-        ls -la $(workspaces.shared-data.path)
-
-        # Your logic here
 ```
 
 ### Best Practices
 
-1. **Use descriptive parameter names**: `MODEL_NAME` not `M`
-2. **Provide defaults when sensible**: Makes tasks easier to use
-3. **Document everything**: Description, parameters, expected behavior
-4. **Use `set -e`**: Fail fast on errors
-5. **Log progress**: Use `echo` statements for debugging
-6. **Handle idempotency**: Check if work already done before proceeding
-
-### Adding a New Task
-
-1. Create YAML file in appropriate directory:
-   - `tasks/benchmark/guidellm/` - Benchmarking operations
-   - `tasks/deployment/common/` - Shared utilities
-   - `tasks/deployment/rhoai/` - RHOAI-specific
-   - `tasks/deployment/llm-d/` - llm-d-specific
-   - `tasks/deployment/rhaiis/` - RHAIIS-specific
-
-2. Test task standalone:
-   ```bash
-   oc apply -f tasks/my-category/my-task.yaml -n llm-d-bench
-   ```
-
-3. Create a TaskRun for testing:
-   ```yaml
-   apiVersion: tekton.dev/v1
-   kind: TaskRun
-   metadata:
-     generateName: test-my-task-
-   spec:
-     taskRef:
-       name: my-custom-task
-     params:
-       - name: INPUT_PARAM
-         value: "test-value"
-   ```
-
-4. Update `scripts/install.sh` to include your task
+- Use descriptive parameter names
+- Provide defaults when sensible
+- Use `set -e` for fail-fast
+- Log progress for debugging
+- Handle idempotency
 
 ---
 
 ## Creating Custom Pipelines
 
-### Pipeline Template
+### Template
 
 ```yaml
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
   name: my-custom-pipeline
-  labels:
-    app.kubernetes.io/version: "0.1"
-  annotations:
-    tekton.dev/displayName: "My Custom Pipeline"
-    tekton.dev/tags: custom, example
 spec:
-  description: |
-    A custom pipeline for my workflow.
-
   params:
-    # Pipeline-level parameters
     - name: MODEL_NAME
-      description: Model identifier
       type: string
-
-    - name: SKIP_STAGE_1
-      description: Skip the first stage
-      type: string
-      default: "false"
 
   workspaces:
     - name: shared-workspace
-      description: Shared data workspace
 
   tasks:
-    # Stage 1: First task
-    - name: stage-1
-      when:
-        - input: "$(params.SKIP_STAGE_1)"
-          operator: in
-          values: ["false"]
+    - name: task-1
       taskRef:
-        name: my-custom-task
+        name: first-task
       params:
-        - name: INPUT_PARAM
+        - name: INPUT
           value: $(params.MODEL_NAME)
-      workspaces:
-        - name: shared-data
-          workspace: shared-workspace
 
-    # Stage 2: Depends on stage-1
-    - name: stage-2
+    - name: task-2
       runAfter:
-        - stage-1
+        - task-1
       taskRef:
-        name: another-task
-      params:
-        - name: SOME_PARAM
-          value: "value"
+        name: second-task
 ```
 
-### Pipeline Patterns
+### Patterns
 
-#### Sequential Execution
+**Conditional Execution:**
 ```yaml
-tasks:
-  - name: task-1
-    taskRef:
-      name: first-task
-
-  - name: task-2
-    runAfter:
-      - task-1
-    taskRef:
-      name: second-task
+when:
+  - input: "$(params.SKIP_ME)"
+    operator: in
+    values: ["false"]
 ```
 
-#### Conditional Execution
+**Array Parameters:**
 ```yaml
-- name: conditional-task
-  when:
-    - input: "$(params.SKIP_ME)"
-      operator: in
-      values: ["false"]
-  taskRef:
-    name: my-task
-```
-
-#### Parameter Passing
-```yaml
-# Pass pipeline param to task
-params:
-  - name: MODEL_NAME
-    value: $(params.MODEL_NAME)
-
-# Pass array param (expanded)
 params:
   - name: VLLM_ARGS
     value: $(params.VLLM_ARGS[*])
@@ -1074,1121 +247,175 @@ params:
 
 ## MLflow Integration
 
-### Overview
+### Auto-Logged Parameters
 
-The custom benchmark image (`build/`) wraps GuideLLM with MLflow tracking.
+- `target`, `model`, `backend_type`, `rate_type`
+- `prompt_tokens`, `output_tokens`
+- `tp`, `accelerator`
 
-### MLflow Parameters Logged
+### Metrics (per concurrency level)
 
-The following parameters are automatically logged to MLflow:
+**Throughput:** `throughput_requests_per_sec`, `total_tokens_per_second`
+**Latency:** `latency_p50_sec`, `latency_p95_sec`, `latency_p99_sec`
+**TTFT:** `ttft_mean_ms`, `ttft_p95_ms`, `ttft_p99_ms`
+**ITL:** `itl_mean_ms`, `itl_p95_ms`
+**TPOT:** `tpot_mean_ms`, `tpot_p95_ms`
 
-- `target` - Inference endpoint URL
-- `model` - Model name
-- `backend_type` - Backend type (e.g., openai_http)
-- `rate_type` - Rate strategy (concurrent/synchronous)
-- `rates` - Comma-separated rate values
-- `prompt_tokens` - Input token count
-- `output_tokens` - Output token count
-- `max_seconds` - Duration per rate
-- `max_requests` - Max requests per rate
-- `processor` - Tokenizer name
-- `accelerator` - GPU type (H200, A100, etc.)
-- `tp` - Tensor parallelism size
+### Custom Tags
 
-**Note:** These are the internal MLflow parameter names. The pipeline parameters use prefixed names (e.g., `GUIDELLM_RATE`, `GUIDELLM_PROCESSOR`) which are mapped to these internal names by the benchmark wrapper.
-
-### MLflow Metrics Logged
-
-For each concurrency level, the following metrics are logged:
-
-**Throughput:**
-- `throughput_requests_per_sec`
-- `total_tokens_per_second`
-- `throughput_output_tokens_per_sec`
-
-**Latency:**
-- `latency_mean_sec`, `latency_median_sec`
-- `latency_p50_sec`, `latency_p90_sec`, `latency_p95_sec`, `latency_p99_sec`
-
-**Time to First Token (TTFT):**
-- `ttft_mean_ms`, `ttft_median_ms`
-- `ttft_p95_ms`, `ttft_p99_ms`
-
-**Inter-Token Latency (ITL):**
-- `itl_mean_ms`, `itl_median_ms`
-- `itl_p95_ms`, `itl_p99_ms`
-
-**Time Per Output Token (TPOT):**
-- `tpot_mean_ms`, `tpot_median_ms`
-- `tpot_p95_ms`, `tpot_p99_ms`
-
-**Request Stats:**
-- `total_requests`, `successful_requests`, `failed_requests`
-- `error_rate`
-- `request_concurrency_mean`
-
-**Tokens:**
-- `total_input_tokens`, `total_output_tokens`, `total_tokens`
-
-### MLflow Tags
-
-Default tags automatically set:
-- `model` - Model name
-- `rate_type` - Concurrent or synchronous
-- `vllm` - vLLM version (from endpoint)
-- `guidellm` - GuideLLM version
-- `accelerator` - GPU type (if specified)
-
-Custom tags from PipelineRun `MLFLOW_TAGS` parameter:
 ```yaml
 params:
   - name: MLFLOW_TAGS
     value:
       - "llm-d-version=RHOAI-3.0"
-      - "team=ai"
       - "environment=production"
 ```
 
-### MLflow Artifacts
+### Artifacts
 
-- `results/benchmark_sweep.json` - Complete benchmark results
-- `logs/benchmark_sweep_console.log` - Console output
-- `reports/*.html` - Visualization reports (if generated)
-
-### Customizing MLflow Parameters
-
-To add new parameters to MLflow tracking, edit `build/src/benchmark/main.py`:
-
-```python
-# Around line 456
-params = {
-    "target": target,
-    "model": model,
-    # ... existing params ...
-    "my_new_param": my_value,  # Add your parameter
-}
-
-mlflow.log_params(params)
-```
-
-Then rebuild the image:
-```bash
-oc create -f pipelineruns/build-image-run.yaml -n llm-d-bench
-```
-
----
-
-## MLPerf Benchmark Tool
-
-### Overview
-
-llm-d-bench supports two benchmark tools: **GuideLLM** (default) and **MLPerf**. Switch between them by using different benchmark images and pipelines.
-
-**GuideLLM:**
-- Load testing with concurrency control
-- Detailed performance metrics (TTFT, ITL, TPOT)
-- Integrated MLflow tracking
-- Custom visualization reports
-
-**MLPerf:**
-- Standardized MLPerf Inference benchmark
-- Official MLPerf scenarios (Offline, Server, etc.)
-- Accuracy and performance testing
-- Industry-standard metrics
-
-### Switching Between Tools
-
-The benchmark tasks are tool-specific:
-- GuideLLM: Use `run-guidellm-benchmark` task or `guidellm-run-benchmark-pipeline`
-- MLPerf: Use `run-mlperf-benchmark` task or `mlperf-run-benchmark-pipeline`
-
-**GuideLLM Example:**
-```yaml
-params:
-  - name: IMAGE
-    value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
-  - name: GUIDELLM_RATE
-    value: "1,50,100"
-  - name: GUIDELLM_DATA
-    value: "prompt_tokens=1000,output_tokens=1000"
-  - name: GUIDELLM_MAX_SECONDS
-    value: "600"
-```
-
-**MLPerf Example:**
-```yaml
-params:
-  - name: IMAGE
-    value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/mlperf-custom:latest"
-  - name: MLPERF_DATASET_NAME
-    value: "cnn_eval.json"
-  - name: MLPERF_SCENARIO
-    value: "Offline"
-  - name: MLPERF_TEST_MODE
-    value: "accuracy"
-  - name: MLPERF_NUM_SAMPLES
-    value: "4388"
-```
-
-### Parameter Mapping
-
-| Parameter | GuideLLM | MLPerf | Notes |
-|-----------|----------|--------|-------|
-| **TARGET** | ✓ | ✓ | Inference endpoint URL |
-| **MODEL** | ✓ | ✓ | Model identifier (MLPerf derives category) |
-| **MLFLOW_EXPERIMENT_NAME** | ✓ | ✓ | MLflow experiment name |
-| **MLFLOW_TRACKING_URI** | ✓ | ✓ | MLflow server |
-| **GUIDELLM_RATE** | ✓ | ✗ | Concurrency levels (GuideLLM only) |
-| **GUIDELLM_DATA** | ✓ | ✗ | Token counts (GuideLLM only) |
-| **GUIDELLM_MAX_SECONDS** | ✓ | ✗ | Duration per rate (GuideLLM only) |
-| **GUIDELLM_PROCESSOR** | ✓ | ✗ | Tokenizer name (GuideLLM only) |
-| **GUIDELLM_BACKEND_TYPE** | ✓ | ✗ | Backend type (GuideLLM only) |
-| **GUIDELLM_RATE_TYPE** | ✓ | ✗ | Rate type (GuideLLM only) |
-| **GUIDELLM_MAX_REQUESTS** | ✓ | ✗ | Max requests per rate (GuideLLM only) |
-| **MLPERF_DATASET_NAME** | ✗ | ✓ | Dataset filename (MLPerf only) |
-| **MLPERF_SCENARIO** | ✗ | ✓ | MLPerf scenario (Offline, Server, etc.) |
-| **MLPERF_TEST_MODE** | ✗ | ✓ | Test mode (accuracy, performance) |
-| **MLPERF_BATCH_SIZE** | ✗ | ✓ | Batch size (MLPerf only) |
-| **MLPERF_NUM_SAMPLES** | ✗ | ✓ | Number of samples (MLPerf only) |
-| **MLPERF_OUTPUT_DIR** | ✗ | ✓ | Output directory (MLPerf only) |
-| **MLPERF_SERVER_TARGET_QPS** | ✗ | ✓ | Target QPS for Server scenario (MLPerf only) |
-
-### Dataset Management for MLPerf
-
-MLPerf benchmarks require dataset files pre-uploaded to the `models-storage` PVC.
-
-#### Dataset Storage Structure
-
-```
-models-storage PVC:
-├── models/                    # Model files (existing)
-│   ├── meta-llama-llama-31-8b/
-│   └── ...
-└── datasets/                  # Dataset files (for MLPerf)
-    ├── cnn_eval.json
-    └── ...
-```
-
-#### Uploading Datasets
-
-**Step 1: Create a temporary pod with PVC mounted**
-
-```bash
-oc run dataset-upload --image=registry.access.redhat.com/ubi9/ubi:latest \
-  --overrides='{"spec":{"volumes":[{"name":"models-storage","persistentVolumeClaim":{"claimName":"models-storage"}}],"containers":[{"name":"dataset-upload","image":"registry.access.redhat.com/ubi9/ubi:latest","command":["sleep","3600"],"volumeMounts":[{"name":"models-storage","mountPath":"/mnt/storage"}]}]}}' \
-  -n llm-d-bench
-```
-
-**Step 2: Create datasets directory and upload files**
-
-```bash
-# Create datasets directory
-oc exec -it dataset-upload -n llm-d-bench -- mkdir -p /mnt/storage/datasets
-
-# Copy dataset file from local machine to PVC
-oc cp cnn_eval.json dataset-upload:/mnt/storage/datasets/cnn_eval.json -n llm-d-bench
-
-# Verify upload
-oc exec -it dataset-upload -n llm-d-bench -- ls -lh /mnt/storage/datasets/
-```
-
-**Step 3: Clean up**
-
-```bash
-oc delete pod dataset-upload -n llm-d-bench
-```
-
-#### Dataset Path Resolution
-
-When you specify `MLPERF_DATASET_NAME: "cnn_eval.json"`, the benchmark task automatically constructs:
-
-```bash
-DATASET_PATH="/mnt/storage/datasets/cnn_eval.json"
-```
-
-The task verifies the dataset exists before running MLPerf and fails with a helpful error if not found.
-
-### MLPerf Model Category Derivation
-
-The MLPerf wrapper automatically derives the `--model-category` parameter from the MODEL name:
-
-**Examples:**
-- `RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8` → `llama3.1-8b`
-- `meta-llama/Llama-3.1-70B` → `llama3.1-70b`
-- `meta-llama/Llama-2-70B` → `llama2-70b`
-
-To customize this logic, edit `build/mlperf/src/benchmark/main.py:derive_model_category()`.
-
-### Building MLPerf Image
-
-Before using MLPerf, build the custom MLPerf image:
-
-```bash
-# Build MLPerf image
-oc create -f pipelineruns/benchmark/mlperf/build-image-run.yaml -n llm-d-bench
-
-# Watch build progress
-tkn pipelinerun logs -f -n llm-d-bench
-
-# Image location:
-# image-registry.openshift-image-registry.svc:5000/llm-d-bench/mlperf-custom:latest
-```
-
-### Running MLPerf Benchmarks
-
-**Option 1: End-to-End Pipeline** (recommended)
-
-Use the MLPerf-specific deployment pipeline for a complete workflow:
-
-1. Upload datasets to PVC (see Dataset Management above)
-2. Run end-to-end pipeline with deployment + benchmark + cleanup:
-
-```bash
-# llm-d deployment with MLPerf benchmark
-oc create -f pipelineruns/llm-d/meta-llama-3.1-8b-mlperf.yaml -n llm-d-bench
-```
-
-**Available MLPerf deployment pipelines:**
-- `llm-d-end-to-end-benchmark-mlperf` - llm-d (Helmfile) + MLPerf
-- Additional deployment modes can use standalone benchmark (see Option 2)
-
-**Option 2: Standalone Benchmark**
-
-1. Deploy your model first (using any deployment mode with `SKIP_BENCHMARK=true`)
-2. Upload datasets to PVC (see Dataset Management above)
-3. Run standalone MLPerf benchmark:
-
-```bash
-oc create -f pipelineruns/benchmark/mlperf/run-benchmark-example.yaml -n llm-d-bench
-```
-
-### MLPerf Scenarios
-
-MLPerf supports multiple standardized scenarios:
-
-- **Offline**: Maximum throughput, no latency constraints
-- **Server**: Target QPS with latency constraints
-- **SingleStream**: Process one sample at a time
-- **MultiStream**: Process multiple streams simultaneously
-
-Each scenario has specific metrics and requirements. See [MLPerf Inference rules](https://github.com/mlcommons/inference_policies/blob/master/inference_rules.adoc) for details.
+- `results/benchmark_sweep.json`
+- `logs/benchmark_sweep_console.log`
+- `reports/*.html`
 
 ---
 
 ## Image Registry Setup
 
-The llm-d-bench pipelines build custom container images (such as GuideLLM with MLflow) that need to be pushed to a container registry. This section covers setting up the OpenShift internal image registry.
-
-### Why This Is Needed
-
-The OpenShift internal image registry provides:
-- **Cluster-internal endpoint** - No external network access required
-- **Automatic authentication** - Uses service account tokens
-- **No external credentials** - No need for DockerHub, Quay.io, or other external registries
-- **Persistent storage** - Images are stored on PVCs and survive pod restarts
-
-### Setup
-
-Use the `--setup-image-registry` flag when installing llm-d-bench:
+Enable OpenShift internal registry:
 
 ```bash
 ./scripts/install.sh --setup-image-registry
 ```
 
-This will automatically:
-1. Enable the OpenShift internal image registry
-2. Create a PVC for registry storage (default: 100Gi)
-3. Configure the registry to use the PVC
-4. Set appropriate replica count based on storage access mode (RWO vs RWX)
-5. Verify the registry is running
+Registry endpoint: `image-registry.openshift-image-registry.svc:5000`
 
-The registry will be available at: `image-registry.openshift-image-registry.svc:5000`
+For RWO storage (single-node), replicas automatically set to 1.
 
-> **Note:** For single-node clusters or storage classes that only support ReadWriteOnce (RWO), the setup automatically sets registry replicas to 1. For multi-node clusters with ReadWriteMany (RWX) storage, replica count is set to 2.
+---
 
 ## Building Custom Images
-
-### Overview
-
-The `build/` directory contains container build configurations for benchmark tools. Each tool has its own subdirectory with build files.
 
 ### Directory Structure
 
 ```
 build/
-├── guidellm/              # GuideLLM with MLflow integration
+├── guidellm/              # GuideLLM with MLflow
 │   ├── Containerfile
-│   ├── pyproject.toml
 │   └── src/
-└── mlperf/                # MLPerf benchmark wrapper
+└── mlperf/                # MLPerf wrapper
     ├── Containerfile
     └── src/
 ```
 
-### Current Tools
-
-#### guidellm/
-
-GuideLLM benchmark tool with custom MLflow integration wrapper.
-
-**Base Image:** `ghcr.io/vllm-project/guidellm:v0.3.1`
-
-**Enhancements:**
-- MLflow 3.7.0 integration for experiment tracking
-- S3 artifact storage support
-- Benchmark result processing and visualization
-- CSV consolidation for historical comparison
-- Interactive Plotly HTML reports
-
-**Local Build:**
-```bash
-cd build/guidellm
-podman build -t guidellm-custom:latest -f Containerfile .
-```
-
-**Pipeline Build:**
-```bash
-oc create -f pipelineruns/benchmark/guidellm/build-image-run.yaml
-```
-
-#### mlperf/
-
-MLPerf benchmark tool with MLflow integration wrapper.
-
-**Base Image:** `python:3.11-slim`
-
-**Components:**
-- MLCommons MLPerf Inference loadgen
-- OpenShift PSAP MLPerf harness for LLMs
-- MLflow integration for experiment tracking
-- Support for Offline, Server, SingleStream, and MultiStream scenarios
-
-**Local Build:**
-```bash
-cd build/mlperf
-podman build -t mlperf-custom:latest -f Containerfile .
-```
-
-**Pipeline Build:**
-```bash
-oc create -f pipelineruns/benchmark/mlperf/build-image-run.yaml
-```
-
-**Requirements:**
-- Datasets must be pre-uploaded to `models-storage` PVC
-- See [MLPerf Benchmark Tool](#mlperf-benchmark-tool) section for details
-
-### Image Build Pipeline
-
-The `guidellm-build-image` pipeline builds a custom container with MLflow integration:
+### Build via Pipeline
 
 ```bash
-# Trigger image build
 oc create -f pipelineruns/benchmark/guidellm/build-image-run.yaml -n llm-d-bench
-
-# Watch build progress
 tkn pipelinerun logs -f -n llm-d-bench
-
-# New image will be at:
-# image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest
 ```
 
-### Build Process
-
-1. **git-clone**: Clones this repository
-2. **guidellm-buildah-build**: Builds container using `build/guidellm/Containerfile`
-3. **Push**: Pushes to OpenShift internal registry
-
-### Adding New Benchmark Tools
-
-To add a new benchmark tool, create a subdirectory with the following structure:
-
-#### 1. Create Directory
-
-```bash
-mkdir -p build/<tool-name>
-cd build/<tool-name>
-```
-
-#### 2. Add Containerfile
-
-Create a `Containerfile` (or `Dockerfile`) with your build instructions:
-
-```dockerfile
-FROM python:3.11-slim
-
-# Install dependencies
-COPY requirements.txt .
-RUN pip install -r requirements.txt
-
-# Copy tool code
-COPY src/ /app/
-WORKDIR /app
-
-# Set entrypoint
-ENTRYPOINT ["python", "-m", "benchmark.main"]
-```
-
-#### 3. Add Dependencies
-
-Choose your dependency management approach:
-
-**Option A: requirements.txt** (simple)
-```txt
-locust==2.15.1
-mlflow==3.7.0
-boto3==1.28.0
-```
-
-**Option B: pyproject.toml** (modern)
-```toml
-[project]
-name = "locust-benchmark"
-version = "0.1.0"
-dependencies = [
-    "locust>=2.15.1",
-    "mlflow>=3.7.0",
-    "boto3>=1.28.0",
-]
-```
-
-#### 4. Add Tool-Specific Code (Optional)
-
-Create `src/` directory for custom wrapper code:
-
-```bash
-mkdir -p src/benchmark
-```
-
-Example wrapper for MLflow integration:
-```python
-# src/benchmark/main.py
-import subprocess
-import mlflow
-
-def run_benchmark(target, model, rate):
-    # Execute benchmark tool
-    result = subprocess.run([
-        "locust",
-        "--host", target,
-        "--users", str(rate),
-        # ... other args
-    ], capture_output=True)
-
-    # Log to MLflow
-    if mlflow_enabled:
-        mlflow.log_metrics({
-            "throughput": parse_throughput(result),
-            "latency": parse_latency(result),
-        })
-```
-
-#### 5. Test Build Locally
-
-```bash
-podman build -t <tool-name>:test -f Containerfile .
-podman run <tool-name>:test --help
-```
-
-#### 6. Create Tekton Build Pipeline
-
-See the [Adding New Benchmark Tools](#adding-new-benchmark-tools) section for creating the corresponding Tekton tasks and pipelines.
+Image: `image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest`
 
 ### Best Practices
 
-#### Container Images
-
-1. **Use specific base image versions** - Not `latest`
-   ```dockerfile
-   # Good
-   FROM python:3.11.6-slim
-
-   # Bad
-   FROM python:latest
-   ```
-
-2. **Multi-stage builds** - Keep images small
-   ```dockerfile
-   FROM python:3.11 AS builder
-   RUN pip install --user package
-
-   FROM python:3.11-slim
-   COPY --from=builder /root/.local /root/.local
-   ```
-
-3. **Layer caching** - Copy dependencies before code
-   ```dockerfile
-   COPY requirements.txt .
-   RUN pip install -r requirements.txt
-   COPY src/ /app/  # Changes more frequently
-   ```
-
-#### Dependencies
-
-1. **Pin versions** - Ensure reproducibility
-   ```txt
-   # Good
-   mlflow==3.7.0
-
-   # Bad
-   mlflow>=3.0
-   ```
-
-2. **Minimal dependencies** - Only install what you need
-3. **Security** - Regularly update dependencies for CVE fixes
-
-#### MLflow Integration
-
-For consistency with existing tools, consider integrating with MLflow:
-
-```python
-import mlflow
-
-# Set tracking URI
-mlflow.set_tracking_uri(os.getenv("MLFLOW_TRACKING_URI"))
-
-# Create experiment
-mlflow.set_experiment(experiment_name)
-
-# Log parameters and metrics
-with mlflow.start_run():
-    mlflow.log_params({
-        "model": model_name,
-        "rate": rate,
-    })
-
-    # Run benchmark
-    results = run_benchmark()
-
-    # Log metrics
-    mlflow.log_metrics(results)
-
-    # Upload artifacts
-    mlflow.log_artifact("results.json")
-```
-
-#### Image Size Optimization
-
-Tips to keep images small:
-
-1. Use slim/alpine base images
-2. Multi-stage builds
-3. Clean up in same layer:
-   ```dockerfile
-   RUN apt-get update && \
-       apt-get install -y build-essential && \
-       pip install package && \
-       apt-get remove -y build-essential && \
-       apt-get autoremove -y && \
-       rm -rf /var/lib/apt/lists/*
-   ```
-4. Use `.dockerignore`:
-   ```
-   .git
-   *.md
-   tests/
-   __pycache__/
-   ```
-
-### Build Arguments
-
-Use build arguments for flexibility:
-
-```dockerfile
-ARG PYTHON_VERSION=3.11
-FROM python:${PYTHON_VERSION}-slim
-
-ARG TOOL_VERSION=1.0.0
-RUN pip install benchmark-tool==${TOOL_VERSION}
-```
-
-Then build with:
-```bash
-podman build --build-arg PYTHON_VERSION=3.12 -t tool:latest .
-```
-
-### Testing Custom Images
-
-Before creating Tekton pipelines, test your image:
-
-```bash
-# Build
-podman build -t benchmark-tool:test .
-
-# Test execution
-podman run --rm benchmark-tool:test --help
-
-# Test against local endpoint
-podman run --rm \
-  -e MLFLOW_TRACKING_URI=http://localhost:5000 \
-  benchmark-tool:test \
-  --target http://model-server:8000 \
-  --model test-model \
-  --rate 10
-```
-
-### Registry and Versioning
-
-#### Tagging Strategy
-
-Use semantic versioning:
-- `<tool>:latest` - Latest build (for development)
-- `<tool>:v1.0.0` - Specific version (for production)
-- `<tool>:v1.0.0-dev` - Development version
-
-Example:
-```bash
-podman tag guidellm-custom:latest \
-  image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:v1.0.0
-```
-
-#### Pushing to Registry
-
-```bash
-podman push \
-  image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:v1.0.0
-```
-
-### Troubleshooting Image Builds
-
-#### Build Fails
-
-1. Check base image exists:
-   ```bash
-   podman pull <base-image>
-   ```
-
-2. Verify dependency syntax:
-   ```bash
-   pip install -r requirements.txt  # Test locally
-   ```
-
-3. Check for typos in Containerfile
-
-#### Image Too Large
-
-1. Check layer sizes:
-   ```bash
-   podman history <image>
-   ```
-
-2. Use dive for analysis:
-   ```bash
-   dive <image>
-   ```
-
-3. Optimize as described above
-
-#### Runtime Errors
-
-1. Test entrypoint:
-   ```bash
-   podman run --entrypoint /bin/sh -it <image>
-   ```
-
-2. Check environment variables:
-   ```bash
-   podman run --rm <image> env
-   ```
+1. Use specific base image versions (not `latest`)
+2. Multi-stage builds for smaller images
+3. Pin dependency versions
+4. Layer caching: copy dependencies before code
 
 ---
 
-## Adding New Benchmark Tools
+## Adding Benchmark Tools
 
-This section covers the complete workflow for adding a new benchmark tool to llm-d-bench.
+### Quick Guide
 
-### Current Tools
+1. **Create build directory**: `build/<tool-name>/`
+   - Containerfile
+   - Dependencies (requirements.txt or pyproject.toml)
+   - Optional wrapper code in `src/`
 
-- **guidellm/**: GuideLLM with MLflow integration wrapper (default)
+2. **Create task**: `tasks/benchmark/<tool-name>/run-benchmark.yaml`
+   - Use prefixed parameters (e.g., `LOCUST_RATE`)
 
-### Adding a New Benchmark Tool
+3. **Create pipelines**: `pipelines/benchmark/<tool-name>/`
+   - `build-image.yaml`
+   - `run-benchmark.yaml`
 
-To add a new benchmark tool (e.g., "locust", "wrk2", or your in-house tool):
+4. **Create examples**: `pipelineruns/benchmark/<tool-name>/`
 
-#### 1. Create Build Directory
+5. **Install**: `./scripts/install.sh` (auto-discovers new files)
 
-Create `/build/<tool-name>/`:
-```bash
-mkdir -p build/locust
-cd build/locust
-```
+### Standard Parameters
 
-Add the following files:
-- **Containerfile** - Container build definition
-- **Dependencies file** - requirements.txt, pyproject.toml, etc.
-- **Tool wrapper** (optional) - Custom code to integrate with MLflow or process results
+All tools must support:
+- `IMAGE`, `TARGET`, `MODEL`
+- `MLFLOW_ENABLED`, `TAGS`
 
-For detailed build instructions and best practices, see the [Building Custom Images](#building-custom-images) section above.
-
-Example Containerfile:
-```dockerfile
-FROM python:3.11-slim
-
-# Install benchmark tool
-RUN pip install locust
-
-# Copy wrapper scripts (if any)
-COPY src/ /app/
-WORKDIR /app
-
-ENTRYPOINT ["python", "-m", "locust_wrapper"]
-```
-
-#### 2. Create Task Directory
-
-Create `/tasks/benchmark/<tool-name>/`:
-```bash
-mkdir -p tasks/benchmark/locust
-```
-
-Create `run-benchmark.yaml` with standardized parameters:
-
-**Required Parameters (Common):**
-- `IMAGE` - Benchmark tool container image
-- `TARGET` - Inference endpoint URL
-- `MODEL` - Model identifier
-- `MLFLOW_ENABLED` - Enable MLflow tracking
-- `TAGS` - Array of tags
-
-**Tool-specific Parameters:**
-Add tool-specific configuration parameters with appropriate prefixes:
-- GuideLLM: Use `GUIDELLM_` prefix (e.g., `GUIDELLM_RATE`, `GUIDELLM_MAX_SECONDS`)
-- MLPerf: Use `MLPERF_` prefix (e.g., `MLPERF_SCENARIO`, `MLPERF_NUM_SAMPLES`)
-- Custom tools: Use similar prefixing conventions
-
-Example task structure:
-```yaml
-apiVersion: tekton.dev/v1
-kind: Task
-metadata:
-  name: run-locust-benchmark
-spec:
-  params:
-    - name: IMAGE
-    - name: TARGET
-    - name: MODEL
-    - name: MLFLOW_ENABLED
-    - name: MLFLOW_TAGS
-    # Tool-specific params with prefix
-    - name: LOCUST_RATE
-    - name: LOCUST_MAX_SECONDS
-  steps:
-    - name: run-benchmark
-      image: $(params.IMAGE)
-      script: |
-        # Execute benchmark
-        # Process results
-        # Upload to MLflow (if enabled)
-```
-
-If you need a custom build task, create `buildah-build.yaml` following the pattern in `guidellm/buildah-build.yaml`.
-
-#### 3. Create Pipelines
-
-Create `/pipelines/benchmark/<tool-name>/`:
-```bash
-mkdir -p pipelines/benchmark/locust
-```
-
-Create two pipelines:
-
-**build-image.yaml** - Build the benchmark tool image:
-- Clones source repository
-- Builds container image with buildah
-- Pushes to registry
-
-**run-benchmark.yaml** - Standalone benchmark execution:
-- Waits for endpoint (optional)
-- Runs benchmark task
-- No deployment management
-
-#### 4. Create Example PipelineRuns
-
-Create `/pipelineruns/benchmark/<tool-name>/`:
-```bash
-mkdir -p pipelineruns/benchmark/locust
-```
-
-Create example pipelinerun files:
-- `build-image-run.yaml` - Example build configuration
-- `run-benchmark-example.yaml` - Example standalone benchmark run
-
-#### 5. Update Deployment Mode Pipelines (Optional)
-
-To use the new tool in deployment mode pipelines:
-
-Edit pipelines in:
-- `pipelines/deployment/llm-d/e2e-benchmark.yaml`
-- `pipelines/deployment/rhoai/e2e-benchmark.yaml`
-- `pipelines/deployment/rhaiis/e2e-benchmark.yaml`
-
-Change the benchmark task reference:
-```yaml
-# OLD:
-- name: run-guidellm-benchmark
-  taskRef:
-    name: run-guidellm-benchmark
-
-# NEW:
-- name: run-locust-benchmark
-  taskRef:
-    name: run-locust-benchmark
-```
-
-Update the `IMAGE` parameter to point to your tool's image.
-
-#### 6. Installation
-
-No changes needed to `scripts/install.sh` - it auto-discovers tasks and pipelines using `find`.
-
-Just run:
-```bash
-./scripts/install.sh -n <namespace>
-```
-
-#### 7. Documentation
-
-Update the main README.md:
-- Add your tool to the "Benchmark Tools" section
-- Document any tool-specific requirements or features
-
-### Best Practices
-
-1. **Standardize Parameters**: Use common parameter names (IMAGE, TARGET, MODEL, etc.) to maintain consistency
-2. **MLflow Integration**: Support MLflow logging for result tracking and comparison
-3. **Error Handling**: Gracefully handle failures and provide clear error messages
-4. **Documentation**: Include clear usage examples in your pipelinerun files
-5. **Versioning**: Use specific image tags, not `latest`, for reproducibility
-6. **Cleanup**: Ensure your tool doesn't leave behind temporary files or resources
-
-### Parameter Consistency
-
-All benchmark tools should support these core parameters:
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| IMAGE | string | Benchmark tool container image |
-| TARGET | string | Inference endpoint URL |
-| MODEL | string | Model identifier |
-| MLFLOW_ENABLED | string | "true" or "false" |
-| TAGS | array | Key=value tags for tracking |
-
-**Tool-specific parameters MUST use prefixes:**
-- GuideLLM: `GUIDELLM_RATE`, `GUIDELLM_MAX_SECONDS`, `GUIDELLM_PROCESSOR`, etc.
-- MLPerf: `MLPERF_SCENARIO`, `MLPERF_NUM_SAMPLES`, `MLPERF_DATASET_NAME`, etc.
-- Custom tools: Use similar prefixing (e.g., `LOCUST_RATE`, `LOCUST_SPAWN_RATE`)
-
-This prefixing convention prevents parameter naming conflicts when multiple benchmark tools are used.
-
-### Example: Minimal Benchmark Tool
-
-Here's a minimal example for adding a simple HTTP load testing tool:
-
-```yaml
-# tasks/benchmark/curl-bench/run-benchmark.yaml
-apiVersion: tekton.dev/v1
-kind: Task
-metadata:
-  name: run-curl-benchmark
-spec:
-  params:
-    - name: TARGET
-    - name: MODEL
-    - name: CURLBENCH_RATE
-    - name: CURLBENCH_MAX_SECONDS
-  steps:
-    - name: benchmark
-      image: curlimages/curl:latest
-      script: |
-        #!/bin/sh
-        echo "Running curl benchmark against $(params.TARGET)"
-        # Simple benchmark logic here
-```
-
-This minimal approach works for simple tools. For production use, add MLflow integration, proper result processing, and error handling. Note the use of prefixed parameters (`CURLBENCH_`).
-
-### Reference Implementation
-
-For a complete example, see:
-- GuideLLM tasks: `/tasks/benchmark/guidellm/`
-- GuideLLM pipelines: `/pipelines/benchmark/guidellm/`
-- GuideLLM build files: `/build/guidellm/`
+Tool-specific parameters use prefixes:
+- GuideLLM: `GUIDELLM_*`
+- MLPerf: `MLPERF_*`
+- Custom: `TOOLNAME_*`
 
 ---
 
 ## Troubleshooting
 
-### Common Issues
+### Pipeline Stuck in Pending
 
-#### 1. Pipeline Stuck in Pending
-
-**Symptom**: PipelineRun shows status `PipelineRunPending`
-
-**Causes**:
-- Missing workspace PVC
-- Service account lacks permissions
-- Resource limits exceeded
-
-**Solution**:
 ```bash
-# Check PVCs exist
 oc get pvc -n llm-d-bench
-
-# Check service account
 oc get sa deploy-model-sa -n llm-d-bench
-
-# Check node resources
 oc describe nodes | grep -A 5 "Allocated resources"
 ```
 
-#### 2. Download Task Fails
+### Download Task Fails
 
-**Symptom**: `download-model` task fails with authentication error
-
-**Causes**:
-- Missing HuggingFace token
-- Invalid token
-- Model requires authentication
-
-**Solution**:
 ```bash
-# Verify secret exists
 oc get secret huggingface-token -n llm-d-bench
-
-# Check token value
 oc get secret huggingface-token -n llm-d-bench -o jsonpath='{.data.HF_TOKEN}' | base64 -d
-
-# Recreate with valid token
-oc delete secret huggingface-token -n llm-d-bench
-oc create secret generic huggingface-token \
-  --from-literal=HF_TOKEN=hf_xxxxxxxxxxxxx \
-  -n llm-d-bench
 ```
 
-#### 3. Deployment Task Fails
+### Deployment Task Fails
 
-**Symptom**: `deploy-model` fails with permission error
-
-**Causes**:
-- Service account lacks RBAC permissions
-- Namespace mismatch
-
-**Solution**:
 ```bash
-# Check role binding
-oc get rolebinding deploy-model-rolebinding -n llm-d-bench -o yaml
-
-# Verify service account has role
+oc get rolebinding deploy-model-rolebinding -n llm-d-bench
 oc describe role deploy-model-role -n llm-d-bench
-
-# Re-apply RBAC
-oc apply -f config/rbac/deploy-model-rbac.yaml -n llm-d-bench
 ```
 
-#### 4. Wait-for-Endpoint Times Out
+### Wait-for-Endpoint Times Out
 
-**Symptom**: `wait-for-endpoint` exceeds timeout
-
-**Causes**:
-- Model too large for available GPUs
-- vLLM configuration error
-- Insufficient GPU memory
-
-**Solution**:
 ```bash
-# Check deployment logs
-oc logs -l serving.kserve.io/inferenceservice=<deployment-name> -n llm-d-bench
-
-# Check pod events
+oc logs -l serving.kserve.io/inferenceservice=<deployment> -n llm-d-bench
 oc get events -n llm-d-bench --sort-by='.lastTimestamp'
-
-# Adjust HEALTH_CHECK_TIMEOUT or vLLM args
 ```
 
-#### 5. Benchmark Fails with TLS Error
+### MLflow Artifacts Not Logged
 
-**Symptom**: Benchmark fails with certificate verification error
-
-**Cause**: Self-signed certificates in cluster
-
-**Solution**:
-Already handled by setting `verify: false` in backend args. If still fails:
 ```bash
-# Check TARGET URL uses https://
-# Ensure GUIDELLM__REQUEST_TIMEOUT is set (default: 6000)
-```
-
-#### 6. MLflow Artifacts Not Logged
-
-**Symptom**: Run completes but no artifacts in MLflow
-
-**Causes**:
-- MLflow server unreachable
-- S3 credentials invalid
-- Benchmark output missing
-
-**Solution**:
-```bash
-# Check MLflow connectivity
 oc exec -it <benchmark-pod> -- curl -k $MLFLOW_TRACKING_URI/health
-
-# Verify S3 secret
-oc get secret mlflow-s3-secret -n llm-d-bench -o yaml
-
-# Check benchmark output exists
-oc exec -it <benchmark-pod> -- ls -la /tmp/benchmark_sweep.json
+oc get secret mlflow-s3-secret -n llm-d-bench
 ```
 
 ### Debugging Tips
 
-#### View Task Logs
 ```bash
-# Get PipelineRun name
-tkn pipelinerun list -n llm-d-bench
+# View task logs
+tkn pipelinerun logs <run> -t <task> -n llm-d-bench
 
-# View specific task logs
-tkn pipelinerun logs <pipelinerun-name> -t download-model -n llm-d-bench
-tkn pipelinerun logs <pipelinerun-name> -t deploy-model -n llm-d-bench
-tkn pipelinerun logs <pipelinerun-name> -t run-benchmark -n llm-d-bench
-```
+# Check pod status
+oc get pods -l tekton.dev/pipelineRun=<run> -n llm-d-bench
+oc describe pod <pod> -n llm-d-bench
 
-#### Check Pod Status
-```bash
-# List pods for PipelineRun
-oc get pods -l tekton.dev/pipelineRun=<pipelinerun-name> -n llm-d-bench
-
-# Describe pod for events
-oc describe pod <pod-name> -n llm-d-bench
-
-# Get pod logs
-oc logs <pod-name> -c step-run-benchmark -n llm-d-bench
-```
-
-#### Inspect Resources
-```bash
-# Check LLMInferenceService status
+# Inspect resources
 oc get llminferenceservice -n llm-d-bench
-oc describe llminferenceservice <deployment-name> -n llm-d-bench
-
-# Check PVC usage
-oc get pvc models-storage -n llm-d-bench
 oc describe pvc models-storage -n llm-d-bench
-```
-
-#### Enable Debug Logging
-```bash
-# In PipelineRun, set:
-params:
-  - name: LOG_LEVEL
-    value: "DEBUG"
 ```
 
 ---
 
 ## Additional Resources
 
-- **Tekton Documentation**: https://tekton.dev/docs/
-- **GuideLLM**: https://github.com/vllm/guidellm
-- **MLflow**: https://mlflow.org/docs/latest/index.html
-- **KServe**: https://kserve.github.io/website/
-- **vLLM**: https://docs.vllm.ai/
+- [Tekton Documentation](https://tekton.dev/docs/)
+- [GuideLLM](https://github.com/vllm/guidellm)
+- [MLflow](https://mlflow.org/docs/latest/index.html)
+- [vLLM](https://docs.vllm.ai/)

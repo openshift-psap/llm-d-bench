@@ -7,86 +7,52 @@ metadata:
     pipeline: downstream-end-to-end-benchmark
     model: llama-3.1-8b
     experiment: full-lifecycle-demo
+    benchmark-tool: guidellm
+    deployment-mode: rhoai
 spec:
   pipelineRef:
     name: rhoai-end-to-end-benchmark
 
-  # Use service account with permissions for LLMInferenceService resources
   taskRunTemplate:
     serviceAccountName: deploy-model-sa
-    podTemplate:
-      labels:
-        # Kueue integration for GPU quota management
-        kueue.x-k8s.io/queue-name: psap-releases-queue
-        kueue.x-k8s.io/priority-class: psap-releases
 
-  # Automatically clean up completed PipelineRun after 1 hour
   ttlSecondsAfterFinished: 3600
 
   params:
-    # Model Configuration
     - name: MODEL_NAME
       value: "meta-llama/Llama-3.1-8B"
-    - name: MODEL_REVISION
-      value: "main"
 
-    # Deployment Configuration
-    - name: NAMESPACE
-      value: "llm-d-bench"
+    - name: VLLM_CONFIG
+      value: "vllm-default"
+    - name: DEPLOYMENT_CONFIG
+      value: "deployment-rhoai-kserve"
+    - name: BENCHMARK_CONFIG
+      value: "concurrent-1k-1k"
+
     - name: VLLM_ARGS
-      value: '["--max-model-len=8192", "--gpu-memory-utilization=0.9"]'
+      value:
+        - "--max-model-len=8192"
+        - "--gpu-memory-utilization=0.9"
     - name: ENABLE_AUTH
       value: "false"
     - name: REPLICAS
       value: "1"
+    - name: TP
+      value: "1"
 
-    # Benchmark Configuration
-    - name: IMAGE
-      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
-    - name: TARGET
-      value: "https://llama-31-8b-kserve-workload-svc.llm-d-bench.svc.cluster.local:8000"
-    - name: GUIDELLM_PROCESSOR
-      value: ""
-    - name: GUIDELLM_BACKEND_TYPE
-      value: "openai_http"
-    - name: GUIDELLM_RATE_TYPE
-      value: "concurrent"
-    - name: GUIDELLM_RATE
-      value: "1,50,100,200"
-    - name: GUIDELLM_DATA
-      value: "prompt_tokens=1000,output_tokens=1000"
-    - name: GUIDELLM_MAX_SECONDS
-      value: "240"
-    - name: GUIDELLM_MAX_REQUESTS
-      value: ""
     - name: ACCELERATOR
       value: "H200"
+
+    - name: MLFLOW_ENABLED
+      value: "false"
     - name: MLFLOW_EXPERIMENT_NAME
       value: "llama-3.1-8b-full-lifecycle"
     - name: VERSION
       value: ""
-    - name: TP
-      value: "1"
-
-    # MLflow Configuration
-    - name: MLFLOW_ENABLED
-      value: "false"
     - name: MLFLOW_TAGS
-      value: []
-
-    # Health Check Configuration
-    - name: HEALTH_CHECK_TIMEOUT
-      value: "3600"
-
-    # Stage Control (all stages enabled)
-    - name: SKIP_DOWNLOAD
-      value: "true"
-    - name: SKIP_DEPLOY
-      value: "false"
-    - name: SKIP_BENCHMARK
-      value: "false"
-    - name: SKIP_CLEANUP
-      value: "false"
+      value:
+        - "deployment=rhoai"
+        - "benchmark-tool=guidellm"
 
   timeouts:
     pipeline: "2h"
@@ -96,11 +62,15 @@ spec:
     - name: models-storage
       persistentVolumeClaim:
         claimName: models-storage
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+
     - name: results
       persistentVolumeClaim:
         claimName: benchmark-results
-
-  # Optional: Uncomment to set timeout for the entire pipeline
-  # timeouts:
-  #   pipeline: "2h"
-  #   tasks: "1h"

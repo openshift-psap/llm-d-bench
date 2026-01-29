@@ -72,6 +72,12 @@ spec:
       type: string
       default: "huggingface-token"
 
+    # EPP/GAIE Configuration
+    - name: EPP_CONFIG
+      description: "EPP/GAIE scheduler ConfigMap name (e.g., scheduler-precise-prefix-cache, scheduler-cache-aware). Leave empty for default GAIE configuration."
+      type: string
+      default: ""
+
     # Advanced Configuration
     - name: VLLM_ARGS
       description: Additional vLLM arguments as array
@@ -185,6 +191,89 @@ spec:
         fi
 
         echo "✓ Values patched successfully"
+
+        # Step 1b: Patch GAIE Values with EPP ConfigMap
+        echo ""
+        echo "=== Step 1b: Patching GAIE Configuration with EPP ConfigMap ==="
+
+        GAIE_VALUES_FILE="gaie-inference-scheduling/values.yaml"
+
+        if [ ! -f "$GAIE_VALUES_FILE" ]; then
+          echo "ERROR: GAIE values.yaml not found at $GAIE_VALUES_FILE"
+          exit 1
+        fi
+
+        EPP_CONFIG_NAME="$(params.EPP_CONFIG)"
+
+        if [ -z "$EPP_CONFIG_NAME" ]; then
+          echo "  No EPP_CONFIG specified - using default GAIE configuration"
+        else
+          echo "  Reading EPP configuration from ConfigMap: $EPP_CONFIG_NAME"
+
+          # Read ConfigMap data
+          if ! kubectl get configmap "$EPP_CONFIG_NAME" -n $(params.NAMESPACE) &>/dev/null; then
+            echo "ERROR: ConfigMap $EPP_CONFIG_NAME not found in namespace $(params.NAMESPACE)"
+            echo "Available scheduler ConfigMaps:"
+            kubectl get cm -n $(params.NAMESPACE) -l config-type=scheduler -o name || true
+            exit 1
+          fi
+
+          # Extract EPP configuration fields from ConfigMap
+          EPP_PROFILE=$(kubectl get configmap "$EPP_CONFIG_NAME" -n $(params.NAMESPACE) -o jsonpath='{.data.EPP_PROFILE}' || echo "")
+          EPP_REQUIRES_ZMQ=$(kubectl get configmap "$EPP_CONFIG_NAME" -n $(params.NAMESPACE) -o jsonpath='{.data.EPP_REQUIRES_ZMQ}' || echo "false")
+          EPP_VLLM_ARGS=$(kubectl get configmap "$EPP_CONFIG_NAME" -n $(params.NAMESPACE) -o jsonpath='{.data.EPP_VLLM_ARGS}' || echo "")
+          EPP_CONFIG_YAML=$(kubectl get configmap "$EPP_CONFIG_NAME" -n $(params.NAMESPACE) -o jsonpath='{.data.EPP_CONFIG}' || echo "")
+
+          echo "  EPP Profile: $EPP_PROFILE"
+          echo "  Requires ZMQ: $EPP_REQUIRES_ZMQ"
+
+          # Validate EPP_CONFIG_YAML is not empty
+          if [ -z "$EPP_CONFIG_YAML" ]; then
+            echo "ERROR: EPP_CONFIG field is empty in ConfigMap $EPP_CONFIG_NAME"
+            exit 1
+          fi
+
+          # Write EPP config to temporary file
+          echo "$EPP_CONFIG_YAML" > /tmp/epp-config.yaml
+
+          # Validate YAML
+          if ! /tmp/yq eval '.' /tmp/epp-config.yaml > /dev/null; then
+            echo "ERROR: EPP_CONFIG from ConfigMap is not valid YAML"
+            exit 1
+          fi
+
+          # Apply EPP config to GAIE values
+          CONFIG_FILENAME="${EPP_PROFILE}-config.yaml"
+          /tmp/yq -i '.inferenceExtension.pluginsConfigFile = "'"$CONFIG_FILENAME"'"' $GAIE_VALUES_FILE
+          /tmp/yq -i '.inferenceExtension.pluginsCustomConfig."'"$CONFIG_FILENAME"'" = load_str("/tmp/epp-config.yaml")' $GAIE_VALUES_FILE
+          echo "  Applied EPP configuration: $CONFIG_FILENAME"
+
+          # Add ZMQ ports if required
+          if [ "$EPP_REQUIRES_ZMQ" = "true" ]; then
+            echo "  Adding ZMQ port 5557 for KVEvents subscriber..."
+            /tmp/yq -i '.inferenceExtension.extraContainerPorts += [{"name": "zmq", "containerPort": 5557, "protocol": "TCP"}]' $GAIE_VALUES_FILE
+            /tmp/yq -i '.inferenceExtension.extraServicePorts += [{"name": "zmq", "port": 5557, "targetPort": 5557, "protocol": "TCP"}]' $GAIE_VALUES_FILE
+          fi
+
+          # Add EPP-specific vLLM args to ModelService
+          if [ -n "$EPP_VLLM_ARGS" ]; then
+            echo "  Adding EPP-specific vLLM arguments to ModelService..."
+            while IFS= read -r arg; do
+              if [ -n "$arg" ]; then
+                echo "    Adding: $arg"
+                /tmp/yq -i '.decode.containers[0].args += ["'"$arg"'"]' $VALUES_FILE
+              fi
+            done <<< "$EPP_VLLM_ARGS"
+          fi
+
+          # Validate patched GAIE YAML
+          if ! /tmp/yq eval '.' $GAIE_VALUES_FILE > /dev/null; then
+            echo "ERROR: Patched GAIE values.yaml is not valid YAML"
+            exit 1
+          fi
+
+          echo "✓ GAIE configuration patched successfully"
+        fi
 
     # Step 2: Deploy with Helmfile
     - name: deploy-llm-d-helmfile

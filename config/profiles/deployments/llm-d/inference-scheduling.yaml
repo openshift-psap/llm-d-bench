@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deployment-llm-d-inference-scheduling
+  namespace: llm-d-bench
+  annotations:
+    description: "Standard llm-d deployment with intelligent scheduling"
+  labels:
+    config-type: deployment
+data:
+  DEPLOYMENT_TYPE: "llm-d"
+  DEPLOYMENT_MODE: "inference-scheduling"
+  LLM_D_REPO_REF: "v0.4.0"
+  GATEWAY_PROVIDER: "istio"

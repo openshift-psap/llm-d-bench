@@ -1,0 +1,212 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: merge-configs
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "Merge Configuration Profiles"
+    tekton.dev/tags: config, merge, profiles
+    tekton.dev/platforms: "linux/amd64"
+spec:
+  description: >-
+    Merge configuration profiles from ConfigMaps.
+    Reads vLLM, deployment, benchmark, and EPP ConfigMaps and merges their data
+    fields into a single JSON object. Pipeline parameters take precedence over
+    ConfigMap values (left-to-right merge).
+
+  params:
+    # Profile references
+    - name: VLLM_CONFIG
+      description: vLLM profile ConfigMap name (e.g., "vllm-standard")
+      type: string
+      default: ""
+
+    - name: DEPLOYMENT_CONFIG
+      description: Deployment profile ConfigMap name (e.g., "deployment-llm-d-inference-scheduling")
+      type: string
+      default: ""
+
+    - name: BENCHMARK_CONFIG
+      description: Benchmark profile ConfigMap name (e.g., "guidellm-high-concurrency")
+      type: string
+      default: ""
+
+    - name: EPP_CONFIG
+      description: EPP/GAIE scheduler profile ConfigMap name (e.g., "scheduler-precise-prefix-cache")
+      type: string
+      default: ""
+
+    - name: NAMESPACE
+      description: Namespace where ConfigMaps are located
+      type: string
+      default: "llm-d-bench"
+
+    # Pass-through params from PipelineRun (these override ConfigMap values)
+    - name: MODEL_NAME
+      description: Model name (overrides ConfigMap)
+      type: string
+      default: ""
+
+    - name: MODEL_REVISION
+      description: Model revision (overrides ConfigMap)
+      type: string
+      default: "main"
+
+    - name: TP
+      description: Tensor parallelism (overrides ConfigMap)
+      type: string
+      default: "1"
+
+    - name: REPLICAS
+      description: Number of replicas (overrides ConfigMap)
+      type: string
+      default: "1"
+
+    - name: ACCELERATOR
+      description: GPU accelerator type (overrides ConfigMap)
+      type: string
+      default: ""
+
+    - name: RELEASE_NAME
+      description: Release name (overrides ConfigMap)
+      type: string
+      default: ""
+
+    - name: MLFLOW_EXPERIMENT_NAME
+      description: MLflow experiment name (overrides ConfigMap)
+      type: string
+      default: ""
+
+  results:
+    - name: merged-config
+      description: JSON object with merged configuration
+    - name: vllm-args
+      description: Merged vLLM arguments as newline-delimited string
+    - name: deployment-mode
+      description: Deployment mode extracted from config
+    - name: epp-profile
+      description: EPP profile name if EPP_CONFIG was specified
+
+  steps:
+    - name: merge
+      image: bitnami/kubectl:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        echo "=== Configuration Profile Merger ==="
+        echo ""
+
+        # Initialize merged config with pipeline params (these take precedence)
+        MERGED='{}'
+
+        # Add pass-through params if provided
+        if [ -n "$(params.MODEL_NAME)" ]; then
+          MERGED=$(echo "$MERGED" | jq '. + {MODEL_NAME: "$(params.MODEL_NAME)"}')
+        fi
+
+        if [ -n "$(params.MODEL_REVISION)" ]; then
+          MERGED=$(echo "$MERGED" | jq '. + {MODEL_REVISION: "$(params.MODEL_REVISION)"}')
+        fi
+
+        if [ -n "$(params.TP)" ]; then
+          MERGED=$(echo "$MERGED" | jq '. + {TP: "$(params.TP)"}')
+        fi
+
+        if [ -n "$(params.REPLICAS)" ]; then
+          MERGED=$(echo "$MERGED" | jq '. + {REPLICAS: "$(params.REPLICAS)"}')
+        fi
+
+        if [ -n "$(params.ACCELERATOR)" ]; then
+          MERGED=$(echo "$MERGED" | jq '. + {ACCELERATOR: "$(params.ACCELERATOR)"}')
+        fi
+
+        if [ -n "$(params.RELEASE_NAME)" ]; then
+          MERGED=$(echo "$MERGED" | jq '. + {RELEASE_NAME: "$(params.RELEASE_NAME)"}')
+        fi
+
+        if [ -n "$(params.MLFLOW_EXPERIMENT_NAME)" ]; then
+          MERGED=$(echo "$MERGED" | jq '. + {MLFLOW_EXPERIMENT_NAME: "$(params.MLFLOW_EXPERIMENT_NAME)"}')
+        fi
+
+        # Merge vLLM config
+        if [ -n "$(params.VLLM_CONFIG)" ]; then
+          echo "Loading vLLM profile: $(params.VLLM_CONFIG)"
+          VLLM_DATA=$(kubectl get cm $(params.VLLM_CONFIG) -n $(params.NAMESPACE) -o json | jq '.data')
+
+          if [ "$VLLM_DATA" = "null" ] || [ -z "$VLLM_DATA" ]; then
+            echo "ERROR: ConfigMap $(params.VLLM_CONFIG) not found or has no data"
+            exit 1
+          fi
+
+          MERGED=$(echo "$MERGED $VLLM_DATA" | jq -s '.[0] * .[1]')
+          echo "  ✓ Merged vLLM profile"
+        fi
+
+        # Merge deployment config
+        if [ -n "$(params.DEPLOYMENT_CONFIG)" ]; then
+          echo "Loading deployment profile: $(params.DEPLOYMENT_CONFIG)"
+          DEPLOY_DATA=$(kubectl get cm $(params.DEPLOYMENT_CONFIG) -n $(params.NAMESPACE) -o json | jq '.data')
+
+          if [ "$DEPLOY_DATA" = "null" ] || [ -z "$DEPLOY_DATA" ]; then
+            echo "ERROR: ConfigMap $(params.DEPLOYMENT_CONFIG) not found or has no data"
+            exit 1
+          fi
+
+          MERGED=$(echo "$MERGED $DEPLOY_DATA" | jq -s '.[0] * .[1]')
+          echo "  ✓ Merged deployment profile"
+        fi
+
+        # Merge benchmark config
+        if [ -n "$(params.BENCHMARK_CONFIG)" ]; then
+          echo "Loading benchmark profile: $(params.BENCHMARK_CONFIG)"
+          BENCH_DATA=$(kubectl get cm $(params.BENCHMARK_CONFIG) -n $(params.NAMESPACE) -o json | jq '.data')
+
+          if [ "$BENCH_DATA" = "null" ] || [ -z "$BENCH_DATA" ]; then
+            echo "ERROR: ConfigMap $(params.BENCHMARK_CONFIG) not found or has no data"
+            exit 1
+          fi
+
+          MERGED=$(echo "$MERGED $BENCH_DATA" | jq -s '.[0] * .[1]')
+          echo "  ✓ Merged benchmark profile"
+        fi
+
+        # Merge EPP config (optional, for llm-d only)
+        if [ -n "$(params.EPP_CONFIG)" ]; then
+          echo "Loading EPP scheduler profile: $(params.EPP_CONFIG)"
+          EPP_DATA=$(kubectl get cm $(params.EPP_CONFIG) -n $(params.NAMESPACE) -o json | jq '.data')
+
+          if [ "$EPP_DATA" = "null" ] || [ -z "$EPP_DATA" ]; then
+            echo "ERROR: ConfigMap $(params.EPP_CONFIG) not found or has no data"
+            exit 1
+          fi
+
+          MERGED=$(echo "$MERGED $EPP_DATA" | jq -s '.[0] * .[1]')
+          echo "  ✓ Merged EPP scheduler profile"
+
+          # Set EPP profile result
+          EPP_PROFILE=$(echo "$EPP_DATA" | jq -r '.EPP_PROFILE // "custom"')
+          echo -n "$EPP_PROFILE" > $(results.epp-profile.path)
+        else
+          echo -n "default" > $(results.epp-profile.path)
+        fi
+
+        echo ""
+        echo "=== Merged Configuration Summary ==="
+        echo "$MERGED" | jq -r 'to_entries | .[] | "  \(.key): \(.value | if type == "string" and (. | contains("\n")) then "..." else . end)"'
+        echo ""
+
+        # Write full merged config
+        echo "$MERGED" | tee $(results.merged-config.path)
+
+        # Extract specific results
+        # vLLM args (convert newline-delimited to array if needed)
+        VLLM_ARGS=$(echo "$MERGED" | jq -r '.VLLM_ARGS // ""')
+        echo -n "$VLLM_ARGS" > $(results.vllm-args.path)
+
+        # Deployment mode
+        DEPLOYMENT_MODE=$(echo "$MERGED" | jq -r '.DEPLOYMENT_MODE // "inference-scheduling"')
+        echo -n "$DEPLOYMENT_MODE" > $(results.deployment-mode.path)
+
+        echo "✓ Configuration merge completed successfully"

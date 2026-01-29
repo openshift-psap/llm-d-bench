@@ -11,100 +11,46 @@ spec:
   pipelineRef:
     name: llm-d-end-to-end-benchmark
 
-  # Use service account with permissions for deployments
   taskRunTemplate:
     serviceAccountName: deploy-model-sa
-    podTemplate:
-      labels:
-        # Kueue integration for GPU quota management
-        kueue.x-k8s.io/queue-name: psap-releases-queue
-        kueue.x-k8s.io/priority-class: psap-releases
 
-  # Automatically clean up completed PipelineRun after 1 hour
   ttlSecondsAfterFinished: 3600
 
   params:
-    # Model Configuration
     - name: MODEL_NAME
       value: "Qwen/Qwen2.5-7B-Instruct"
-    - name: MODEL_REVISION
-      value: "main"
 
-    # Deployment Configuration - Precise Cache-Aware Profile
+    - name: VLLM_CONFIG
+      value: "vllm-default"
+    - name: DEPLOYMENT_CONFIG
+      value: "deployment-llm-d-inference-scheduling"
+    - name: BENCHMARK_CONFIG
+      value: "concurrent-1k-1k"
+
     - name: RELEASE_NAME
       value: "qwen25-7b-cache"
-    - name: NAMESPACE
-      value: "llm-d-bench"
-    - name: GATEWAY_PROVIDER
-      value: "istio"
     - name: REPLICAS
       value: "3"
-    - name: HF_TOKEN_SECRET
-      value: "huggingface-token"
-    - name: VLLM_ARGS
-      value:
-        - "--max-model-len=16384"
-        - "--gpu-memory-utilization=0.90"
-        - "--trust-remote-code"
-        - "--max-num-seqs=128"
-        - "--max-num-batched-tokens=16384"
-        - "--kv-cache-dtype=auto"
-        - "--disable-log-requests"
-        - "--enable-prefix-caching"
-
-    # Benchmark Configuration
-    - name: IMAGE
-      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
-    - name: TARGET
-      value: "https://qwen25-7b-cache-gateway.llm-d-bench.svc.cluster.local:8000"
-    - name: GUIDELLM_PROCESSOR
-      value: "Qwen/Qwen2.5-7B-Instruct"
-    - name: GUIDELLM_BACKEND_TYPE
-      value: "openai_http"
-    - name: GUIDELLM_RATE_TYPE
-      value: "concurrent"
-    - name: GUIDELLM_RATE
-      value: "1,50,100,200,300"
-    - name: GUIDELLM_DATA
-      value: "prompt_tokens=1000,output_tokens=1000"
-    - name: GUIDELLM_MAX_SECONDS
-      value: "600"
-    - name: GUIDELLM_MAX_REQUESTS
-      value: ""
-    - name: ACCELERATOR
-      value: "H200"
-    - name: MLFLOW_EXPERIMENT_NAME
-      value: "qwen-25-7b-cache-aware-1k-1k"
-    - name: VERSION
-      value: "RHOAI-3.0"
     - name: TP
       value: "1"
+
+    - name: ACCELERATOR
+      value: "H200"
     - name: BENCHMARK_ENV_VARS
       value:
         - "GUIDELLM__MAX_WORKER_PROCESSES=100"
 
-    # MLflow Configuration
     - name: MLFLOW_ENABLED
       value: "true"
+    - name: MLFLOW_EXPERIMENT_NAME
+      value: "qwen-25-7b-cache-aware-1k-1k"
+    - name: VERSION
+      value: "RHOAI-3.0"
     - name: MLFLOW_TAGS
       value:
         - "deployment=upstream"
         - "profile=precise-cache"
         - "llm-d-version=RHOAI 3.0"
-
-    # Health Check Configuration
-    - name: HEALTH_CHECK_TIMEOUT
-      value: "3600"
-
-    # Stage Control - enable all stages
-    - name: SKIP_DOWNLOAD
-      value: "false"
-    - name: SKIP_DEPLOY
-      value: "false"
-    - name: SKIP_BENCHMARK
-      value: "false"
-    - name: SKIP_CLEANUP
-      value: "false"
 
   timeouts:
     pipeline: "2h"
