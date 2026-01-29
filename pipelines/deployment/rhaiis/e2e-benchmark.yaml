@@ -44,6 +44,7 @@ spec:
     - name: NAMESPACE
       description: Namespace for deployment
       type: string
+      default: "llm-d-bench"
 
     - name: VLLM_ARGS
       description: Additional vLLM arguments as array
@@ -252,6 +253,10 @@ spec:
           value: ""
         - name: MLFLOW_EXPERIMENT_NAME
           value: $(params.MLFLOW_EXPERIMENT_NAME)
+        - name: GATEWAY_PROVIDER
+          value: "istio"
+        - name: TARGET
+          value: ""
 
     # Stage 1: Download Model
     - name: download-model

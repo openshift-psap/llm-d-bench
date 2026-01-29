@@ -58,6 +58,7 @@ spec:
     - name: NAMESPACE
       description: Namespace for deployment
       type: string
+      default: "llm-d-bench"
 
     - name: GATEWAY_PROVIDER
       description: "Gateway provider: istio (default), kgateway, standalone, gke"
@@ -144,8 +145,9 @@ spec:
       default: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
 
     - name: TARGET
-      description: Target inference endpoint URL
+      description: Target inference endpoint URL (auto-computed if empty based on GATEWAY_PROVIDER and RELEASE_NAME)
       type: string
+      default: ""
 
     # GuideLLM-specific Parameters (all optional)
     - name: GUIDELLM_PROCESSOR
@@ -317,6 +319,10 @@ spec:
           value: $(params.RELEASE_NAME)
         - name: MLFLOW_EXPERIMENT_NAME
           value: $(params.MLFLOW_EXPERIMENT_NAME)
+        - name: GATEWAY_PROVIDER
+          value: $(params.GATEWAY_PROVIDER)
+        - name: TARGET
+          value: $(params.TARGET)
 
     # Stage 1: Download Model
     - name: download-model
@@ -461,7 +467,7 @@ spec:
         name: wait-for-endpoint
       params:
         - name: TARGET_URL
-          value: $(params.TARGET)
+          value: $(tasks.merge-configs.results.target-url)
         - name: ENDPOINT_PATH
           value: "/v1/models"
         - name: TIMEOUT_SECONDS
@@ -485,7 +491,7 @@ spec:
         - name: IMAGE
           value: $(params.IMAGE)
 
-    # Stage 4a: Run GuideLLM Benchmark (if IMAGE doesn't contain "mlperf")
+    # Stage 4a: Run GuideLLM Benchmark
     - name: run-guidellm-benchmark
       runAfter:
         - detect-benchmark-type
@@ -503,7 +509,7 @@ spec:
         - name: IMAGE
           value: $(params.IMAGE)
         - name: TARGET
-          value: $(params.TARGET)
+          value: $(tasks.merge-configs.results.target-url)
         - name: MODEL
           value: $(params.MODEL_NAME)
         - name: GUIDELLM_PROCESSOR

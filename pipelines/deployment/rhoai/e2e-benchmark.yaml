@@ -44,6 +44,7 @@ spec:
     - name: NAMESPACE
       description: Namespace for deployment
       type: string
+      default: "llm-d-bench"
 
     - name: VLLM_ARGS
       description: Additional vLLM arguments as array
@@ -81,8 +82,9 @@ spec:
       default: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
 
     - name: TARGET
-      description: Target inference endpoint URL
+      description: Target inference endpoint URL (auto-computed based on MODEL_NAME if empty)
       type: string
+      default: ""
 
     # GuideLLM-specific Parameters (all optional)
     - name: GUIDELLM_PROCESSOR
@@ -256,6 +258,10 @@ spec:
           value: ""
         - name: MLFLOW_EXPERIMENT_NAME
           value: $(params.MLFLOW_EXPERIMENT_NAME)
+        - name: GATEWAY_PROVIDER
+          value: "istio"
+        - name: TARGET
+          value: $(params.TARGET)
 
     # Stage 1: Download Model
     - name: download-model
