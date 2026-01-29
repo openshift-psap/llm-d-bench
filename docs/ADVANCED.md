@@ -325,6 +325,65 @@ Image: `image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-cu
 
 ---
 
+## MLPerf Benchmark Tool
+
+### Dataset Requirements
+
+MLPerf benchmarks require datasets to be manually uploaded to the `models-storage` PVC before running benchmarks. The pipeline does not download datasets automatically.
+
+**Dataset location:** `/datasets/` on the `models-storage` PVC
+
+### Uploading Datasets
+
+1. **Create a debug pod with PVC mounted:**
+   ```bash
+   cat <<EOF | oc apply -f -
+   apiVersion: v1
+   kind: Pod
+   metadata:
+     name: dataset-upload
+     namespace: llm-d-bench
+   spec:
+     containers:
+     - name: uploader
+       image: registry.access.redhat.com/ubi9/ubi:latest
+       command: ["/bin/bash", "-c", "sleep infinity"]
+       volumeMounts:
+       - name: models-storage
+         mountPath: /mnt/models
+     volumes:
+     - name: models-storage
+       persistentVolumeClaim:
+         claimName: models-storage
+   EOF
+   ```
+
+2. **Upload datasets:**
+   ```bash
+   # Copy datasets to the pod
+   oc cp /local/path/to/datasets dataset-upload:/mnt/models/datasets -n llm-d-bench
+
+   # Verify upload
+   oc exec dataset-upload -n llm-d-bench -- ls -lh /mnt/models/datasets
+   ```
+
+3. **Clean up:**
+   ```bash
+   oc delete pod dataset-upload -n llm-d-bench
+   ```
+
+### Running MLPerf Benchmarks
+
+```bash
+# Build MLPerf image (if not already built)
+oc create -f pipelineruns/benchmark/mlperf/build-image-run.yaml -n llm-d-bench
+
+# Run MLPerf benchmark
+oc create -f pipelineruns/llm-d/meta-llama-3.1-8b-mlperf.yaml -n llm-d-bench
+```
+
+---
+
 ## Adding Benchmark Tools
 
 ### Quick Guide
@@ -387,6 +446,42 @@ oc describe role deploy-model-role -n llm-d-bench
 ```bash
 oc logs -l serving.kserve.io/inferenceservice=<deployment> -n llm-d-bench
 oc get events -n llm-d-bench --sort-by='.lastTimestamp'
+```
+
+### HTTPRoute Backend Not Recognized (llm-d)
+
+**Symptoms:**
+- llm-d deployment completes successfully
+- HTTPRoute is created and shows no errors
+- Gateway is running
+- Requests to the inference endpoint return 404 or timeout
+- InferencePool pods are running but receive no traffic
+
+**Cause:**
+
+Some versions of the Gateway API or cluster configurations expect the `x-k8s.io` experimental API group for InferencePool backends instead of the standard `k8s.io` group.
+
+**Solution:**
+
+Patch the HTTPRoute to use the experimental API group:
+
+```bash
+NAMESPACE=llm-d-bench
+RELEASE_NAME=your-release-name
+
+oc patch httproute llm-d-$RELEASE_NAME -n $NAMESPACE --type='json' -p='[
+  {"op": "replace", "path": "/spec/rules/0/backendRefs/0/group", "value": "inference.networking.x-k8s.io"}
+]'
+```
+
+**Verify:**
+
+```bash
+# Check the HTTPRoute configuration
+oc get httproute llm-d-$RELEASE_NAME -n $NAMESPACE -o yaml | grep -A5 backendRefs
+
+# Test the endpoint
+curl -s http://infra-$RELEASE_NAME-inference-gateway-istio.$NAMESPACE.svc.cluster.local/v1/models
 ```
 
 ### MLflow Artifacts Not Logged
