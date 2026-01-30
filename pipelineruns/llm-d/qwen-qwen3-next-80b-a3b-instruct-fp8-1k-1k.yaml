@@ -14,107 +14,43 @@ spec:
 
   taskRunTemplate:
     serviceAccountName: deploy-model-sa
-    podTemplate:
-      labels:
-        # Kueue integration for GPU quota management
-        kueue.x-k8s.io/queue-name: psap-releases-queue
-        kueue.x-k8s.io/priority-class: psap-releases
 
   ttlSecondsAfterFinished: 3600
 
   params:
-    # ===========================================
-    # Model Configuration
-    # ===========================================
     - name: MODEL_NAME
       value: "Qwen/Qwen3-Next-80B-A3B-Instruct-FP8"
-    - name: MODEL_REVISION
-      value: "main"
 
-    # ===========================================
-    # Deployment Configuration (llm-d-specific)
-    # ===========================================
-    - name: LLM_D_REPO_REF
-      value: "v0.4.0"
-    - name: DEPLOYMENT_MODE
-      value: "inference-scheduling"
+    - name: VLLM_CONFIG
+      value: "vllm-default"
+    - name: DEPLOYMENT_CONFIG
+      value: "deployment-llm-d-inference-scheduling"
+    - name: BENCHMARK_CONFIG
+      value: "concurrent-1k-1k"
+
     - name: RELEASE_NAME
       value: "qwen3-next-80b-a3b-fp8"
-    - name: NAMESPACE
-      value: "llm-d-bench"
-    - name: GATEWAY_PROVIDER
-      value: "istio"
-    - name: MODEL_REPLICAS
+    - name: REPLICAS
       value: "1"
-    - name: VLLM_ARGS
-      value:
-        - "--max-model-len=8192"
-        - "--uvicorn-log-level=debug" 
-        - "--trust-remote-code"
-        - "--gpu-memory-utilization=0.92"
-        - "--no-enable-prefix-caching"
-        - "--disable-log-requests"
-
-    # ===========================================
-    # Benchmark Configuration
-    # ===========================================
-    - name: IMAGE
-      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
-    - name: TARGET
-      value: "http://infra-qwen3-next-80b-a3b-fp8-inference-gateway-istio.llm-d-bench.svc.cluster.local:80"
-    - name: GUIDELLM_PROCESSOR
-      value: "Qwen/Qwen3-Next-80B-A3B-Instruct-FP8"
-    - name: GUIDELLM_BACKEND_TYPE
-      value: "openai_http"
-    - name: GUIDELLM_RATE_TYPE
-      value: "concurrent"
-    - name: GUIDELLM_RATE
-      value: "650,500,300,200,100,50,1"
-    - name: GUIDELLM_DATA
-      value: "prompt_tokens=1000,output_tokens=1000"
-    - name: GUIDELLM_MAX_SECONDS
-      value: "600"
-    - name: GUIDELLM_MAX_REQUESTS
-      value: ""
-    - name: ACCELERATOR
-      value: "H200"
-    - name: MLFLOW_EXPERIMENT_NAME
-      value: "qwen-qwen3-next-80b-a3b-instruct-fp8-1k-1k"
-    - name: VERSION
-      value: "llm-d-0.4"
     - name: TP
       value: "1"
+
+    - name: ACCELERATOR
+      value: "H200"
     - name: BENCHMARK_ENV_VARS
       value:
         - "GUIDELLM__MAX_WORKER_PROCESSES=100"
 
-    # ===========================================
-    # MLflow Configuration
-    # ===========================================
     - name: MLFLOW_ENABLED
       value: "true"
+    - name: MLFLOW_EXPERIMENT_NAME
+      value: "qwen-qwen3-next-80b-a3b-instruct-fp8-1k-1k"
+    - name: VERSION
+      value: "llm-d-0.4"
     - name: MLFLOW_TAGS
       value:
         - "deployment=llm-d"
         - "benchmark-tool=guidellm"
-
-    # ===========================================
-    # Health Check Configuration
-    # ===========================================
-    - name: HEALTH_CHECK_TIMEOUT
-      value: "3600"
-
-    # ===========================================
-    # Stage Control
-    # ===========================================
-    - name: SKIP_DOWNLOAD
-      value: "false"
-    - name: SKIP_DEPLOY
-      value: "false"
-    - name: SKIP_BENCHMARK
-      value: "false"
-    - name: SKIP_CLEANUP
-      value: "false"
 
   timeouts:
     pipeline: "2h"

@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scheduler-precise-prefix-cache
+  namespace: llm-d-bench
+  annotations:
+    description: "GAIE precise prefix caching with KV-events"
+  labels:
+    config-type: scheduler
+data:
+  EPP_PROFILE: "precise-cache"
+  EPP_REQUIRES_ZMQ: "true"
+  EPP_VLLM_ARGS: |
+    --enable-prefix-caching
+  EPP_CONFIG: |
+    apiVersion: inference.networking.x-k8s.io/v1alpha1
+    kind: EndpointPickerConfig
+    plugins:
+      - type: single-profile-handler
+      - type: precise-prefix-cache-scorer
+        parameters:
+          indexerConfig:
+            tokenProcessorConfig:
+              blockSize: 64
+              hashSeed: "42"
+      - type: kv-cache-utilization-scorer
+      - type: queue-scorer
+      - type: max-score-picker
+    schedulingProfiles:
+      - name: default
+        plugins:
+          - pluginRef: precise-prefix-cache-scorer
+            weight: 3.0
+          - pluginRef: kv-cache-utilization-scorer
+            weight: 2.0
+          - pluginRef: queue-scorer
+            weight: 2.0
+          - pluginRef: max-score-picker

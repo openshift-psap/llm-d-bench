@@ -467,6 +467,9 @@ def run_benchmark_with_mlflow(
     version: str = None,
     tp_size: int = 1,
     runtime_args: str = "",
+    replicas: str = "N/A",
+    prefill_replicas: str = "N/A",
+    decode_replicas: str = "N/A",
 ) -> str:
     if mlflow_tracking_uri:
         mlflow.set_tracking_uri(mlflow_tracking_uri)
@@ -490,6 +493,9 @@ def run_benchmark_with_mlflow(
                 "rate_type": rate_type,
                 "rates": rate,
                 "tp": tp_size,
+                "replicas": replicas,
+                "prefill_replicas": prefill_replicas,
+                "decode_replicas": decode_replicas,
             }
             if data:
                 params.update(
@@ -950,6 +956,23 @@ def main():
         "--runtime-args", default="", help="Runtime arguments for visualization reports"
     )
 
+    # Replica configuration parameters
+    parser.add_argument(
+        "--replicas",
+        default="N/A",
+        help="Number of replicas for standard deployment mode",
+    )
+    parser.add_argument(
+        "--prefill-replicas",
+        default="N/A",
+        help="Number of prefill worker replicas for P/D disaggregation",
+    )
+    parser.add_argument(
+        "--decode-replicas",
+        default="N/A",
+        help="Number of decode worker replicas for P/D disaggregation",
+    )
+
     parser.add_argument(
         "--experiment-name",
         default="guidellm-benchmarks",
@@ -1118,6 +1141,9 @@ def main():
             version=args.version,
             tp_size=args.tp,
             runtime_args=args.runtime_args,
+            replicas=args.replicas,
+            prefill_replicas=args.prefill_replicas,
+            decode_replicas=args.decode_replicas,
         )
         logger.info("\nBenchmark sweep completed successfully.")
         logger.info(f"  MLflow Run ID: {run_id}")

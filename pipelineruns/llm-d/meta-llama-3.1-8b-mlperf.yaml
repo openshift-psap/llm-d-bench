@@ -14,53 +14,27 @@ spec:
 
   taskRunTemplate:
     serviceAccountName: deploy-model-sa
-    podTemplate:
-      labels:
-        # Kueue integration for GPU quota management
-        kueue.x-k8s.io/queue-name: psap-releases-queue
-        kueue.x-k8s.io/priority-class: psap-releases
 
   ttlSecondsAfterFinished: 3600
 
   params:
-    # ===========================================
-    # Model Configuration
-    # ===========================================
     - name: MODEL_NAME
       value: "RedHatAI/Meta-Llama-3.1-8B-Instruct-FP8"
-    - name: MODEL_REVISION
-      value: "main"
 
-    # ===========================================
-    # Deployment Configuration (llm-d-specific)
-    # ===========================================
+    - name: VLLM_CONFIG
+      value: "vllm-default"
+    - name: DEPLOYMENT_CONFIG
+      value: "deployment-llm-d-inference-scheduling"
+    - name: BENCHMARK_CONFIG
+      value: "concurrent-1k-1k"
+
     - name: RELEASE_NAME
       value: "llama-31-8b-mlperf"
-    - name: NAMESPACE
-      value: "llm-d-bench"
-    - name: GATEWAY_PROVIDER
-      value: "istio"
-    - name: MODEL_REPLICAS
+    - name: REPLICAS
       value: "1"
-    - name: VLLM_ARGS
-      value:
-        - "--max-model-len=131072"
-        - "--gpu-memory-utilization=0.91"
-        - "--disable-log-requests"
-        - "--max-num-batched-tokens=1024"
-        - "--max-num-seqs=512"
+    - name: TP
+      value: "1"
 
-    # ===========================================
-    # Benchmark Configuration - MLPerf Image
-    # ===========================================
-    - name: IMAGE
-      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/mlperf-custom:latest"
-    - name: TARGET
-      value: "http://infra-llama-31-8b-mlperf-inference-gateway-istio.llm-d-bench.svc.cluster.local:80"
-
-    # ===========================================
-    # MLPerf-specific parameters
-    # ===========================================
     - name: MLPERF_DATASET_NAME
       value: "cnn_eval.json"
     - name: MLPERF_SCENARIO
@@ -75,44 +49,21 @@ spec:
       value: ""
     - name: MLPERF_OUTPUT_DIR
       value: "/tmp/mlperf"
+    - name: ACCELERATOR
+      value: "H200"
     - name: BENCHMARK_ENV_VARS
       value: []
 
-    # ===========================================
-    # MLflow Configuration
-    # ===========================================
     - name: MLFLOW_ENABLED
       value: "true"
     - name: MLFLOW_EXPERIMENT_NAME
       value: "meta-llama-31-8b-mlperf"
     - name: VERSION
       value: "llm-d-0.4"
-    - name: ACCELERATOR
-      value: "H200"
-    - name: TP
-      value: "1"
     - name: MLFLOW_TAGS
       value:
         - "deployment=llm-d"
         - "benchmark-tool=mlperf"
-
-    # ===========================================
-    # Health Check Configuration
-    # ===========================================
-    - name: HEALTH_CHECK_TIMEOUT
-      value: "3600"
-
-    # ===========================================
-    # Stage Control
-    # ===========================================
-    - name: SKIP_DOWNLOAD
-      value: "false"
-    - name: SKIP_DEPLOY
-      value: "false"
-    - name: SKIP_BENCHMARK
-      value: "false"
-    - name: SKIP_CLEANUP
-      value: "false"
 
   timeouts:
     pipeline: "2h"

@@ -1,8 +1,8 @@
 .DS_Store
 results/**
 
-config/secrets/*.yaml
-!config/secrets/*.example.yaml
+config/cluster/secrets/*.yaml
+!config/cluster/secrets/*.example.yaml
 
 # Python
 __pycache__/

@@ -15,185 +15,93 @@ For advanced documentation see [docs/ADVANCED.md](docs/ADVANCED.md).
 
 ## Quick Start
 
-### Install Tekton Pipelines
+### 1. Setup
 
 ```bash
-# Install latest Tekton Pipelines operator
+# Create namespace
+oc create namespace llm-d-bench
+
+# Choose PVC mode (RWO for single-node, RWX for multi-pod)
+cp config/workspaces/models-storage-pvc-rwo.yaml config/workspaces/models-storage-pvc.yaml
+
+# Install Tekton Pipelines operator
 oc apply -f https://storage.googleapis.com/tekton-releases/pipeline/latest/release.yaml
 
-# Verify installation
-oc get pods -n tekton-pipelines
+# Install resources (tasks, pipelines, and PVCs)
+./scripts/install.sh -n llm-d-bench --with-pvcs
+
+# Optional: Install with Kueue for GPU quota management
+# ./scripts/install.sh -n llm-d-bench --with-infra --with-pvcs
 ```
 
-### 0. Create and Set Namespace
+See [Storage Configuration](docs/STORAGE.md) for PVC access mode details.
 
-```bash
-export NAMESPACE=llm-d-bench
-oc create namespace $NAMESPACE
-```
-
-### 0.5. Configure Default Storage Class (Optional)
-
-If your cluster uses a specific storage class for all persistent volumes, you can annotate it as the default to avoid explicitly specifying `storageClassName` in PVC templates:
-
-```bash
-# Set lvms-vg1 as the default storage class (or your preferred storage class)
-oc patch storageclass lvms-vg1 -p '{"metadata": {"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}'
-
-# Verify it's set as default
-oc get storageclass
-# Should show: lvms-vg1 (default)
-```
-
-This allows PVCs to automatically use the default storage class without explicit configuration.
-
-### 0.6. Choose PVC Access Mode (Temporary)
-
-> **Note:** This is a temporary solution. A more automated approach is planned for future releases.
-
-Before running the installation with `--with-pvcs`, choose the appropriate PVC access mode based on your deployment mode:
-
-**For RHAIIS deployments (single-pod) or single-node clusters:**
-```bash
-# Use ReadWriteOnce (RWO) - most common for single-node and RWO-only storage classes
-cp config/workspaces/models-storage-pvc-rwo.yaml config/workspaces/models-storage-pvc.yaml
-```
-
-**For RHOAI or llm-d deployments (multi-pod):**
-```bash
-# Use ReadWriteMany (RWX) - requires RWX-capable storage class
-cp config/workspaces/models-storage-pvc-rwx.example.yaml config/workspaces/models-storage-pvc.yaml
-```
-
-> **Important:** Ensure your storage class supports the chosen access mode. Use `oc get storageclass` to check capabilities. Most storage classes like `lvms-vg1` support only ReadWriteOnce (RWO).
-
-### 1. Install Tekton Resources
-
-```bash
-# Basic installation (Tasks and Pipelines only)
-./scripts/install.sh -n $NAMESPACE
-
-# With infrastructure components (Kueue for GPU quota management)
-./scripts/install.sh -n $NAMESPACE --with-infra
-
-# Full installation (with infrastructure and PVCs)
-./scripts/install.sh -n $NAMESPACE --with-infra --with-pvcs
-```
-
-> **Note**: The `--with-infra` flag installs Kueue for PipelineRun queue management and GPU quota enforcement. See [docs/kueue.md](docs/kueue.md) for more information on Kueue configuration.
+> **Note**: The `--with-infra` flag installs Kueue for PipelineRun queue management and GPU quota enforcement. See [docs/KUEUE.md](docs/KUEUE.md) for details.
 
 ### 2. Create Secrets
-
-You can create the necessary secrets manually:
 
 ```bash
 # HuggingFace token (required)
 oc create secret generic huggingface-token \
   --from-literal=HF_TOKEN=hf_xxxxxxxxxxxxx \
-  -n $NAMESPACE
+  -n llm-d-bench
 
 # MLflow credentials (optional - only if using MLflow)
 oc create secret generic mlflow-ui-auth \
   --from-literal=username=admin \
   --from-literal=password=your-password \
   --from-literal=tracking-uri=https://mlflow-server.example.com \
-  -n $NAMESPACE
+  -n llm-d-bench
 
 oc create secret generic mlflow-s3-secret \
   --from-literal=access-key=your-access-key \
   --from-literal=secret-key=your-secret-key \
   --from-literal=bucket-name=mlflow-artifacts \
   --from-literal=region=us-east-1 \
-  -n $NAMESPACE
+  -n llm-d-bench
 ```
 
-or you can create your secret file by copying the templates present in the `config/secrets/` dir and removing the .example, so the install script will apply them.
+Or copy templates from [config/cluster/secrets/](config/cluster/secrets/) and apply them.
 
-See [config/secrets/](config/secrets/) for YAML templates.
+See [MLflow Integration](docs/MLFLOW.md) for detailed setup.
 
 ### 3. Setup Internal Image Registry (Optional)
-
-The pipelines build custom container images that need to be pushed to a registry. Setup the OpenShift internal registry:
 
 ```bash
 ./scripts/install.sh --setup-image-registry
 ```
 
-This will automatically enable and configure the internal registry with persistent storage.
+See [docs/ADVANCED.md#image-registry-setup](docs/ADVANCED.md#image-registry-setup) for detailed documentation.
 
-See [docs/ADVANCED.md#image-registry-setup](docs/ADVANCED.md#image-registry-setup) for detailed documentation and troubleshooting.
-
-### 4. Build Custom Image
+### 4. Build Benchmark Image
 
 ```bash
 # GuideLLM (default)
-oc create -f pipelineruns/benchmark/guidellm/build-image-run.yaml -n $NAMESPACE
+oc create -f pipelineruns/benchmark/guidellm/build-image-run.yaml -n llm-d-bench
 
-# Or MLPerf (requires dataset upload - see step 4 note below)
-oc create -f pipelineruns/benchmark/mlperf/build-image-run.yaml -n $NAMESPACE
+# Or MLPerf (requires dataset upload - see note below)
+oc create -f pipelineruns/benchmark/mlperf/build-image-run.yaml -n llm-d-bench
 ```
+
+> **Note:** For MLPerf benchmarks, datasets must be manually uploaded to the `models-storage` PVC at `/datasets/` before running. See [docs/ADVANCED.md](docs/ADVANCED.md#mlperf-benchmark-tool) for dataset upload instructions.
 
 ### 5. Run Benchmark
 
 ```bash
-# GuideLLM example (RHOAI mode)
-oc create -f pipelineruns/rhoai/qwen-qwen3-06b-example.yaml -n $NAMESPACE
+# RHOAI example
+oc create -f pipelineruns/rhoai/qwen-qwen3-06b-example.yaml -n llm-d-bench
 
-# MLPerf example (llm-d mode, end-to-end)
-oc create -f pipelineruns/llm-d/meta-llama-3.1-8b-mlperf.yaml -n $NAMESPACE
+# llm-d example (end-to-end)
+oc create -f pipelineruns/llm-d/meta-llama-3.1-8b-mlperf.yaml -n llm-d-bench
 
-# PD Disaggregation example (llm-d mode, large models 70B+)
-oc create -f pipelineruns/llm-d/meta-llama-3.1-70b-pd-disaggregation.yaml -n $NAMESPACE
+# PD Disaggregation example (large models 70B+)
+oc create -f pipelineruns/llm-d/meta-llama-3.1-70b-pd-disaggregation.yaml -n llm-d-bench
 
 # Watch logs
-tkn pipelinerun logs -f -n $NAMESPACE
+tkn pipelinerun logs -f -n llm-d-bench
 ```
 
-> **Note:** For MLPerf benchmarks, datasets must be manually uploaded to the `models-storage` PVC at `/datasets/` before running. The pipeline does not download datasets automatically. See [docs/ADVANCED.md](docs/ADVANCED.md#mlperf-benchmark-tool) for step-by-step dataset upload instructions.
-
-### Install Tekton CLI (Recommended)
-
-**macOS:**
-```bash
-brew install tektoncd-cli
-```
-
-**Linux:**
-```bash
-# Download latest release
-curl -LO https://github.com/tektoncd/cli/releases/download/v0.38.0/tkn_0.38.0_Linux_x86_64.tar.gz
-tar xvzf tkn_0.38.0_Linux_x86_64.tar.gz -C /usr/local/bin/ tkn
-```
-
-**Verify:**
-```bash
-tkn version
-```
-
-### Install Tekton Dashboard (Recommended)
-> [!WARNING]
-> Tekton Dashboard is not secured by default i.e. anyone with the URL can access it. Users might want to secure the dashboard with OAuth.
-
-```bash
-# Install the Dashboard
-oc apply -f https://storage.googleapis.com/tekton-releases/dashboard/latest/release.yaml
-
-# Expose the service
-oc expose svc tekton-dashboard -n tekton-pipelines
-```
-
-### Install Experiments Infra (Recommended)
-
-> [!NOTE]
-> llm-d-bench can be used without deploying this infra, but it is advised for CI/CD integration and experiment tracking, among others.
-
-The deployment of the experiments infrastructure is completely optional and it is inteded to be a persistent environment for automated benchmarking. The infrastructure is composed by MLFlow, Self Hosted GitHub Action Runners and Kueue with MultiCluster capabilities.
-
-In order to deploy it, create the necessary secrets within `infra/manifests/{mlflow,github-runners,kueue}` and then simply run `oc apply -k .` from the `infra/` dir.
-
-Other manifests for deploying RHOAI and configuring Distributed Inference can be found inside `infra/{rhoai,rhcl}` too.
-
-The repo architecture is designed for extensibility. To add new benchmark tools, see [docs/ADVANCED.md](docs/ADVANCED.md#adding-new-benchmark-tools).
+More examples: [llm-d](pipelineruns/llm-d/), [rhoai](pipelineruns/rhoai/), [rhaiis](pipelineruns/rhaiis/)
 
 ## Pipelines
 
@@ -222,76 +130,98 @@ llm-d-bench supports two benchmark tools:
 - **MLPerf**: Standardized benchmark with Offline, Server, and other scenarios
   - **Requires manual dataset upload**: MLPerf datasets must be uploaded to the `models-storage` PVC before running benchmarks
 
-To switch between tools, use different benchmark images and pipelines. See [docs/ADVANCED.md](docs/ADVANCED.md#mlperf-benchmark-tool) for details.
+To switch between tools, use different benchmark images and pipelines. See [Adding Benchmark Tools](docs/ADVANCED.md#adding-benchmark-tools) for details.
 
-## Custom Benchmarks
+## Usage
 
-Copy an experiment and edit parameters:
+### Running Benchmarks
 
+**Use existing examples:**
 ```bash
-# Choose a deployment mode (rhoai, llm-d, or rhaiis)
-cp pipelineruns/rhoai/qwen-qwen3-06b-example.yaml pipelineruns/rhoai/my-benchmark.yaml
-vim pipelineruns/rhoai/my-benchmark.yaml  # Edit TARGET, MODEL, RATE, etc.
-oc create -f pipelineruns/rhoai/my-benchmark.yaml -n $NAMESPACE
+# Choose deployment mode: rhoai, llm-d, or rhaiis
+oc create -f pipelineruns/{mode}/{model-example}.yaml -n llm-d-bench
 ```
 
-Or use `tkn` CLI for standalone benchmark (no deployment):
+**Custom parameters:**
+```bash
+# Copy and edit an example
+cp pipelineruns/rhoai/qwen-qwen3-06b-example.yaml pipelineruns/rhoai/my-benchmark.yaml
+vim pipelineruns/rhoai/my-benchmark.yaml  # Edit TARGET, MODEL, RATE, etc.
+oc create -f pipelineruns/rhoai/my-benchmark.yaml -n llm-d-bench
+```
 
+**Or use tkn CLI for standalone benchmark:**
 ```bash
 tkn pipeline start guidellm-run-benchmark-pipeline \
   -p TARGET=https://my-model.example.com \
   -p MODEL=Qwen/Qwen3-0.6B \
   -p GUIDELLM_RATE="1,50,100" \
-  -n $NAMESPACE \
+  -n llm-d-bench \
   --showlog
 ```
 
-## Storage Modes
+See [pipelineruns/](pipelineruns/) for all examples.
 
-**MLflow** (set `MLFLOW_ENABLED=true`):
-- Results logged to MLflow tracking server
-- Requires: `mlflow-ui-auth` and `mlflow-s3-secret` secrets
+### Results Storage
 
-**PVC** (set `MLFLOW_ENABLED=false`):
-- Results saved to PVC at `/benchmark-results/`
-- Files: `benchmark_output.json`, `benchmark_output_console.log` and HTML reports.
+- **MLflow** (`MLFLOW_ENABLED=true`): Results logged to MLflow tracking server → [Setup Guide](docs/MLFLOW.md)
+- **PVC** (`MLFLOW_ENABLED=false`): Results saved to `/benchmark-results/` on PVC (JSON, HTML reports, console logs)
 
-## Debugging
+### Debugging
 
 ```bash
 # View logs
-tkn pipelinerun logs <pipelinerun-name> -f -n $NAMESPACE
+tkn pipelinerun logs <pipelinerun-name> -f -n llm-d-bench
 
 # View specific task
-tkn pipelinerun logs <pipelinerun-name> -t run-benchmark -n $NAMESPACE
+tkn pipelinerun logs <pipelinerun-name> -t run-benchmark -n llm-d-bench
 
 # Check status
-oc get pipelinerun -n $NAMESPACE
-oc describe pipelinerun <pipelinerun-name> -n $NAMESPACE
+oc get pipelinerun -n llm-d-bench
+oc describe pipelinerun <pipelinerun-name> -n llm-d-bench
 
 # Pod logs
-oc logs <pod-name> -c step-run-benchmark -n $NAMESPACE
+oc logs <pod-name> -c step-run-benchmark -n llm-d-bench
 ```
 
-## Custom Comparison Report
+## Optional Components
 
-When using MLFlow, a comparison report will be logged as an artifact. That report is a general one that contains comparison data for a fixed set of versions. In order to get a custom report that contains also results from other MLFlow runs, users can manually execute the script in plot only mode.
+### Tekton CLI (Recommended)
 
-Users need to set the MLFlow environment variables needed to rightfully access the runs. To be precise: `MLFLOW_TRACKING_USERNAME`, `MLFLOW_TRACKING_USERNAME` and `MLFLOW_TRACKING_INSECURE_TLS` set to true. Also, AWS CLI or AWS env variables must be configured too.
-
-
-```
-cd build/src/
-
-python3 -m benchmark.main --plot-only \
-  --mlflow-run-ids "abc123,cde456" \
-  --versions "foo,bar" \
-  --mlflow-tracking-uri https://your-mlflow.tracking.uri
-
+**macOS:**
+```bash
+brew install tektoncd-cli
 ```
 
-This will download the benchmark JSON file for each run to `/tmp`, process them and generate a comparison plot report.
+**Linux:**
+```bash
+curl -LO https://github.com/tektoncd/cli/releases/download/v0.38.0/tkn_0.38.0_Linux_x86_64.tar.gz
+tar xvzf tkn_0.38.0_Linux_x86_64.tar.gz -C /usr/local/bin/ tkn
+```
 
+**Verify:**
+```bash
+tkn version
+```
+
+### Tekton Dashboard
+
+> [!WARNING]
+> Tekton Dashboard is not secured by default (anyone with the URL can access it). Consider securing with OAuth for production use.
+
+```bash
+# Install the Dashboard
+oc apply -f https://storage.googleapis.com/tekton-releases/dashboard/latest/release.yaml
+
+# Expose the service
+oc expose svc tekton-dashboard -n tekton-pipelines
+```
+
+### Experiments Infrastructure
+
+Optional MLflow, GitHub Runners, and Kueue multi-cluster setup for CI/CD integration and automated experiment tracking.
+
+See [docs/EXPERIMENTS.md](docs/EXPERIMENTS.md) for detailed deployment instructions.
 
 ## Troubleshooting
 
@@ -371,50 +301,11 @@ oc rollout restart deployment tekton-pipelines-controller tekton-pipelines-webho
 Grant the `system:image-builder` role to the service account:
 
 ```bash
-oc policy add-role-to-user system:image-builder -z default -n $NAMESPACE
+oc policy add-role-to-user system:image-builder -z default -n llm-d-bench
 ```
 
 This allows the service account to push images to the internal OpenShift registry.
 
 </details>
 
-### HTTPRoute Backend Not Recognized (llm-d)
-
-<details>
-<summary>llm-d deployment completes and HTTPRoute is configured but requests don't reach the pods</summary>
-
-**Symptoms:**
-- llm-d deployment completes successfully
-- HTTPRoute is created and shows no errors
-- Gateway is running
-- Requests to the inference endpoint return 404 or timeout
-- InferencePool pods are running but receive no traffic
-
-**Cause:**
-
-Some versions of the Gateway API or cluster configurations expect the `x-k8s.io` experimental API group for InferencePool backends instead of the standard `k8s.io` group.
-
-**Solution:**
-
-Patch the HTTPRoute to use the experimental API group:
-
-```bash
-NAMESPACE=llm-d-bench
-RELEASE_NAME=your-release-name
-
-oc patch httproute llm-d-$RELEASE_NAME -n $NAMESPACE --type='json' -p='[
-  {"op": "replace", "path": "/spec/rules/0/backendRefs/0/group", "value": "inference.networking.x-k8s.io"}
-]'
-```
-
-**Verify:**
-
-```bash
-# Check the HTTPRoute configuration
-oc get httproute llm-d-$RELEASE_NAME -n $NAMESPACE -o yaml | grep -A5 backendRefs
-
-# Test the endpoint
-curl -s http://infra-$RELEASE_NAME-inference-gateway-istio.$NAMESPACE.svc.cluster.local/v1/models
-```
-
-</details>
+For more troubleshooting scenarios, see [docs/ADVANCED.md#troubleshooting](docs/ADVANCED.md#troubleshooting)

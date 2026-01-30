@@ -1,0 +1,34 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: scheduler-cache-aware
+  namespace: llm-d-bench
+  annotations:
+    description: "GAIE approximate cache awareness with autoTune"
+  labels:
+    config-type: scheduler
+data:
+  EPP_PROFILE: "cache-aware"
+  EPP_REQUIRES_ZMQ: "false"
+  EPP_VLLM_ARGS: |
+    --enable-prefix-caching
+  EPP_CONFIG: |
+    apiVersion: inference.networking.x-k8s.io/v1alpha1
+    kind: EndpointPickerConfig
+    plugins:
+      - type: prefix-cache-scorer
+        parameters:
+          autoTune: true
+      - type: kv-cache-utilization-scorer
+      - type: queue-scorer
+      - type: max-score-picker
+    schedulingProfiles:
+      - name: default
+        plugins:
+          - pluginRef: prefix-cache-scorer
+            weight: 2.0
+          - pluginRef: kv-cache-utilization-scorer
+            weight: 2.0
+          - pluginRef: queue-scorer
+            weight: 2.0
+          - pluginRef: max-score-picker

@@ -14,6 +14,22 @@ spec:
     can be optionally skipped via parameters.
 
   params:
+    # Profile References
+    - name: VLLM_CONFIG
+      description: vLLM profile ConfigMap name (e.g., vllm-default, vllm-fp8-cache)
+      type: string
+      default: ""
+
+    - name: DEPLOYMENT_CONFIG
+      description: Deployment profile ConfigMap name (e.g., deployment-rhoai-kserve)
+      type: string
+      default: ""
+
+    - name: BENCHMARK_CONFIG
+      description: Benchmark profile ConfigMap name (e.g., concurrent-1k-1k, concurrent-8k-1k)
+      type: string
+      default: ""
+
     # Model Configuration
     - name: MODEL_NAME
       description: HuggingFace model identifier (e.g., meta-llama/Llama-3.1-8B)
@@ -28,6 +44,7 @@ spec:
     - name: NAMESPACE
       description: Namespace for deployment
       type: string
+      default: "llm-d-bench"
 
     - name: VLLM_ARGS
       description: Additional vLLM arguments as array
@@ -44,6 +61,16 @@ spec:
       type: string
       default: "1"
 
+    - name: PREFILL_REPLICAS
+      description: Number of prefill worker replicas for P/D disaggregation
+      type: string
+      default: ""
+
+    - name: DECODE_REPLICAS
+      description: Number of decode worker replicas for P/D disaggregation
+      type: string
+      default: ""
+
     # Benchmark Configuration
     - name: IMAGE
       description: |
@@ -55,8 +82,9 @@ spec:
       default: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
 
     - name: TARGET
-      description: Target inference endpoint URL
+      description: Target inference endpoint URL (auto-computed based on MODEL_NAME if empty)
       type: string
+      default: ""
 
     # GuideLLM-specific Parameters (all optional)
     - name: GUIDELLM_PROCESSOR
@@ -201,8 +229,44 @@ spec:
       optional: true
 
   tasks:
+    # Stage 0: Merge Configuration Profiles
+    - name: merge-configs
+      taskRef:
+        name: merge-configs
+      params:
+        - name: VLLM_CONFIG
+          value: $(params.VLLM_CONFIG)
+        - name: DEPLOYMENT_CONFIG
+          value: $(params.DEPLOYMENT_CONFIG)
+        - name: BENCHMARK_CONFIG
+          value: $(params.BENCHMARK_CONFIG)
+        - name: EPP_CONFIG
+          value: ""
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: MODEL_NAME
+          value: $(params.MODEL_NAME)
+        - name: MODEL_REVISION
+          value: $(params.MODEL_REVISION)
+        - name: TP
+          value: $(params.TP)
+        - name: REPLICAS
+          value: $(params.REPLICAS)
+        - name: ACCELERATOR
+          value: $(params.ACCELERATOR)
+        - name: RELEASE_NAME
+          value: ""
+        - name: MLFLOW_EXPERIMENT_NAME
+          value: $(params.MLFLOW_EXPERIMENT_NAME)
+        - name: GATEWAY_PROVIDER
+          value: "istio"
+        - name: TARGET
+          value: $(params.TARGET)
+
     # Stage 1: Download Model
     - name: download-model
+      runAfter:
+        - merge-configs
       when:
         - input: "$(params.SKIP_DOWNLOAD)"
           operator: in
@@ -261,7 +325,7 @@ spec:
         name: wait-for-endpoint
       params:
         - name: TARGET_URL
-          value: $(params.TARGET)
+          value: $(tasks.merge-configs.results.target-url)
         - name: ENDPOINT_PATH
           value: "/v1/models"
         - name: TIMEOUT_SECONDS
@@ -303,23 +367,23 @@ spec:
         - name: IMAGE
           value: $(params.IMAGE)
         - name: TARGET
-          value: $(params.TARGET)
+          value: $(tasks.merge-configs.results.target-url)
         - name: MODEL
           value: $(params.MODEL_NAME)
         - name: GUIDELLM_PROCESSOR
-          value: $(params.GUIDELLM_PROCESSOR)
+          value: $(tasks.merge-configs.results.guidellm-processor)
         - name: GUIDELLM_BACKEND_TYPE
-          value: $(params.GUIDELLM_BACKEND_TYPE)
+          value: $(tasks.merge-configs.results.guidellm-backend-type)
         - name: GUIDELLM_RATE_TYPE
-          value: $(params.GUIDELLM_RATE_TYPE)
+          value: $(tasks.merge-configs.results.guidellm-rate-type)
         - name: GUIDELLM_RATE
-          value: $(params.GUIDELLM_RATE)
+          value: $(tasks.merge-configs.results.guidellm-rate)
         - name: GUIDELLM_DATA
-          value: $(params.GUIDELLM_DATA)
+          value: $(tasks.merge-configs.results.guidellm-data)
         - name: GUIDELLM_MAX_SECONDS
-          value: $(params.GUIDELLM_MAX_SECONDS)
+          value: $(tasks.merge-configs.results.guidellm-max-seconds)
         - name: GUIDELLM_MAX_REQUESTS
-          value: $(params.GUIDELLM_MAX_REQUESTS)
+          value: $(tasks.merge-configs.results.guidellm-max-requests)
         - name: ACCELERATOR
           value: $(params.ACCELERATOR)
         - name: MLFLOW_EXPERIMENT_NAME
@@ -332,6 +396,12 @@ spec:
           value: $(params.VERSION)
         - name: TP
           value: $(params.TP)
+        - name: REPLICAS
+          value: $(tasks.merge-configs.results.replicas)
+        - name: PREFILL_REPLICAS
+          value: $(tasks.merge-configs.results.prefill-replicas)
+        - name: DECODE_REPLICAS
+          value: $(tasks.merge-configs.results.decode-replicas)
         - name: BENCHMARK_ENV_VARS
           value: $(params.BENCHMARK_ENV_VARS[*])
       workspaces:
@@ -356,7 +426,7 @@ spec:
         - name: IMAGE
           value: $(params.IMAGE)
         - name: TARGET
-          value: $(params.TARGET)
+          value: $(tasks.merge-configs.results.target-url)
         - name: MODEL
           value: $(params.MODEL_NAME)
         - name: ACCELERATOR

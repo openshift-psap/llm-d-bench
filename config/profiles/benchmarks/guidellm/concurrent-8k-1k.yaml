@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: concurrent-8k-1k
+  namespace: llm-d-bench
+  annotations:
+    description: "Full 8k/1k load test with high concurrency levels"
+  labels:
+    config-type: benchmark
+data:
+  IMAGE: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
+  GUIDELLM_BACKEND_TYPE: "openai_http"
+  GUIDELLM_RATE_TYPE: "concurrent"
+  GUIDELLM_RATE: "650,500,300,200,100,50,1"
+  GUIDELLM_DATA: "prompt_tokens=8000,output_tokens=1000"
+  GUIDELLM_MAX_SECONDS: "600"
+  GUIDELLM_MAX_REQUESTS: ""

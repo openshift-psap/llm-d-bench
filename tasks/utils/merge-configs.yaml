@@ -1,0 +1,314 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: merge-configs
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "Merge Configuration Profiles"
+    tekton.dev/tags: config, merge, profiles
+    tekton.dev/platforms: "linux/amd64"
+spec:
+  description: >-
+    Merge configuration profiles from ConfigMaps.
+    Reads vLLM, deployment, benchmark, and EPP ConfigMaps and merges their data
+    fields into a single JSON object. Pipeline parameters take precedence over
+    ConfigMap values (left-to-right merge).
+
+  params:
+    # Profile references
+    - name: VLLM_CONFIG
+      description: vLLM profile ConfigMap name (e.g., "vllm-standard")
+      type: string
+      default: ""
+
+    - name: DEPLOYMENT_CONFIG
+      description: Deployment profile ConfigMap name (e.g., "deployment-llm-d-inference-scheduling")
+      type: string
+      default: ""
+
+    - name: BENCHMARK_CONFIG
+      description: Benchmark profile ConfigMap name (e.g., "guidellm-high-concurrency")
+      type: string
+      default: ""
+
+    - name: EPP_CONFIG
+      description: EPP/GAIE scheduler profile ConfigMap name (e.g., "scheduler-precise-prefix-cache")
+      type: string
+      default: ""
+
+    - name: NAMESPACE
+      description: Namespace where ConfigMaps are located
+      type: string
+      default: "llm-d-bench"
+
+    # Pass-through params from PipelineRun (these override ConfigMap values)
+    - name: MODEL_NAME
+      description: Model name (overrides ConfigMap)
+      type: string
+      default: ""
+
+    - name: MODEL_REVISION
+      description: Model revision (overrides ConfigMap)
+      type: string
+      default: "main"
+
+    - name: TP
+      description: Tensor parallelism (overrides ConfigMap)
+      type: string
+      default: "1"
+
+    - name: REPLICAS
+      description: Number of replicas (overrides ConfigMap)
+      type: string
+      default: "1"
+
+    - name: ACCELERATOR
+      description: GPU accelerator type (overrides ConfigMap)
+      type: string
+      default: ""
+
+    - name: RELEASE_NAME
+      description: Release name (overrides ConfigMap)
+      type: string
+      default: ""
+
+    - name: MLFLOW_EXPERIMENT_NAME
+      description: MLflow experiment name (overrides ConfigMap)
+      type: string
+      default: ""
+
+    - name: GATEWAY_PROVIDER
+      description: Gateway provider for computing TARGET_URL
+      type: string
+      default: "istio"
+
+    - name: TARGET
+      description: Override TARGET_URL (if provided, computation is skipped)
+      type: string
+      default: ""
+
+  results:
+    - name: merged-config
+      description: JSON object with merged configuration
+    - name: vllm-args
+      description: Merged vLLM arguments as newline-delimited string
+    - name: deployment-mode
+      description: Deployment mode extracted from config
+    - name: epp-profile
+      description: EPP profile name if EPP_CONFIG was specified
+    - name: target-url
+      description: Computed or provided target endpoint URL
+    - name: guidellm-processor
+      description: GuideLLM processor/tokenizer model
+    - name: guidellm-backend-type
+      description: GuideLLM backend type
+    - name: guidellm-rate-type
+      description: GuideLLM rate type
+    - name: guidellm-rate
+      description: GuideLLM rate values
+    - name: guidellm-data
+      description: GuideLLM data profile
+    - name: guidellm-max-seconds
+      description: GuideLLM max seconds
+    - name: guidellm-max-requests
+      description: GuideLLM max requests
+    - name: replicas
+      description: Number of replicas (standard or inferred from deployment mode)
+    - name: prefill-replicas
+      description: Number of prefill replicas (PD mode only)
+    - name: decode-replicas
+      description: Number of decode replicas (PD mode only)
+
+  steps:
+    - name: merge
+      image: bitnami/kubectl:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        echo "=== Configuration Profile Merger ==="
+        echo ""
+
+        # Initialize merged config with pipeline params (these take precedence)
+        MERGED='{}'
+
+        # Add pass-through params if provided
+        if [ -n "$(params.MODEL_NAME)" ]; then
+          MERGED=$(echo "$MERGED" | jq --arg val "$(params.MODEL_NAME)" '. + {MODEL_NAME: $val}')
+        fi
+
+        if [ -n "$(params.MODEL_REVISION)" ]; then
+          MERGED=$(echo "$MERGED" | jq --arg val "$(params.MODEL_REVISION)" '. + {MODEL_REVISION: $val}')
+        fi
+
+        if [ -n "$(params.TP)" ]; then
+          MERGED=$(echo "$MERGED" | jq --arg val "$(params.TP)" '. + {TP: $val}')
+        fi
+
+        if [ -n "$(params.REPLICAS)" ]; then
+          MERGED=$(echo "$MERGED" | jq --arg val "$(params.REPLICAS)" '. + {REPLICAS: $val}')
+        fi
+
+        if [ -n "$(params.ACCELERATOR)" ]; then
+          MERGED=$(echo "$MERGED" | jq --arg val "$(params.ACCELERATOR)" '. + {ACCELERATOR: $val}')
+        fi
+
+        if [ -n "$(params.RELEASE_NAME)" ]; then
+          MERGED=$(echo "$MERGED" | jq --arg val "$(params.RELEASE_NAME)" '. + {RELEASE_NAME: $val}')
+        fi
+
+        if [ -n "$(params.MLFLOW_EXPERIMENT_NAME)" ]; then
+          MERGED=$(echo "$MERGED" | jq --arg val "$(params.MLFLOW_EXPERIMENT_NAME)" '. + {MLFLOW_EXPERIMENT_NAME: $val}')
+        fi
+
+        # Merge vLLM config
+        if [ -n "$(params.VLLM_CONFIG)" ]; then
+          echo "Loading vLLM profile: $(params.VLLM_CONFIG)"
+          VLLM_DATA=$(kubectl get cm $(params.VLLM_CONFIG) -n $(params.NAMESPACE) -o json | jq '.data')
+
+          if [ "$VLLM_DATA" = "null" ] || [ -z "$VLLM_DATA" ]; then
+            echo "ERROR: ConfigMap $(params.VLLM_CONFIG) not found or has no data"
+            exit 1
+          fi
+
+          MERGED=$(echo "$MERGED $VLLM_DATA" | jq -s '.[0] * .[1]')
+          echo "  ✓ Merged vLLM profile"
+        fi
+
+        # Merge deployment config
+        if [ -n "$(params.DEPLOYMENT_CONFIG)" ]; then
+          echo "Loading deployment profile: $(params.DEPLOYMENT_CONFIG)"
+          DEPLOY_DATA=$(kubectl get cm $(params.DEPLOYMENT_CONFIG) -n $(params.NAMESPACE) -o json | jq '.data')
+
+          if [ "$DEPLOY_DATA" = "null" ] || [ -z "$DEPLOY_DATA" ]; then
+            echo "ERROR: ConfigMap $(params.DEPLOYMENT_CONFIG) not found or has no data"
+            exit 1
+          fi
+
+          MERGED=$(echo "$MERGED $DEPLOY_DATA" | jq -s '.[0] * .[1]')
+          echo "  ✓ Merged deployment profile"
+        fi
+
+        # Merge benchmark config
+        if [ -n "$(params.BENCHMARK_CONFIG)" ]; then
+          echo "Loading benchmark profile: $(params.BENCHMARK_CONFIG)"
+          BENCH_DATA=$(kubectl get cm $(params.BENCHMARK_CONFIG) -n $(params.NAMESPACE) -o json | jq '.data')
+
+          if [ "$BENCH_DATA" = "null" ] || [ -z "$BENCH_DATA" ]; then
+            echo "ERROR: ConfigMap $(params.BENCHMARK_CONFIG) not found or has no data"
+            exit 1
+          fi
+
+          MERGED=$(echo "$MERGED $BENCH_DATA" | jq -s '.[0] * .[1]')
+          echo "  ✓ Merged benchmark profile"
+        fi
+
+        # Merge EPP config (optional, for llm-d only)
+        if [ -n "$(params.EPP_CONFIG)" ]; then
+          echo "Loading EPP scheduler profile: $(params.EPP_CONFIG)"
+          EPP_DATA=$(kubectl get cm $(params.EPP_CONFIG) -n $(params.NAMESPACE) -o json | jq '.data')
+
+          if [ "$EPP_DATA" = "null" ] || [ -z "$EPP_DATA" ]; then
+            echo "ERROR: ConfigMap $(params.EPP_CONFIG) not found or has no data"
+            exit 1
+          fi
+
+          MERGED=$(echo "$MERGED $EPP_DATA" | jq -s '.[0] * .[1]')
+          echo "  ✓ Merged EPP scheduler profile"
+
+          # Set EPP profile result
+          EPP_PROFILE=$(echo "$EPP_DATA" | jq -r '.EPP_PROFILE // "custom"')
+          echo -n "$EPP_PROFILE" > $(results.epp-profile.path)
+        else
+          echo -n "default" > $(results.epp-profile.path)
+        fi
+
+        echo ""
+        echo "=== Merged Configuration Summary ==="
+        echo "$MERGED" | jq -r 'to_entries | .[] | "  \(.key): \(.value | if type == "string" and (. | contains("\n")) then "..." else . end)"'
+        echo ""
+
+        # Write full merged config
+        echo "$MERGED" | tee $(results.merged-config.path)
+
+        # Extract specific results
+        # vLLM args (convert newline-delimited to array if needed)
+        VLLM_ARGS=$(echo "$MERGED" | jq -r '.VLLM_ARGS // ""')
+        echo -n "$VLLM_ARGS" > $(results.vllm-args.path)
+
+        # Deployment mode
+        DEPLOYMENT_MODE=$(echo "$MERGED" | jq -r '.DEPLOYMENT_MODE // "inference-scheduling"')
+        echo -n "$DEPLOYMENT_MODE" > $(results.deployment-mode.path)
+
+        # GuideLLM benchmark parameters
+        echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_PROCESSOR // ""')" > $(results.guidellm-processor.path)
+        echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_BACKEND_TYPE // ""')" > $(results.guidellm-backend-type.path)
+        echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_RATE_TYPE // ""')" > $(results.guidellm-rate-type.path)
+        echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_RATE // ""')" > $(results.guidellm-rate.path)
+        echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_DATA // ""')" > $(results.guidellm-data.path)
+        echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_MAX_SECONDS // ""')" > $(results.guidellm-max-seconds.path)
+        echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_MAX_REQUESTS // ""')" > $(results.guidellm-max-requests.path)
+
+        # Replica parameters
+        echo -n "$(echo "$MERGED" | jq -r '.REPLICAS // "1"')" > $(results.replicas.path)
+        echo -n "$(echo "$MERGED" | jq -r '.PREFILL_REPLICAS // "N/A"')" > $(results.prefill-replicas.path)
+        echo -n "$(echo "$MERGED" | jq -r '.DECODE_REPLICAS // "N/A"')" > $(results.decode-replicas.path)
+
+        # Compute TARGET_URL
+        if [ -n "$(params.TARGET)" ]; then
+          echo "Using provided TARGET: $(params.TARGET)"
+          echo -n "$(params.TARGET)" > $(results.target-url.path)
+        else
+          # Get deployment type from merged config
+          DEPLOYMENT_TYPE=$(echo "$MERGED" | jq -r '.DEPLOYMENT_TYPE // ""')
+          NAMESPACE="$(params.NAMESPACE)"
+
+          case "$DEPLOYMENT_TYPE" in
+            rhoai)
+              # RHOAI: Service name based on sanitized MODEL_NAME
+              MODEL_NAME="$(params.MODEL_NAME)"
+              DEPLOYMENT_NAME=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-42)
+              TARGET_URL="http://${DEPLOYMENT_NAME}.${NAMESPACE}.svc.cluster.local:80"
+              echo "Computed TARGET_URL for RHOAI: $TARGET_URL"
+              ;;
+
+            rhaiis)
+              # RHAIIS: Direct service based on MODEL_NAME
+              MODEL_NAME="$(params.MODEL_NAME)"
+              DEPLOYMENT_NAME=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | cut -c1-63)
+              TARGET_URL="http://${DEPLOYMENT_NAME}.${NAMESPACE}.svc.cluster.local:8000"
+              echo "Computed TARGET_URL for RHAIIS: $TARGET_URL"
+              ;;
+
+            llm-d|*)
+              # llm-d: Use GATEWAY_PROVIDER and RELEASE_NAME
+              GATEWAY_PROVIDER="$(params.GATEWAY_PROVIDER)"
+              RELEASE_NAME="$(params.RELEASE_NAME)"
+
+              case "$GATEWAY_PROVIDER" in
+                istio)
+                  TARGET_URL="http://infra-${RELEASE_NAME}-inference-gateway-istio.${NAMESPACE}.svc.cluster.local:80"
+                  ;;
+                kgateway)
+                  TARGET_URL="http://infra-${RELEASE_NAME}-inference-gateway.${NAMESPACE}.svc.cluster.local:80"
+                  ;;
+                standalone)
+                  TARGET_URL="http://ms-${RELEASE_NAME}.${NAMESPACE}.svc.cluster.local:8000"
+                  ;;
+                gke)
+                  TARGET_URL="http://infra-${RELEASE_NAME}-inference-gateway.${NAMESPACE}.svc.cluster.local:80"
+                  ;;
+                *)
+                  echo "ERROR: Unknown GATEWAY_PROVIDER: $GATEWAY_PROVIDER"
+                  exit 1
+                  ;;
+              esac
+              echo "Computed TARGET_URL for llm-d ($GATEWAY_PROVIDER): $TARGET_URL"
+              ;;
+          esac
+
+          echo -n "$TARGET_URL" > $(results.target-url.path)
+        fi
+
+        echo "✓ Configuration merge completed successfully"

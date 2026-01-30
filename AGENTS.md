@@ -1,98 +1,176 @@
 # llm-d-bench Agent Instructions
 
-When working on this codebase, follow these architectural patterns and coding standards. This repository implements a Tekton-based CI/CD framework for LLM inference benchmarking.
+Engineering guidelines for llm-d-bench, a Tekton-based LLM inference benchmarking framework.
 
 ---
 
-## Architecture Requirements
+## Core Architecture
 
-### Follow the Three-Tier Design
-
-Always structure your changes according to this hierarchy:
+### Three-Tier Design
 
 ```
-PipelineRuns (Concrete Instances)
-    ↓ (parameters)
-Pipelines (Orchestration)
-    ↓ (task invocation + dependencies)
-Tasks (Atomic Operations)
-    ↓ (container execution)
-Results
+PipelineRuns (instances) → Pipelines (orchestration) → Tasks (atomic operations)
 ```
 
-- **Tasks**: Create atomic operations (download, deploy, benchmark, cleanup)
-- **Pipelines**: Orchestrate task dependencies and conditional execution
-- **PipelineRuns**: Define concrete execution instances with specific parameters
+- **Tasks**: Atomic operations with sensible defaults
+- **Pipelines**: Orchestrate task dependencies with `runAfter` and `when` clauses
+- **PipelineRuns**: Concrete instances, minimal parameters only
 
-Ensure parameters flow correctly: PipelineRun → Pipeline → Task. Use PVCs or emptyDir for workspace storage.
+### Deployment Mode Isolation
 
-### Respect Deployment Mode Isolation
+Three modes with mode-specific deploy/cleanup tasks:
 
-Three deployment modes exist, each with mode-specific deploy/cleanup tasks:
+- **llm-d**: Helmfile-based GitOps (`tasks/deployment/llm-d/`)
+- **RHOAI**: KServe distributed inference (`tasks/deployment/rhoai/`)
+- **RHAIIS**: Pod-based vLLM (`tasks/deployment/rhaiis/`)
 
-- **RHOAI**: KServe LLMInferenceService (distributed inference)
-- **llm-d**: Helmfile-based GitOps deployment
-- **RHAIIS**: Pod-based vLLM deployment
+**Rule**: Share common tasks (`tasks/deployment/common/`), isolate mode-specific logic.
 
-**Rule**: Place mode-specific tasks in `tasks/deployment/{mode}/`. Share common tasks (download-model, wait-for-endpoint) across all modes in `tasks/deployment/common/`.
+### Benchmark Tool Isolation
 
-### Respect Benchmark Tool Isolation
+- **GuideLLM**: Load testing (`tasks/benchmark/guidellm/`)
+- **MLPerf**: Industry benchmarks (`tasks/benchmark/mlperf/`)
 
-Two benchmark tools are supported:
+**Rule**: Prefix tool parameters (`GUIDELLM_*`, `MLPERF_*`).
 
-- **GuideLLM**: Load testing, detailed metrics (default)
-- **MLPerf**: Standardized industry benchmarks
-
-**Rule**: Place tool-specific tasks in `tasks/benchmark/{tool}/`. Prefix all tool-specific parameters with the tool name (GUIDELLM_*, MLPERF_*) to prevent conflicts.
-
-### Follow Directory Structure
-
-Organize code according to this structure:
+### Directory Structure
 
 ```
+config/
+  cluster/          # Infrastructure (RBAC, secrets, PVCs)
+  profiles/         # Workload configs (vLLM, deployment, benchmark)
 tasks/
-  benchmark/{tool}/          - Tool-specific benchmark tasks
-  deployment/common/         - Shared deployment tasks
-  deployment/{mode}/         - Mode-specific deploy/cleanup tasks
-  common/                    - Cross-cutting utilities
-
-pipelines/
-  deployment/{mode}/         - End-to-end pipelines by mode
-  benchmark/{tool}/          - Standalone benchmark pipelines
-
-pipelineruns/
-  {mode}/                    - Mode-specific example runs
-  benchmark/{tool}/          - Standalone benchmark examples
-
-build/{tool}/                - Container images per tool
-config/rbac/                 - Service accounts, roles, bindings
-config/secrets/              - Secret templates
+  common/           # Cross-cutting utilities
+  deployment/
+    common/         # Shared deployment tasks
+    {mode}/         # Mode-specific deploy/cleanup
+  benchmark/{tool}/ # Tool-specific benchmarks
+pipelines/deployment/{mode}/  # End-to-end pipelines
+pipelineruns/{mode}/         # Mode-specific examples
 ```
+
+---
+
+## Configuration Management
+
+### Profile-Based Configuration
+
+Use ConfigMaps as single source of truth:
+
+```yaml
+# config/profiles/vllm/vllm-default.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vllm-default
+  namespace: llm-d-bench
+  annotations:
+    description: "Standard vLLM config"
+  labels:
+    config-type: vllm
+data:
+  VLLM_ARGS: |
+    --max-model-len=8192
+    --gpu-memory-utilization=0.92
+```
+
+**Profiles**: vLLM configs, deployment platforms, benchmark workloads, EPP scheduler configs.
+
+### Configuration Precedence
+
+```
+Task Defaults → ConfigMap Profiles → PipelineRun Params
+(lowest)        (middle)             (highest)
+```
+
+**Example**:
+1. Task default: `REPLICAS="1"`
+2. ConfigMap: `REPLICAS="2"` (overrides task)
+3. PipelineRun: `REPLICAS="3"` (overrides all)
+
+### Pipeline Configuration Flow
+
+**All pipelines start with merge-configs task** (Stage 0):
+
+```yaml
+tasks:
+  # Stage 0: Merge Configuration Profiles
+  - name: merge-configs
+    taskRef:
+      name: merge-configs
+    params:
+      - name: VLLM_CONFIG
+        value: $(params.VLLM_CONFIG)
+      - name: DEPLOYMENT_CONFIG
+        value: $(params.DEPLOYMENT_CONFIG)
+      - name: BENCHMARK_CONFIG
+        value: $(params.BENCHMARK_CONFIG)
+      - name: EPP_CONFIG
+        value: $(params.EPP_CONFIG)
+
+  # Stage 1: Download Model
+  - name: download-model
+    runAfter: [merge-configs]
+```
+
+**Purpose**:
+- Validates all referenced ConfigMaps exist
+- Provides early failure if profiles are misconfigured
+- Tasks read ConfigMaps directly using profile names
+
+### Minimal PipelineRuns
+
+**Production files** should only contain:
+- Required parameters (MODEL_NAME, RELEASE_NAME, TP)
+- Experiment-specific overrides (REPLICAS, BENCHMARK_ENV_VARS)
+- Profile references (VLLM_CONFIG, DEPLOYMENT_CONFIG, BENCHMARK_CONFIG)
+
+```yaml
+params:
+  - name: MODEL_NAME
+    value: "meta-llama/Llama-3.1-8B"
+  - name: VLLM_CONFIG
+    value: "vllm-default"
+  - name: DEPLOYMENT_CONFIG
+    value: "deployment-llm-d-inference-scheduling"
+  - name: BENCHMARK_CONFIG
+    value: "concurrent-1k-1k"
+  - name: RELEASE_NAME
+    value: "llama-31-8b"
+  - name: TP
+    value: "1"
+  # No defaults, no stage control, no Kueue labels
+```
+
+**Example files** (`*-example.yaml`) should:
+- Document ALL possible parameters
+- Include defaults as comments
+- Show Kueue labels as examples
+- Include stage control params
+
+**Never** include in production files:
+- Parameters with defaults (MODEL_REVISION, NAMESPACE, TARGET, etc.)
+- Stage control (SKIP_*) - defaults to all false
+- Kueue labels - only in examples
+- Unnecessary comments
 
 ---
 
 ## Task Design Rules
 
-### Always Provide Sensible Defaults
-
-Provide defaults for all optional parameters. Only omit defaults for truly required parameters (MODEL_NAME, TARGET, NAMESPACE).
+### Provide Sensible Defaults
 
 ```yaml
-# REQUIRED - no default
-- name: MODEL_NAME
-  description: HuggingFace model identifier
-  type: string
-
-# OPTIONAL - provide default
-- name: GUIDELLM_RATE
-  description: Comma-separated list of rates to test
-  type: string
-  default: "1,50,100"
+params:
+  - name: GUIDELLM_RATE
+    description: Comma-separated rates to test
+    type: string
+    default: "1,50,100"  # Always provide defaults for optional params
 ```
 
-### Always Use optional: true for Secrets
+**Only omit defaults for truly required params**: MODEL_NAME, TARGET, NAMESPACE, RELEASE_NAME.
 
-Never let tasks fail due to missing secrets. Always mark secrets as optional.
+### Secrets Always Optional
 
 ```yaml
 env:
@@ -101,41 +179,29 @@ env:
       secretKeyRef:
         name: huggingface-token
         key: HF_TOKEN
-        optional: true  # REQUIRED - prevents failure if secret missing
+        optional: true  # REQUIRED - prevents task failure
 ```
 
-### Implement Idempotency with SKIP_IF_EXISTS
-
-Make tasks re-runnable by checking if resources already exist before creating them.
-
-```yaml
-script: |
-  #!/bin/bash
-  set -e
-
-  if [ "$(params.SKIP_IF_EXISTS)" = "true" ] && [ -d "$TARGET_PATH" ]; then
-    echo "✓ Already exists - skipping"
-    exit 0
-  fi
-
-  # Proceed with creation...
-```
-
-### Always Sanitize Model Names
-
-Model names contain `/` which breaks file paths and Kubernetes resource names. Always sanitize them.
+### Idempotent Tasks
 
 ```bash
-# For file paths: replace / with -
-MODEL_DIR_NAME=$(echo "$(params.MODEL_NAME)" | sed 's/\//-/g')
+if [ "$(params.SKIP_IF_EXISTS)" = "true" ] && [ -d "$TARGET_PATH" ]; then
+  echo "✓ Already exists - skipping"
+  exit 0
+fi
+```
 
-# For K8s resource names: additionally lowercase
-DEPLOYMENT_NAME=$(echo "$(params.MODEL_NAME)" | sed 's/\//-/g' | tr '[:upper:]' '[:lower:]')
+### Sanitize Model Names
+
+```bash
+# File paths: replace / with -
+MODEL_DIR=$(echo "$(params.MODEL_NAME)" | sed 's/\//-/g')
+
+# K8s resources: lowercase and replace /
+K8S_NAME=$(echo "$(params.MODEL_NAME)" | sed 's/\//-/g' | tr '[:upper:]' '[:lower:]')
 ```
 
 ### Avoid GPU Nodes for Non-Inference Tasks
-
-Conserve GPU resources by preventing benchmark/utility tasks from scheduling on GPU nodes.
 
 ```yaml
 affinity:
@@ -147,9 +213,7 @@ affinity:
               operator: DoesNotExist
 ```
 
-### Use Array Parameters for Lists
-
-Use array parameters for MLFLOW_TAGS, VLLM_ARGS, BENCHMARK_ENV_VARS. Expand with `[*]` syntax.
+### Use Array Parameters
 
 ```yaml
 params:
@@ -157,801 +221,290 @@ params:
     type: array
     default: []
 
-# In task invocation - expand array
+# Expand in task invocation
 params:
   - name: MLFLOW_TAGS
     value: $(params.MLFLOW_TAGS[*])
-
-# In script - iterate over array
-for tag in "${TAGS_ARRAY[@]}"; do
-  echo "Tag: $tag"
-done
 ```
 
 ---
 
 ## Pipeline Design Rules
 
-### Use runAfter for Sequential Execution
-
-Create task dependencies with `runAfter`.
+### Sequential Execution
 
 ```yaml
 - name: deploy-model
-  runAfter:
-    - download-model  # Wait for download to complete
+  runAfter: [download-model]
   taskRef:
-    name: deploy-rhoai-model
+    name: deploy-llm-d-helmfile
 ```
 
-### Use when Clauses for Conditional Execution
-
-Control workflow dynamically with `when` clauses.
+### Conditional Execution
 
 ```yaml
-- name: run-guidellm-benchmark
+- name: run-benchmark
   when:
     - input: "$(params.SKIP_BENCHMARK)"
       operator: in
       values: ["false"]
-    - input: "$(tasks.detect-benchmark-type.results.BENCHMARK_TYPE)"
-      operator: in
-      values: ["guidellm"]
   taskRef:
     name: run-guidellm-benchmark
 ```
 
-### Propagate Parameters Through All Three Levels
+### Parameter Propagation
 
-Parameters must flow through: PipelineRun → Pipeline → Task. Never skip a level.
+Always propagate through all three levels:
 
 ```yaml
-# Pipeline: accept parameter
+# Pipeline: accept
 params:
   - name: GUIDELLM_RATE
-    default: ""
+    default: "1,50,100"
 
 # Pipeline: pass to task
 tasks:
-  - name: run-guidellm-benchmark
+  - name: benchmark
     params:
       - name: GUIDELLM_RATE
-        value: $(params.GUIDELLM_RATE)  # REQUIRED
+        value: $(params.GUIDELLM_RATE)
 
-# PipelineRun: provide value
+# PipelineRun: optionally override
 params:
   - name: GUIDELLM_RATE
     value: "1"
 ```
 
-### Match Workspace Names Consistently
-
-Use consistent naming for workspace bindings between pipeline and task.
+### Workspace Binding
 
 ```yaml
-# Pipeline workspace definition
+# Pipeline
 workspaces:
   - name: models-storage
 
-# Task workspace binding
+# Task binding
 tasks:
-  - name: download-model
+  - name: download
     workspaces:
-      - name: models-storage      # Task's workspace name
-        workspace: models-storage  # Pipeline's workspace name
-```
-
-### Always Provide Stage Control Parameters
-
-Allow users to skip stages with SKIP_* parameters.
-
-```yaml
-params:
-  - name: SKIP_DOWNLOAD
-    type: string
-    default: "false"
-  - name: SKIP_DEPLOY
-    type: string
-    default: "false"
-  - name: SKIP_BENCHMARK
-    type: string
-    default: "false"
-  - name: SKIP_CLEANUP
-    type: string
-    default: "false"
+      - name: models-storage
+        workspace: models-storage
 ```
 
 ---
 
 ## PipelineRun Design Rules
 
-### Use generateName, Not name
-
-Allow multiple runs of the same pipeline with unique identifiers.
+### Use generateName
 
 ```yaml
 metadata:
-  generateName: qwen-qwen3-06b-example-  # GOOD
-  # name: qwen-qwen3-06b-example         # BAD - prevents multiple runs
+  generateName: experiment-name-  # Allows multiple runs
 ```
 
-### Bind Service Accounts via taskRunTemplate
-
-Configure RBAC permissions at the PipelineRun level.
+### Service Account Binding
 
 ```yaml
-spec:
-  taskRunTemplate:
-    serviceAccountName: deploy-model-sa
+taskRunTemplate:
+  serviceAccountName: deploy-model-sa
 ```
 
-### Choose Appropriate Workspace Types
-
-Use PVC for persistent data, emptyDir for ephemeral data.
+### Workspace Types
 
 ```yaml
 workspaces:
   - name: models-storage
     persistentVolumeClaim:
-      claimName: models-storage  # Persistent - survives pipeline
+      claimName: models-storage  # Persistent
 
   - name: results
-    emptyDir: {}  # Ephemeral - cleaned up after pipeline
+    emptyDir: {}  # Ephemeral
 ```
 
-### Set TTL for Automatic Cleanup
-
-Clean up completed PipelineRuns automatically.
+### TTL Cleanup
 
 ```yaml
 spec:
   ttlSecondsAfterFinished: 3600  # Delete after 1 hour
 ```
 
-### Document Parameter Defaults Inline
-
-Add comments showing default values for clarity.
-
-```yaml
-params:
-  - name: GUIDELLM_RATE
-    value: "1"  # DEFAULT: "1,50,100"
-  - name: ACCELERATOR
-    value: "H200"  # DEFAULT: "" (empty)
-```
-
 ---
 
-## Naming Conventions (Mandatory)
-
-Follow these naming conventions strictly:
+## Naming Conventions
 
 | Element | Convention | Examples |
 |---------|-----------|----------|
-| **Files** | kebab-case | run-benchmark.yaml, deploy-model.yaml |
-| **Parameters** | SCREAMING_SNAKE_CASE | MODEL_NAME, GUIDELLM_RATE |
-| **Resources (metadata.name)** | kebab-case | run-guidellm-benchmark |
-| **Tool Prefixes** | {TOOL}_ | GUIDELLM_*, MLPERF_* |
-
-### Tool Prefixing is Mandatory
-
-Prevent parameter conflicts by prefixing tool-specific parameters.
-
-```yaml
-# Tool-specific parameters
-GUIDELLM_RATE
-GUIDELLM_DATA
-MLPERF_SCENARIO
-MLPERF_BATCH_SIZE
-
-# Common parameters (no prefix)
-MODEL_NAME
-TARGET
-NAMESPACE
-MLFLOW_ENABLED
-```
-
-### Parameter Categories Reference
-
-| Category | Examples | Usage |
-|----------|----------|-------|
-| **Common** | MODEL_NAME, TARGET, NAMESPACE, MLFLOW_ENABLED | All tools and modes |
-| **GuideLLM** | GUIDELLM_RATE, GUIDELLM_DATA, GUIDELLM_MAX_SECONDS | GuideLLM only |
-| **MLPerf** | MLPERF_SCENARIO, MLPERF_DATASET_NAME, MLPERF_BATCH_SIZE | MLPerf only |
-| **Deployment** | VLLM_ARGS, REPLICAS, ENABLE_AUTH | Deployment config |
-| **Stage Control** | SKIP_DOWNLOAD, SKIP_DEPLOY, SKIP_BENCHMARK | Workflow control |
+| Files | kebab-case | run-benchmark.yaml |
+| Parameters | SCREAMING_SNAKE_CASE | MODEL_NAME, GUIDELLM_RATE |
+| Resources | kebab-case | run-guidellm-benchmark |
+| Tool Prefixes | {TOOL}_ | GUIDELLM_*, MLPERF_* |
 
 ---
 
-## Secret Management Rules
+## Required Practices
 
-### Never Hardcode Secrets
+### ✅ Always Do
 
-Always use Kubernetes secrets. Never hardcode tokens, passwords, or URLs.
+- Provide defaults for optional parameters
+- Use `optional: true` for all secrets
+- Sanitize model names before using in paths/K8s resources
+- Propagate parameters through all three tiers
+- Use tool prefixes (GUIDELLM_*, MLPERF_*)
+- Document parameters with descriptions
+- Use profile ConfigMaps for reusable configs
+- Keep production PipelineRuns minimal
+- Avoid GPU nodes for non-inference tasks
 
-```yaml
-# BAD - hardcoded
-env:
-  - name: HF_TOKEN
-    value: "hf_abc123..."
+### ❌ Never Do
 
-# GOOD - from secret
-env:
-  - name: HF_TOKEN
-    valueFrom:
-      secretKeyRef:
-        name: huggingface-token
-        key: HF_TOKEN
-        optional: true
-```
-
-### Required Secrets
-
-- `huggingface-token` (key: `HF_TOKEN`) - For model downloads
-
-### Optional Secrets
-
-- `mlflow-ui-auth` (keys: `username`, `password`, `tracking-uri`) - For MLflow tracking
-- `mlflow-s3-secret` (keys: `access-key`, `secret-key`, `bucket-name`, `region`) - For S3 storage
-
-### Volume Mount Pattern
-
-For file-based secrets, mount as read-only volumes.
-
-```yaml
-volumeMounts:
-  - name: credentials
-    mountPath: /secrets
-    readOnly: true
-
-volumes:
-  - name: credentials
-    secret:
-      secretName: api-credentials
-      optional: true
-```
-
----
-
-## Parameter Design Requirements
-
-### Always Include Comprehensive Descriptions
-
-Every parameter must have a clear, detailed description.
-
-```yaml
-params:
-  - name: PARAMETER_NAME          # SCREAMING_SNAKE_CASE
-    description: >-                # Multi-line descriptions allowed
-      What this parameter does.
-      Include tool association if tool-specific.
-      Document optional behavior.
-    type: string                   # or array
-    default: "sensible-value"      # Provide when possible
-```
-
-### Parameter Types
-
-- Use `string` for single values
-- Use `array` for lists (expand with `[*]`)
-
-### Description Guidelines
-
-- Be specific and comprehensive
-- Mention tool association for tool-specific params
-- Document optional behavior (e.g., "optional - empty disables feature")
-- Include examples for complex cases
+- Hardcode secrets, URLs, or tokens
+- Duplicate logic across modes (use common tasks)
+- Create bash scripts instead of Tekton tasks
+- Mix deployment logic in common tasks
+- Skip parameter defaults for optional params
+- Forget model name sanitization
+- Break naming conventions
+- Include verbose docs in README (use docs/)
+- Include default params in production PipelineRuns
+- Add Kueue labels or stage control to production files
 
 ---
 
 ## Bash Script Standards
 
-### Always Use set -e
-
-Fail fast on errors.
-
 ```bash
 #!/bin/bash
-set -e  # REQUIRED - fail on first error
-```
+set -e  # Fail on errors
 
-### Echo Progress for Debugging
-
-Provide clear progress messages.
-
-```bash
-echo "Starting operation..."
-echo "Parameter value: $(params.PARAM_NAME)"
-echo "✓ Operation complete"
-```
-
-### Validate Inputs Early
-
-Check required parameters before operations.
-
-```bash
+# Validate inputs
 if [ -z "$(params.REQUIRED_PARAM)" ]; then
   echo "ERROR: REQUIRED_PARAM is empty"
   exit 1
 fi
-```
 
-### Use Tekton Parameter Syntax
+# Echo progress
+echo "Starting operation..."
+echo "Using model: $(params.MODEL_NAME)"
 
-```bash
+# Use Tekton syntax
 MODEL_NAME="$(params.MODEL_NAME)"
 WORKSPACE_PATH="$(workspaces.storage.path)"
 
-# Array expansion
-for item in $(params.ARRAY_PARAM[*]); do
-  echo "Processing: $item"
+# Array iteration
+for tag in $(params.MLFLOW_TAGS[*]); do
+  echo "Tag: $tag"
 done
+
+echo "✓ Complete"
 ```
-
----
-
-## Prohibited Practices
-
-### ❌ Never Hardcode Values
-
-```yaml
-# BAD
-env:
-  - name: MLFLOW_TRACKING_URI
-    value: "https://mlflow.example.com"  # Hardcoded!
-
-# GOOD
-env:
-  - name: MLFLOW_TRACKING_URI
-    valueFrom:
-      secretKeyRef:
-        name: mlflow-ui-auth
-        key: tracking-uri
-        optional: true
-```
-
-### ❌ Never Duplicate Logic
-
-```yaml
-# BAD - multiple copies of same task
-tasks/deployment/rhoai/download-model.yaml
-tasks/deployment/llm-d/download-model.yaml
-
-# GOOD - single common task
-tasks/deployment/common/download-model.yaml
-```
-
-### ❌ Never Create Bash Scripts Instead of Tasks
-
-```bash
-# BAD
-scripts/deploy-model.sh
-scripts/run-benchmark.sh
-
-# GOOD
-tasks/deployment/{mode}/deploy-model.yaml
-tasks/benchmark/{tool}/run-benchmark.yaml
-```
-
-### ❌ Never Mix Advanced Docs in README
-
-Keep README simple. Put advanced documentation in `docs/`.
-
-```markdown
-# BAD: README.md with advanced topics
-1. Installation
-2. Quickstart
-3. Advanced Deployment Options     ← Move to docs/
-4. Custom Pipeline Development      ← Move to docs/
-
-# GOOD: README.md
-1. Installation
-2. Quickstart
-3. Documentation → See docs/
-```
-
-### ❌ Never Create Parameters Without Tool Prefixes
-
-```yaml
-# BAD - ambiguous
-params:
-  - name: RATE          # Which tool?
-  - name: DURATION      # Which tool?
-
-# GOOD - clear ownership
-params:
-  - name: GUIDELLM_RATE
-  - name: MLPERF_SERVER_TARGET_QPS
-```
-
-### ❌ Never Leave Parameters Undocumented
-
-```yaml
-# BAD
-params:
-  - name: GUIDELLM_RATE
-    type: string
-    default: "1,50,100"
-    # No description!
-
-# GOOD
-params:
-  - name: GUIDELLM_RATE
-    description: Comma-separated list of rates to test (GuideLLM only)
-    type: string
-    default: "1,50,100"
-```
-
-### ❌ Never Omit Defaults for Optional Parameters
-
-```yaml
-# BAD
-params:
-  - name: GUIDELLM_PROCESSOR
-    description: Tokenizer model name (optional)
-    type: string
-    # No default - will fail!
-
-# GOOD
-params:
-  - name: GUIDELLM_PROCESSOR
-    description: Tokenizer model name (optional)
-    type: string
-    default: ""  # Empty = optional
-```
-
-### ❌ Never Forget Model Name Sanitization
-
-```bash
-# BAD
-MODEL_PATH="/models/$(params.MODEL_NAME)"
-# Result: /models/meta-llama/Llama-3.1-8B (breaks!)
-
-# GOOD
-MODEL_DIR_NAME=$(echo "$(params.MODEL_NAME)" | sed 's/\//-/g')
-MODEL_PATH="/models/${MODEL_DIR_NAME}"
-# Result: /models/meta-llama-Llama-3.1-8B
-```
-
-### ❌ Never Skip Parameter Propagation Levels
-
-```yaml
-# BAD - parameter not passed to task
-tasks:
-  - name: run-guidellm-benchmark
-    params:
-      - name: TARGET
-        value: $(params.TARGET)
-      # GUIDELLM_RATE missing!
-
-# GOOD - all parameters propagated
-tasks:
-  - name: run-guidellm-benchmark
-    params:
-      - name: TARGET
-        value: $(params.TARGET)
-      - name: GUIDELLM_RATE
-        value: $(params.GUIDELLM_RATE)
-```
-
-### ❌ Never Mix Deployment Logic in Common Tasks
-
-```yaml
-# BAD - mode logic in common task
-script: |
-  if [ "$MODE" = "rhoai" ]; then
-    # RHOAI logic
-  elif [ "$MODE" = "llm-d" ]; then
-    # llm-d logic
-  fi
-
-# GOOD - separate mode-specific tasks
-tasks/deployment/rhoai/deploy-model.yaml
-tasks/deployment/llm-d/deploy-model.yaml
-```
-
-### ❌ Never Break Naming Conventions
-
-```yaml
-# BAD - mixed conventions
-params:
-  - name: modelName        # camelCase
-  - name: guidellm_rate    # snake_case
-  - name: MLPERF-SCENARIO  # kebab-case
-
-# GOOD - consistent SCREAMING_SNAKE_CASE
-params:
-  - name: MODEL_NAME
-  - name: GUIDELLM_RATE
-  - name: MLPERF_SCENARIO
-```
-
-### ❌ Never Ignore GPU Resource Allocation
-
-```yaml
-# BAD - no affinity (may schedule on GPU node)
-# ...task definition...
-
-# GOOD - avoid GPU nodes for non-inference tasks
-affinity:
-  nodeAffinity:
-    requiredDuringSchedulingIgnoredDuringExecution:
-      nodeSelectorTerms:
-        - matchExpressions:
-            - key: nvidia.com/gpu
-              operator: DoesNotExist
-```
-
----
-
-## Testing Requirements
-
-### Pre-Submission Checklist
-
-Before submitting any changes, verify:
-
-- [ ] YAML syntax is valid: `oc apply --dry-run=client -f <file>`
-- [ ] Parameters have appropriate defaults (required params: none; optional params: sensible defaults)
-- [ ] PipelineRun examples are updated with inline DEFAULT comments
-- [ ] Documentation updated in `docs/ADVANCED.md` (not README.md)
-- [ ] Naming conventions followed (files: kebab-case, params: SCREAMING_SNAKE_CASE)
-- [ ] No hardcoded values (URLs, tokens, secrets)
-- [ ] All secrets use `optional: true`
-- [ ] Tool prefixes used correctly (GUIDELLM_*, MLPERF_*)
-
-### Testing Workflow
-
-1. Validate YAML: `oc apply --dry-run=client -f <file>`
-2. Create/update PipelineRun example in `pipelineruns/{mode}/`
-3. Test parameter propagation (PipelineRun → Pipeline → Task)
-4. Execute pipeline: `oc create -f pipelineruns/{mode}/test-run.yaml`
-5. Verify completion: `oc get pipelinerun -w`
-6. Test parameter defaults by removing optional params from PipelineRun
 
 ---
 
 ## Extension Patterns
 
-### When Adding a New Benchmark Tool
+### Adding a Benchmark Tool
 
-1. Create container image in `build/{tool}/`
-2. Create task in `tasks/benchmark/{tool}/run-benchmark.yaml`
-3. Use prefixed parameters: `{TOOL}_RATE`, `{TOOL}_DURATION`, etc.
-4. Create standalone pipeline in `pipelines/benchmark/{tool}/`
-5. Create example PipelineRuns in `pipelineruns/benchmark/{tool}/`
-6. Support MLflow integration with MLFLOW_ENABLED parameter
-7. Update `tasks/common/detect-benchmark-type.yaml` if needed
-8. Run `scripts/install.sh` (auto-discovers new resources)
+1. Create image: `build/{tool}/`
+2. Create task: `tasks/benchmark/{tool}/run-benchmark.yaml`
+3. Use prefixed parameters: `{TOOL}_RATE`, `{TOOL}_DATA`
+4. Create pipeline: `pipelines/benchmark/{tool}/`
+5. Create examples: `pipelineruns/benchmark/{tool}/`
+6. Support MLflow with `MLFLOW_ENABLED` parameter
+7. Run `./scripts/install.sh` (auto-discovers resources)
 
-**Key Requirements**:
-- Use SCREAMING_SNAKE_CASE with tool prefixes
-- Support both MLflow and PVC storage modes
-- Provide sensible defaults for all parameters
-- Use `optional: true` for all secrets
+### Adding a Deployment Mode
 
-### When Adding a New Deployment Mode
-
-1. Create mode-specific deploy task in `tasks/deployment/{mode}/deploy-model.yaml`
-2. Create mode-specific cleanup task in `tasks/deployment/{mode}/cleanup-deployment.yaml`
-3. Create end-to-end pipeline in `pipelines/deployment/{mode}/e2e-benchmark.yaml`
+1. Create deploy task: `tasks/deployment/{mode}/deploy-model.yaml`
+2. Create cleanup task: `tasks/deployment/{mode}/cleanup-deployment.yaml`
+3. Create pipeline: `pipelines/deployment/{mode}/e2e-benchmark.yaml`
 4. Reuse common tasks (download-model, wait-for-endpoint)
-5. Create example PipelineRuns in `pipelineruns/{mode}/`
-6. Update RBAC in `config/rbac/` if new K8s resources required
-7. Update `docs/ADVANCED.md`
+5. Create examples: `pipelineruns/{mode}/`
+6. Update RBAC if needed: `config/cluster/rbac/`
 
-**Key Requirements**:
-- Reuse common tasks (never duplicate)
-- Only create mode-specific deploy/cleanup tasks
-- Maintain parameter compatibility with other modes
-- Support all benchmark tools via conditional execution
-- Use consistent naming: `{mode}-end-to-end-benchmark`
+### Adding a Profile
 
-### When Adding Custom Tasks
-
-Follow this decision tree:
-
-```
-Is it used by multiple pipelines?
-├─ Yes: Is it deployment-mode-agnostic?
-│  ├─ Yes: Is it used across deployment contexts?
-│  │  ├─ Yes → tasks/common/
-│  │  └─ No → tasks/deployment/common/
-│  └─ No: Is it mode-specific?
-│     ├─ Yes → tasks/deployment/{mode}/
-│     └─ No → tasks/benchmark/{tool}/
-└─ No: Is it tool-specific?
-   ├─ Yes → tasks/benchmark/{tool}/
-   └─ No → tasks/deployment/{mode}/
-```
-
-**Examples**:
-- `tasks/common/` - Cross-cutting utilities (detect-benchmark-type)
-- `tasks/deployment/common/` - Shared deployment tasks (download-model, wait-for-endpoint)
-- `tasks/deployment/{mode}/` - Mode-specific (deploy-rhoai-model, cleanup-llm-d-deployment)
-- `tasks/benchmark/{tool}/` - Tool-specific (run-guidellm-benchmark, run-mlperf-benchmark)
+1. Create ConfigMap: `config/profiles/{category}/{name}.yaml`
+2. Add to kustomization: `config/profiles/{category}/kustomization.yaml`
+3. Document in `docs/PROFILES.md`
+4. Apply: `oc apply -k config/profiles/`
 
 ---
 
 ## Quick Reference
 
-### Common Parameters (All Tools/Modes)
+### Common Parameters
 
 ```yaml
-MODEL_NAME               # HuggingFace model identifier (required)
-TARGET                   # Inference endpoint URL (required)
-NAMESPACE                # Kubernetes namespace (required)
-MLFLOW_ENABLED           # Enable MLflow tracking (default: "false")
-MLFLOW_EXPERIMENT_NAME   # MLflow experiment name (default varies by tool)
-MLFLOW_TAGS              # Additional tags array (default: [])
-VERSION                  # Version identifier (default: "")
-TP                       # Tensor parallelism size (default: "1")
-BENCHMARK_ENV_VARS       # Additional env vars array (default: [])
-ACCELERATOR              # Accelerator type tag (default: "")
+MODEL_NAME       # HuggingFace model ID (required)
+TARGET           # Inference endpoint (required)
+RELEASE_NAME     # Deployment identifier (required)
+TP               # Tensor parallelism (default: "1")
+REPLICAS         # Worker replicas (default: "1")
+MLFLOW_ENABLED   # Enable tracking (default: "false")
 ```
 
-### GuideLLM Parameters (GUIDELLM_* prefix)
+### Profile Parameters
 
 ```yaml
-GUIDELLM_RATE              # Rates to test (default: "1,50,100")
-GUIDELLM_DATA              # Request data profile (default: "prompt_tokens=1000,output_tokens=1000")
-GUIDELLM_MAX_SECONDS       # Max duration per rate (default: "600")
-GUIDELLM_PROCESSOR         # Tokenizer model name (default: "")
-GUIDELLM_BACKEND_TYPE      # Backend type (default: "openai_http")
-GUIDELLM_RATE_TYPE         # Rate strategy (default: "concurrent")
-GUIDELLM_MAX_REQUESTS      # Max requests per rate (default: "")
+VLLM_CONFIG         # vllm-default, vllm-fp8-cache, vllm-experts-parallel
+DEPLOYMENT_CONFIG   # deployment-llm-d-inference-scheduling, deployment-rhoai-kserve, deployment-rhaiis-vllm-pod
+BENCHMARK_CONFIG    # concurrent-1k-1k, concurrent-8k-1k
+EPP_CONFIG          # scheduler-precise-prefix-cache, scheduler-cache-aware, scheduler-pd-disaggregation (llm-d only)
 ```
 
-### MLPerf Parameters (MLPERF_* prefix)
+### GuideLLM Parameters
 
 ```yaml
-MLPERF_DATASET_NAME        # Dataset filename (default: "")
-MLPERF_SCENARIO            # Scenario type (default: "")
-MLPERF_TEST_MODE           # Test mode: accuracy/performance (default: "")
-MLPERF_BATCH_SIZE          # Batch size (default: "")
-MLPERF_NUM_SAMPLES         # Number of samples (default: "")
-MLPERF_OUTPUT_DIR          # Output directory (default: "")
-MLPERF_SERVER_TARGET_QPS   # Target QPS for Server scenario (default: "")
+GUIDELLM_RATE           # default: "1,50,100"
+GUIDELLM_DATA           # default: "prompt_tokens=1000,output_tokens=1000"
+GUIDELLM_MAX_SECONDS    # default: "600"
+GUIDELLM_BACKEND_TYPE   # default: "openai_http"
 ```
 
-### Stage Control Parameters
+### Stage Control
 
 ```yaml
-SKIP_DOWNLOAD       # Skip model download (default: "false")
-SKIP_DEPLOY         # Skip deployment (default: "false")
-SKIP_BENCHMARK      # Skip benchmark (default: "false")
-SKIP_CLEANUP        # Skip cleanup (default: "false")
-SKIP_IF_EXISTS      # Task-level idempotency (default: "true")
+SKIP_DOWNLOAD    # default: "false"
+SKIP_DEPLOY      # default: "false"
+SKIP_BENCHMARK   # default: "false"
+SKIP_CLEANUP     # default: "false"
 ```
-
-### Task Locations
-
-**Common Tasks**:
-- `download-model` → `tasks/deployment/common/`
-- `wait-for-endpoint` → `tasks/deployment/common/`
-- `detect-benchmark-type` → `tasks/common/`
-
-**Deploy Tasks**:
-- `deploy-rhoai-model`, `deploy-llm-d-helmfile`, `deploy-rhaiis-pod`
-
-**Cleanup Tasks**:
-- `cleanup-rhoai-deployment`, `cleanup-llm-d-deployment`, `cleanup-rhaiis-deployment`
-
-**Benchmark Tasks**:
-- `run-guidellm-benchmark` → `tasks/benchmark/guidellm/`
-- `run-mlperf-benchmark` → `tasks/benchmark/mlperf/`
-
-### Pipeline Locations
-
-**Deployment Pipelines (End-to-End)**:
-- `rhoai-end-to-end-benchmark` → `pipelines/deployment/rhoai/`
-- `llm-d-end-to-end-benchmark` → `pipelines/deployment/llm-d/`
-- `rhaiis-end-to-end-benchmark` → `pipelines/deployment/rhaiis/`
-
-**Benchmark Pipelines (Standalone)**:
-- `guidellm-run-benchmark-pipeline` → `pipelines/benchmark/guidellm/`
-- `mlperf-run-benchmark-pipeline` → `pipelines/benchmark/mlperf/`
 
 ---
 
-## Troubleshooting Actions
+## Troubleshooting
 
-### When Parameters Don't Reach Tasks
-
-Check propagation at all three levels:
-
+### Parameters not reaching tasks
 ```bash
-oc get pipelinerun <name> -o yaml | grep PARAMETER_NAME
-cat pipelines/.../pipeline.yaml | grep PARAMETER_NAME
-cat tasks/.../task.yaml | grep PARAMETER_NAME
+oc get pipelinerun <name> -o yaml | grep PARAM_NAME
+# Check all three levels: PipelineRun → Pipeline → Task
 ```
 
-Ensure: PipelineRun → Pipeline → Task all reference the parameter.
-
-### When Array Parameters Don't Expand
-
-Use `[*]` syntax:
-
+### Array parameters not expanding
 ```yaml
+# Use [*] syntax
 params:
-  - name: MLFLOW_TAGS
-    value: $(params.MLFLOW_TAGS[*])  # Expand array
+  - name: TAGS
+    value: $(params.TAGS[*])
 ```
 
-### When Secrets Are Missing
-
-Always use `optional: true`:
-
+### Secrets missing
 ```yaml
-env:
-  - name: HF_TOKEN
-    valueFrom:
-      secretKeyRef:
-        name: huggingface-token
-        key: HF_TOKEN
-        optional: true
+# Always use optional: true
+optional: true
 ```
 
-### When Workspaces Aren't Bound
-
-Verify PipelineRun workspace section matches Pipeline and Task:
-
-```yaml
-workspaces:
-  - name: models-storage
-    persistentVolumeClaim:
-      claimName: models-storage
-```
-
-### When Tasks Aren't Found
-
-Verify installation:
-
+### Tasks not found
 ```bash
 oc get task | grep <task-name>
-oc apply -f tasks/.../task.yaml  # If missing
-```
-
-### When MLflow Isn't Logging
-
-1. Verify MLFLOW_ENABLED=true
-2. Check secrets exist: `oc get secret mlflow-ui-auth mlflow-s3-secret`
-3. Check task logs: `oc logs <pod> -c step-run-guidellm-benchmark | grep -i mlflow`
-
-### When Models Aren't Found
-
-1. Check download-model task completed: `oc get pipelinerun <name> -o yaml`
-2. Verify model on PVC: `oc run -it --rm debug --image=busybox -- ls -la /models`
-
-### When Deployments Fail
-
-1. Check RBAC: `oc get sa deploy-model-sa`
-2. Check role bindings: `oc get rolebinding | grep deploy-model`
-3. Check task logs: `oc logs <pod> -c step-deploy-<mode>-model`
-
-### When Benchmarks Timeout
-
-Increase timeout:
-
-```yaml
-params:
-  - name: HEALTH_CHECK_TIMEOUT
-    value: "7200"  # 2 hours for large models
+oc apply -f tasks/.../task.yaml
 ```
 
 ---
 
-## Summary of Key Requirements
+## Critical Files for Reference
 
-1. **Follow three-tier architecture**: Tasks → Pipelines → PipelineRuns
-2. **Reuse common tasks**: Never duplicate logic across modes
-3. **Use parameter naming standard**: SCREAMING_SNAKE_CASE with tool prefixes (GUIDELLM_*, MLPERF_*)
-4. **Implement idempotency**: Use SKIP_IF_EXISTS pattern
-5. **Always use optional: true for secrets**: Never let missing secrets break tasks
-6. **Design for extensibility**: Support future tools and modes
-7. **Test thoroughly**: Validate YAML, test parameter flow, update docs
-
-**Critical Files for Reference**:
-- `tasks/benchmark/guidellm/run-benchmark.yaml` (task pattern exemplar)
-- `pipelines/deployment/rhoai/e2e-benchmark.yaml` (pipeline pattern exemplar)
-- `pipelineruns/rhoai/qwen-qwen3-06b-example.yaml` (pipelinerun pattern exemplar)
-- `docs/ADVANCED.md` (documentation style guide)
+- Task pattern: `tasks/benchmark/guidellm/run-benchmark.yaml`
+- Pipeline pattern: `pipelines/deployment/llm-d/e2e-benchmark.yaml`
+- PipelineRun pattern: `pipelineruns/llm-d/deepseek-ai-deepseek-r1-0528-1k-1k.yaml`
+- Example pattern: `pipelineruns/llm-d/qwen-qwen3-06b-example.yaml`
+- Profile pattern: `config/profiles/vllm/vllm-default.yaml`

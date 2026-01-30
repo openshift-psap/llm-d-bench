@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mlperf-server-cnn-eval
+  namespace: llm-d-bench
+  annotations:
+    description: "MLPerf Server scenario with CNN evaluation dataset"
+  labels:
+    config-type: benchmark
+data:
+  MLPERF_DATASET_NAME: "cnn_eval.json"
+  MLPERF_SCENARIO: "Server"
+  MLPERF_TEST_MODE: "performance"
+  MLPERF_NUM_SAMPLES: "13368"
+  MLPERF_SERVER_TARGET_QPS: "10"

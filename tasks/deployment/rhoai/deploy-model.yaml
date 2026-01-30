@@ -44,9 +44,19 @@ spec:
       default: "false"
 
     - name: REPLICAS
-      description: Number of replicas
+      description: Number of replicas (standard mode)
       type: string
       default: "1"
+
+    - name: PREFILL_REPLICAS
+      description: Number of prefill worker replicas for P/D disaggregation
+      type: string
+      default: ""
+
+    - name: DECODE_REPLICAS
+      description: Number of decode worker replicas for P/D disaggregation
+      type: string
+      default: ""
 
     - name: CACHE_DIR
       description: Base directory on PVC where models are stored
@@ -90,12 +100,23 @@ spec:
         # Full path on PVC where model is located
         MODEL_PATH="/mnt/models$(params.CACHE_DIR)/${MODEL_DIR_NAME}"
 
+        # Detect P/D disaggregation mode
+        if [ -n "$(params.PREFILL_REPLICAS)" ] && [ -n "$(params.DECODE_REPLICAS)" ]; then
+          PD_MODE="true"
+          echo "Mode: P/D Disaggregation"
+          echo "  Prefill Replicas: $(params.PREFILL_REPLICAS)"
+          echo "  Decode Replicas: $(params.DECODE_REPLICAS)"
+        else
+          PD_MODE="false"
+          echo "Mode: Standard"
+          echo "  Replicas: $(params.REPLICAS)"
+        fi
+
         echo "Configuration:"
         echo "  Model: $(params.MODEL_NAME)"
         echo "  Model URI: $MODEL_URI (entire PVC)"
         echo "  Model Path: $MODEL_PATH"
         echo "  TP (Tensor Parallel / GPU Count): $(params.TP)"
-        echo "  Replicas: $(params.REPLICAS)"
         echo ""
 
         # Format VLLM_ARGS array as YAML list from positional parameters
@@ -107,8 +128,80 @@ spec:
           fi
         done
 
-        # Generate LLMInferenceService YAML
-        cat > /tmp/llm-inference-service.yaml <<EOF
+        # Generate LLMInferenceService YAML based on mode
+        if [ "$PD_MODE" = "true" ]; then
+          # P/D Disaggregation mode
+          cat > /tmp/llm-inference-service.yaml <<EOF
+        apiVersion: serving.kserve.io/v1alpha1
+        kind: LLMInferenceService
+        metadata:
+          name: $DEPLOYMENT_NAME
+          namespace: $(params.NAMESPACE)
+          annotations:
+            security.opendatahub.io/enable-auth: "$(params.ENABLE_AUTH)"
+        spec:
+          model:
+            name: $(params.MODEL_NAME)
+            uri: ${MODEL_URI}
+          prefill:
+            replicas: $(params.PREFILL_REPLICAS)
+            template:
+              containers:
+              - name: main
+                command: ["python3", "-m", "vllm.entrypoints.openai.api_server"]
+                args:
+                  - "--port=8000"
+                  - "--host=0.0.0.0"
+                  - "--model=${MODEL_PATH}"
+                  - "--served-model-name=$(params.MODEL_NAME)"
+                  - "--tensor-parallel-size=$(params.TP)"
+                  - "--enable-ssl-refresh"
+                  - "--ssl-certfile=/var/run/kserve/tls/tls.crt"
+                  - "--ssl-keyfile=/var/run/kserve/tls/tls.key"
+        ${VLLM_ARGS_YAML}
+                resources:
+                  limits:
+                    nvidia.com/gpu: "$(params.TP)"
+                  requests:
+                    nvidia.com/gpu: "$(params.TP)"
+          replicas: $(params.DECODE_REPLICAS)
+          router:
+            route: {}
+            gateway: {}
+            scheduler: {}
+          template:
+            containers:
+            - name: main
+              command: ["python3", "-m", "vllm.entrypoints.openai.api_server"]
+              args:
+                - "--port=8000"
+                - "--host=0.0.0.0"
+                - "--model=${MODEL_PATH}"
+                - "--served-model-name=$(params.MODEL_NAME)"
+                - "--tensor-parallel-size=$(params.TP)"
+                - "--enable-ssl-refresh"
+                - "--ssl-certfile=/var/run/kserve/tls/tls.crt"
+                - "--ssl-keyfile=/var/run/kserve/tls/tls.key"
+        ${VLLM_ARGS_YAML}
+              resources:
+                limits:
+                  nvidia.com/gpu: "$(params.TP)"
+                requests:
+                  nvidia.com/gpu: "$(params.TP)"
+              livenessProbe:
+                httpGet:
+                  path: /health
+                  port: 8000
+                  scheme: HTTPS
+                initialDelaySeconds: 400
+                periodSeconds: 10
+                timeoutSeconds: 10
+                successThreshold: 1
+                failureThreshold: 3
+        EOF
+        else
+          # Standard mode
+          cat > /tmp/llm-inference-service.yaml <<EOF
         apiVersion: serving.kserve.io/v1alpha1
         kind: LLMInferenceService
         metadata:
@@ -155,6 +248,7 @@ spec:
                 successThreshold: 1
                 failureThreshold: 3
         EOF
+        fi
 
         echo "Generated LLMInferenceService manifest:"
         echo "========================================="

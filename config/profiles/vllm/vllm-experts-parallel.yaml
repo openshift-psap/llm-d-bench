@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vllm-experts-parallel
+  namespace: llm-d-bench
+  annotations:
+    description: "vLLM config for expert parallelism"
+  labels:
+    config-type: vllm
+data:
+  VLLM_ARGS: |
+    --max-model-len=8192
+    --uvicorn-log-level=debug
+    --trust-remote-code
+    --gpu-memory-utilization=0.92
+    --no-enable-prefix-caching
+    --disable-log-requests
+    --enable-expert-parallel
+    --distributed-executor-backend=mp
