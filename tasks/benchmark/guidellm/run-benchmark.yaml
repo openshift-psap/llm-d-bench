@@ -94,17 +94,17 @@ spec:
     - name: REPLICAS
       description: Number of replicas for standard deployment mode
       type: string
-      default: "N/A"
+      default: ""
 
     - name: PREFILL_REPLICAS
       description: Number of prefill worker replicas for P/D disaggregation
       type: string
-      default: "N/A"
+      default: ""
 
     - name: DECODE_REPLICAS
       description: Number of decode worker replicas for P/D disaggregation
       type: string
-      default: "N/A"
+      default: ""
 
     - name: LOG_LEVEL
       description: Logging level (DEBUG, INFO, WARNING, ERROR)

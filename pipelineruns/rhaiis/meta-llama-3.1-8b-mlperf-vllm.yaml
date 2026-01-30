@@ -26,7 +26,7 @@ spec:
     - name: DEPLOYMENT_CONFIG
       value: "deployment-rhaiis-vllm-pod"
     - name: BENCHMARK_CONFIG
-      value: "mlperf-server"
+      value: "mlperf-server-cnn-eval"
 
     - name: VLLM_ARGS
       value:

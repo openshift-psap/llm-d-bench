@@ -141,7 +141,7 @@ export AWS_SECRET_ACCESS_KEY=your-secret-key
 ### Generate Report
 
 ```bash
-cd build/src/
+cd build/guidellm/src/
 
 python3 -m benchmark.main --plot-only \
   --mlflow-run-ids "abc123def456,ghi789jkl012" \
@@ -164,7 +164,7 @@ python3 -m benchmark.main --plot-only \
 
 ```bash
 # List recent runs in an experiment
-curl -X GET "https://mlflow-server.example.com/api/2.0/mlflow/runs/search" \
+curl -X POST "https://mlflow-server.example.com/api/2.0/mlflow/runs/search" \
   -H "Content-Type: application/json" \
   -u admin:password \
   -d '{"experiment_ids": ["1"], "max_results": 10}'

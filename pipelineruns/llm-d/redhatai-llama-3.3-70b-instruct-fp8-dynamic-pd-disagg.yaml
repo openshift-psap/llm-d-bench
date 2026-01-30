@@ -24,7 +24,7 @@ spec:
     - name: VLLM_CONFIG
       value: "vllm-default"
     - name: DEPLOYMENT_CONFIG
-      value: "deployment-llm-d-inference-scheduling"
+      value: "deployment-llm-d-pd-disaggregation"
     - name: BENCHMARK_CONFIG
       value: "concurrent-1k-1k"
 

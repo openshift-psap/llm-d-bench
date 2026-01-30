@@ -135,31 +135,31 @@ spec:
 
         # Add pass-through params if provided
         if [ -n "$(params.MODEL_NAME)" ]; then
-          MERGED=$(echo "$MERGED" | jq '. + {MODEL_NAME: "$(params.MODEL_NAME)"}')
+          MERGED=$(echo "$MERGED" | jq --arg val "$(params.MODEL_NAME)" '. + {MODEL_NAME: $val}')
         fi
 
         if [ -n "$(params.MODEL_REVISION)" ]; then
-          MERGED=$(echo "$MERGED" | jq '. + {MODEL_REVISION: "$(params.MODEL_REVISION)"}')
+          MERGED=$(echo "$MERGED" | jq --arg val "$(params.MODEL_REVISION)" '. + {MODEL_REVISION: $val}')
         fi
 
         if [ -n "$(params.TP)" ]; then
-          MERGED=$(echo "$MERGED" | jq '. + {TP: "$(params.TP)"}')
+          MERGED=$(echo "$MERGED" | jq --arg val "$(params.TP)" '. + {TP: $val}')
         fi
 
         if [ -n "$(params.REPLICAS)" ]; then
-          MERGED=$(echo "$MERGED" | jq '. + {REPLICAS: "$(params.REPLICAS)"}')
+          MERGED=$(echo "$MERGED" | jq --arg val "$(params.REPLICAS)" '. + {REPLICAS: $val}')
         fi
 
         if [ -n "$(params.ACCELERATOR)" ]; then
-          MERGED=$(echo "$MERGED" | jq '. + {ACCELERATOR: "$(params.ACCELERATOR)"}')
+          MERGED=$(echo "$MERGED" | jq --arg val "$(params.ACCELERATOR)" '. + {ACCELERATOR: $val}')
         fi
 
         if [ -n "$(params.RELEASE_NAME)" ]; then
-          MERGED=$(echo "$MERGED" | jq '. + {RELEASE_NAME: "$(params.RELEASE_NAME)"}')
+          MERGED=$(echo "$MERGED" | jq --arg val "$(params.RELEASE_NAME)" '. + {RELEASE_NAME: $val}')
         fi
 
         if [ -n "$(params.MLFLOW_EXPERIMENT_NAME)" ]; then
-          MERGED=$(echo "$MERGED" | jq '. + {MLFLOW_EXPERIMENT_NAME: "$(params.MLFLOW_EXPERIMENT_NAME)"}')
+          MERGED=$(echo "$MERGED" | jq --arg val "$(params.MLFLOW_EXPERIMENT_NAME)" '. + {MLFLOW_EXPERIMENT_NAME: $val}')
         fi
 
         # Merge vLLM config

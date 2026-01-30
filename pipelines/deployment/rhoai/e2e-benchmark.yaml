@@ -64,12 +64,12 @@ spec:
     - name: PREFILL_REPLICAS
       description: Number of prefill worker replicas for P/D disaggregation
       type: string
-      default: "N/A"
+      default: ""
 
     - name: DECODE_REPLICAS
       description: Number of decode worker replicas for P/D disaggregation
       type: string
-      default: "N/A"
+      default: ""
 
     # Benchmark Configuration
     - name: IMAGE
