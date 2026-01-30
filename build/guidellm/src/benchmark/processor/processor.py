@@ -73,10 +73,11 @@ class BenchmarkProcessor:
     Main class for processing benchmark JSON files and generating reports.
 
     Workflow:
-    1. Download consolidated CSV from S3
-    2. Process JSON benchmark file to CSV
-    3. Merge with consolidated data
-    4. Generate HTML report based on config
+    1. Download consolidated CSVs from S3 (llmd-dashboard + rhaiis-dashboard)
+    2. Merge historical CSVs together
+    3. Process JSON benchmark file to CSV
+    4. Merge with consolidated historical data
+    5. Generate HTML report based on config
     """
 
     def __init__(
@@ -99,8 +100,8 @@ class BenchmarkProcessor:
 
         Args:
             json_path: Path to guidellm JSON benchmark file
-            s3_bucket: S3 bucket name containing consolidated CSV
-            s3_key: S3 key (path) to consolidated CSV file
+            s3_bucket: S3 bucket name containing consolidated CSVs (default: psap-dashboard-data)
+            s3_key: S3 key (path) - legacy parameter, not used (downloads both llmd-dashboard and rhaiis-dashboard)
             accelerator: Accelerator type (e.g., H200, MI300X)
             model_name: Model name
             version: Version/framework identifier
@@ -144,35 +145,57 @@ class BenchmarkProcessor:
 
     def download_s3_csv(self) -> pd.DataFrame:
         """
-        Download consolidated CSV file from S3.
+        Download consolidated CSV files from S3 and merge them.
+
+        Downloads multiple CSV files from S3 (llmd-dashboard and rhaiis-dashboard)
+        and merges them together for comprehensive historical comparison.
 
         Returns:
-            DataFrame containing consolidated benchmark data
+            DataFrame containing consolidated benchmark data from all sources
         """
-        logger.info(f"Downloading s3://{self.s3_bucket}/{self.s3_key}")
+        # Define the two CSV sources
+        csv_keys = [
+            "main/llmd-dashboard/llmd-dashboard.csv",
+            "main/rhaiis-dashboard/consolidated_dashboard.csv",
+        ]
 
-        try:
-            with tempfile.NamedTemporaryFile(
-                mode="wb", delete=False, suffix=".csv"
-            ) as tmp_file:
-                self.s3_client.download_fileobj(self.s3_bucket, self.s3_key, tmp_file)
-                tmp_path = tmp_file.name
+        all_dataframes = []
 
-            df = pd.read_csv(tmp_path)
-            os.unlink(tmp_path)
+        for key in csv_keys:
+            logger.info(f"Downloading s3://{self.s3_bucket}/{key}")
 
-            logger.info(f"Downloaded {len(df)} rows from S3")
-            return df
+            try:
+                with tempfile.NamedTemporaryFile(
+                    mode="wb", delete=False, suffix=".csv"
+                ) as tmp_file:
+                    self.s3_client.download_fileobj(self.s3_bucket, key, tmp_file)
+                    tmp_path = tmp_file.name
 
-        except ClientError as e:
-            if e.response["Error"]["Code"] == "NoSuchKey":
-                logger.warning(
-                    f"S3 file not found: s3://{self.s3_bucket}/{self.s3_key}"
-                )
-                logger.info("Starting with empty consolidated data")
-                return pd.DataFrame()
-            else:
-                raise
+                df = pd.read_csv(tmp_path)
+                os.unlink(tmp_path)
+
+                logger.info(f"Downloaded {len(df)} rows from {key}")
+                all_dataframes.append(df)
+
+            except ClientError as e:
+                if e.response["Error"]["Code"] == "NoSuchKey":
+                    logger.warning(f"S3 file not found: s3://{self.s3_bucket}/{key}")
+                    logger.info(f"Skipping {key} (not found)")
+                else:
+                    logger.error(f"Error downloading {key}: {e}")
+                    raise
+
+        # Merge all downloaded CSVs
+        if all_dataframes:
+            merged_df = pd.concat(all_dataframes, ignore_index=True)
+            logger.info(
+                f"Merged {len(all_dataframes)} CSV files into {len(merged_df)} total rows"
+            )
+            return merged_df
+        else:
+            logger.warning("No CSV files were downloaded from S3")
+            logger.info("Starting with empty consolidated data")
+            return pd.DataFrame()
 
     def load_additional_csvs(self, csv_file_paths: List[str]) -> pd.DataFrame:
         """

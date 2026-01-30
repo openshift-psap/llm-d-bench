@@ -294,8 +294,10 @@ def generate_visualization_report(
         logger.info("Generating visualization report...")
 
         # Get S3 configuration from environment
-        s3_bucket = os.environ.get("S3_BUCKET", "rhaiis-psap")
-        s3_key = os.environ.get("S3_KEY", "Dashboard_csv's/consolidated_dashboard.csv")
+        s3_bucket = os.environ.get("S3_BUCKET", "psap-dashboard-data")
+        s3_key = os.environ.get(
+            "S3_KEY", "main/llmd-dashboard/llmd-dashboard.csv"
+        )  # Primary key (legacy env var, not used when downloading both)
 
         # Auto-generate output filename
         model_short = model.split("/")[-1].replace(" ", "_").replace("-", "_").lower()
@@ -800,11 +802,15 @@ def generate_plot_only_report(
     logger.info(f"Processing {len(runs_data)} runs individually to extract CSV data")
 
     # Get S3 configuration from environment
-    s3_bucket = os.environ.get("S3_BUCKET", "rhaiis-psap")
-    s3_key = os.environ.get("S3_KEY", "Dashboard_csv's/consolidated_dashboard.csv")
+    s3_bucket = os.environ.get("S3_BUCKET", "psap-dashboard-data")
+    s3_key = os.environ.get(
+        "S3_KEY", "main/llmd-dashboard/llmd-dashboard.csv"
+    )  # Primary key (legacy env var, not used when downloading both)
 
-    # Download consolidated CSV from S3 once
-    logger.info("Downloading consolidated CSV from S3")
+    # Download and merge consolidated CSVs from S3
+    logger.info(
+        "Downloading consolidated CSVs from S3 (llmd-dashboard + rhaiis-dashboard)"
+    )
     from benchmark.processor import BenchmarkProcessor
     import pandas as pd
 
