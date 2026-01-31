@@ -169,6 +169,10 @@ spec:
         echo "  Setting CUDA_VISIBLE_DEVICES=$CUDA_DEVICES"
         /tmp/yq -i '(.decode.containers[0].env[] | select(.name == "CUDA_VISIBLE_DEVICES")).value = "'"$CUDA_DEVICES"'"' $VALUES_FILE
 
+        # 3.5. Override ModelService image
+        echo "  Setting ModelService image to ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"
+        /tmp/yq -i '.decode.containers[0].image = "ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"' $VALUES_FILE
+
         # 4. Served Model Name
         /tmp/yq -i '.decode.containers[0].args += ["--served-model-name", "$(params.MODEL_NAME)"]' $VALUES_FILE
 

@@ -232,6 +232,10 @@ spec:
         echo "    Setting prefill CUDA_VISIBLE_DEVICES=$PREFILL_CUDA"
         /tmp/yq -i '(.prefill.containers[0].env[] | select(.name == "CUDA_VISIBLE_DEVICES")).value = "'"$PREFILL_CUDA"'"' $MS_VALUES_FILE
 
+        # 2.5. Override prefill ModelService image
+        echo "  Setting prefill ModelService image to ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"
+        /tmp/yq -i '.prefill.containers[0].image = "ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"' $MS_VALUES_FILE
+
         # 3. Decode Worker Configuration
         echo "  Configuring decode workers: $(params.DECODE_REPLICAS) replicas, TP=$(params.DECODE_TP)..."
         /tmp/yq -i '.decode.replicas = $(params.DECODE_REPLICAS)' $MS_VALUES_FILE
@@ -246,6 +250,10 @@ spec:
         fi
         echo "    Setting decode CUDA_VISIBLE_DEVICES=$DECODE_CUDA"
         /tmp/yq -i '(.decode.containers[0].env[] | select(.name == "CUDA_VISIBLE_DEVICES")).value = "'"$DECODE_CUDA"'"' $MS_VALUES_FILE
+
+        # 3.5. Override decode ModelService image
+        echo "  Setting decode ModelService image to ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"
+        /tmp/yq -i '.decode.containers[0].image = "ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"' $MS_VALUES_FILE
 
         # 4. Served Model Name (apply to both prefill and decode)
         /tmp/yq -i '.prefill.containers[0].args += ["--served-model-name", "$(params.MODEL_NAME)"]' $MS_VALUES_FILE
