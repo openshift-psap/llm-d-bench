@@ -269,6 +269,7 @@ def generate_visualization_report(
     tp_size: int = 1,
     runtime_args: str = "",
     output_dir: str = None,
+    replicas: int = 1,
 ) -> str:
     """
     Generate HTML visualization report from benchmark JSON.
@@ -282,6 +283,7 @@ def generate_visualization_report(
         tp_size: Tensor parallelism size
         runtime_args: Runtime arguments
         output_dir: Output directory for HTML report
+        replicas: Number of replicas
 
     Returns:
         Path to HTML report, or None if generation failed
@@ -319,6 +321,7 @@ def generate_visualization_report(
             tp_size=tp_size,
             runtime_args="",  # TODO: Extract from deployment
             output_html=html_path,
+            replicas=replicas,
         )
 
         processor.process()
@@ -354,6 +357,7 @@ def _run_and_process_benchmark(
     version: str,
     tp_size: int,
     runtime_args: str,
+    replicas: int = 1,
 ) -> tuple:
     """Helper to run guidellm and process results."""
     Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -393,6 +397,7 @@ def _run_and_process_benchmark(
         tp_size=tp_size,
         runtime_args=runtime_args,
         output_dir=output_dir,
+        replicas=replicas,
     )
 
     return json_path, console_log_path, benchmarks, html_report
@@ -413,6 +418,7 @@ def run_benchmark_without_mlflow(
     version: str = None,
     tp_size: int = 1,
     runtime_args: str = "",
+    replicas: int = 1,
 ) -> str:
     """Run benchmark without MLflow tracking, saving results to specified directory."""
     logger.info("Running benchmark without MLflow tracking")
@@ -434,6 +440,7 @@ def run_benchmark_without_mlflow(
         version=version,
         tp_size=tp_size,
         runtime_args=runtime_args,
+        replicas=replicas,
     )
 
     for i, benchmark in enumerate(benchmarks):
@@ -559,6 +566,7 @@ def run_benchmark_with_mlflow(
                 version=version,
                 tp_size=tp_size,
                 runtime_args=runtime_args,
+                replicas=int(replicas) if replicas != "N/A" else 1,
             )
 
             if not benchmarks:
@@ -824,6 +832,7 @@ def generate_plot_only_report(
         version="dummy",
         tp_size=1,
         runtime_args="",
+        replicas=1,  # dummy value
     )
     consolidated_df = temp_processor.download_s3_csv()
     logger.info(f"Downloaded consolidated CSV with {len(consolidated_df)} rows")
@@ -845,7 +854,17 @@ def generate_plot_only_report(
         version = params.get("version", "unknown")
         tp_size = int(params.get("tp", 1))
 
-        logger.info(f"Processing run {run_id} (version={version}, TP={tp_size})")
+        # Extract replicas from MLflow params
+        replicas = params.get("replicas", "N/A")
+        # Convert "N/A" to 1 for consistency with default behavior
+        try:
+            replicas_int = int(replicas) if replicas != "N/A" else 1
+        except (ValueError, TypeError):
+            replicas_int = 1
+
+        logger.info(
+            f"Processing run {run_id} (version={version}, TP={tp_size}, replicas={replicas_int})"
+        )
 
         # Create processor for this run
         processor = BenchmarkProcessor(
@@ -857,10 +876,12 @@ def generate_plot_only_report(
             version=version,
             tp_size=tp_size,
             runtime_args="",
+            replicas=replicas_int,
         )
 
-        # Parse this run's JSON to DataFrame
+        # Parse this run's JSON to DataFrame (replicas will be included via processor)
         run_df = processor.parse_guidellm_json()
+
         logger.info(f"Extracted {len(run_df)} rows from run {run_id}")
 
         all_run_dataframes.append(run_df)
