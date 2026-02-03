@@ -7,7 +7,7 @@ metadata:
     pipeline: llm-d-end-to-end-benchmark
     experiment: openai-gpt-oss-120b-1k-1k
     benchmark-tool: guidellm
-    deployment-mode: llm-d
+    deployment-mode: precise-prefix-cache
 spec:
   pipelineRef:
     name: llm-d-end-to-end-benchmark
@@ -22,18 +22,23 @@ spec:
       value: "openai/gpt-oss-120b"
 
     - name: VLLM_CONFIG
-      value: "vllm-default"
+      value: "vllm-prefix-caching"
     - name: DEPLOYMENT_CONFIG
-      value: "deployment-llm-d-inference-scheduling"
+      value: "deployment-llm-d-precise-prefix-cache"
     - name: BENCHMARK_CONFIG
       value: "concurrent-1k-1k"
+
+    - name: DEPLOYMENT_MODE
+      value: "precise-prefix-cache"
+    - name: LLM_D_REPO_REF
+      value: "afc99a53d44103f552e12deb4f7df8a53fbbabc0"
 
     - name: RELEASE_NAME
       value: "openai-gpt-oss-120b"
     - name: REPLICAS
-      value: "1"
-    - name: TP
       value: "4"
+    - name: TP
+      value: "2"
 
     - name: ACCELERATOR
       value: "H200"
@@ -51,6 +56,7 @@ spec:
       value:
         - "deployment=llm-d"
         - "benchmark-tool=guidellm"
+        - "epp=precise-prefix-cache"
 
   timeouts:
     pipeline: "2h"

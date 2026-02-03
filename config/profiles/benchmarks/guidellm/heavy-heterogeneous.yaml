@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: heavy-heterogeneous
+  namespace: llm-d-bench
+  annotations:
+    description: "Full heavy heterogeneous profile with all concurrency levels"
+  labels:
+    config-type: benchmark
+data:
+  IMAGE: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
+  GUIDELLM_BACKEND_TYPE: "openai_http"
+  GUIDELLM_RATE_TYPE: "concurrent"
+  GUIDELLM_RATE: "650,500,300,200,100,50,1"
+  GUIDELLM_DATA: "prompt_tokens=8000,prompt_tokens_stdev=8500,prompt_tokens_min=50,prompt_tokens_max=30000,output_tokens=800,output_tokens_stdev=1500,output_tokens_min=20,output_tokens_max=8000"
+  GUIDELLM_MAX_SECONDS: "600"
+  GUIDELLM_MAX_REQUESTS: ""
