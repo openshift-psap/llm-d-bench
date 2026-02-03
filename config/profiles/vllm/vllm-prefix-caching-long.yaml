@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vllm-prefix-caching-long
+  namespace: llm-d-bench
+  annotations:
+    description: "Long max model len vLLM config with prefix caching enabled"
+  labels:
+    config-type: vllm
+data:
+  VLLM_ARGS: |
+    --max-model-len=32000
+    --uvicorn-log-level=debug
+    --trust-remote-code
+    --gpu-memory-utilization=0.92
+    --disable-log-requests
+    --enable-prefix-caching
