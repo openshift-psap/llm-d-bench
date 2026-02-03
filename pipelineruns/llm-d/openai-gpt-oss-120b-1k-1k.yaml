@@ -27,6 +27,7 @@ spec:
       value: "deployment-llm-d-precise-prefix-cache"
     - name: BENCHMARK_CONFIG
       value: "concurrent-1k-1k"
+      # value: "heavy-heterogeneous"
 
     - name: DEPLOYMENT_MODE
       value: "precise-prefix-cache"
@@ -52,11 +53,19 @@ spec:
       value: "openai-gpt-oss-120b-1k-1k"
     - name: VERSION
       value: "llm-d-0.4"
+      # value: "raw-vllm-0.13.0"
     - name: MLFLOW_TAGS
       value:
         - "deployment=llm-d"
         - "benchmark-tool=guidellm"
         - "epp=precise-prefix-cache"
+
+#    - name: SKIP_DEPLOY
+#      value: "true"
+#    - name: SKIP_CLEANUP
+#      value: "true"
+#    - name: TARGET
+#      value: "http://raw-vllm-service.llm-d-bench.svc.cluster.local:8000"
 
   timeouts:
     pipeline: "2h"

@@ -7,7 +7,7 @@ metadata:
     pipeline: llm-d-end-to-end-benchmark
     experiment: redhatai-llama-33-70b-instruct-fp8-dynamic-1k-1k
     benchmark-tool: guidellm
-    deployment-mode: llm-d
+    deployment-mode: precise-prefix-cache
 spec:
   pipelineRef:
     name: llm-d-end-to-end-benchmark
@@ -22,18 +22,24 @@ spec:
       value: "RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic"
 
     - name: VLLM_CONFIG
-      value: "vllm-default"
+      value: "vllm-prefix-caching"
     - name: DEPLOYMENT_CONFIG
-      value: "deployment-llm-d-inference-scheduling"
+      value: "deployment-llm-d-precise-prefix-cache"
     - name: BENCHMARK_CONFIG
       value: "concurrent-1k-1k"
+      # value: "heavy-heterogeneous"
+
+    - name: DEPLOYMENT_MODE
+      value: "precise-prefix-cache"
+    - name: LLM_D_REPO_REF
+      value: "afc99a53d44103f552e12deb4f7df8a53fbbabc0"
 
     - name: RELEASE_NAME
       value: "redhatai-llama-33-70b-fp8"
     - name: REPLICAS
-      value: "1"
-    - name: TP
       value: "4"
+    - name: TP
+      value: "2"
 
     - name: ACCELERATOR
       value: "H200"
@@ -47,10 +53,20 @@ spec:
       value: "redhatai-llama-33-70b-instruct-fp8-dynamic-1k-1k"
     - name: VERSION
       value: "llm-d-0.4"
+      # value: "raw-vllm-0.13.0"
     - name: MLFLOW_TAGS
       value:
         - "deployment=llm-d"
         - "benchmark-tool=guidellm"
+        - "epp=precise-prefix-cache"
+        - "iterative_mode=true"
+
+#    - name: SKIP_DEPLOY
+#      value: "true"
+#    - name: SKIP_CLEANUP
+#      value: "true"
+#    - name: TARGET
+#      value: "http://raw-vllm-service.llm-d-bench.svc.cluster.local:8000"
 
   timeouts:
     pipeline: "2h"
