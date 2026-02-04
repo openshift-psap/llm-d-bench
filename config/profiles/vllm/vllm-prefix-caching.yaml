@@ -14,7 +14,4 @@ data:
     --trust-remote-code
     --gpu-memory-utilization=0.92
     --disable-log-requests
-<<<<<<< Updated upstream
-=======
     --enable-prefix-caching
->>>>>>> Stashed changes

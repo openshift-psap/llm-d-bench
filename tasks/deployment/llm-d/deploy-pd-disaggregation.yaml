@@ -505,7 +505,7 @@ spec:
           # Check ModelService pods (both prefill and decode)
           # Using generic label that should match all inference serving pods
           MS_READY=false
-          if check_pods "llm-d.ai/inferenceServing=true" "ModelService (all workers)"; then
+          if check_pods "llm-d.ai/inference-serving=true" "ModelService (all workers)"; then
             MS_READY=true
           fi
 

@@ -383,7 +383,7 @@ spec:
 
           # Check ModelService pods
           MS_READY=false
-          if check_pods "llm-d.ai/inferenceServing=true" "ModelService"; then
+          if check_pods "llm-d.ai/inference-serving=true" "ModelService"; then
             MS_READY=true
           fi
 

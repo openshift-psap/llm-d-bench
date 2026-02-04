@@ -69,7 +69,7 @@ See `pipelineruns/llm-d/redhatai-llama-3.3-70b-instruct-fp8-dynamic-pd-disagg.ya
 ### Verification
 
 ```bash
-kubectl get pods -n llm-d-bench -l llm-d.ai/inferenceServing=true
+kubectl get pods -n llm-d-bench -l llm-d.ai/inference-serving=true
 kubectl get inferencepool -n llm-d-bench gaie-$RELEASE_NAME
 ```
 
