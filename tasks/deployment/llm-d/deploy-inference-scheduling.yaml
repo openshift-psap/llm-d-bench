@@ -74,9 +74,9 @@ spec:
 
     # Advanced Configuration
     - name: VLLM_ARGS
-      description: Additional vLLM arguments as array
-      type: array
-      default: []
+      description: Additional vLLM arguments as newline-delimited string or array (from merge-configs)
+      type: string
+      default: ""
 
     # Control Flags
     - name: SKIP_IF_EXISTS
@@ -96,8 +96,8 @@ spec:
       env:
         - name: HOME
           value: /tmp
-      args:
-        - $(params.VLLM_ARGS[*])
+        - name: VLLM_ARGS_INPUT
+          value: $(params.VLLM_ARGS)
       script: |
         #!/bin/bash
         set -e
@@ -175,12 +175,16 @@ spec:
           /tmp/yq -i '.decode.containers[0].args += ["--revision", "$(params.MODEL_REVISION)"]' $VALUES_FILE
         fi
 
-        # 6. Additional vLLM Args
-        for arg in "$@"; do
-          if [ -n "$arg" ]; then
-            /tmp/yq -i '.decode.containers[0].args += ["'"$arg"'"]' $VALUES_FILE
-          fi
-        done
+        # 6. Additional vLLM Args (parse from newline-delimited string)
+        if [ -n "$VLLM_ARGS_INPUT" ]; then
+          echo "  Adding vLLM arguments from configuration..."
+          while IFS= read -r arg; do
+            if [ -n "$arg" ]; then
+              echo "    - $arg"
+              /tmp/yq -i '.decode.containers[0].args += ["'"$arg"'"]' $VALUES_FILE
+            fi
+          done <<< "$VLLM_ARGS_INPUT"
+        fi
 
         # Validate patched ModelService YAML
         if ! /tmp/yq eval '.' $VALUES_FILE > /dev/null; then
@@ -297,9 +301,6 @@ spec:
                 name: gaie-$RELEASE_NAME
                 port: 8000
                 weight: 1
-              timeouts:
-                backendRequest: 0s
-                request: 0s
               matches:
               - path:
                   type: PathPrefix
@@ -381,9 +382,11 @@ spec:
             echo "  Gateway: Not found"
           fi
 
-          # Check ModelService pods
+          # Check ModelService pods (try both label formats for backward compatibility)
           MS_READY=false
           if check_pods "llm-d.ai/inference-serving=true" "ModelService"; then
+            MS_READY=true
+          elif check_pods "llm-d.ai/inferenceServing=true" "ModelService (legacy label)"; then
             MS_READY=true
           fi
 

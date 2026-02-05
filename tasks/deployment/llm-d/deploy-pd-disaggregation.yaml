@@ -93,9 +93,9 @@ spec:
 
     # Advanced Configuration
     - name: VLLM_ARGS
-      description: Additional vLLM arguments as array
-      type: array
-      default: []
+      description: Additional vLLM arguments as newline-delimited string or array (from merge-configs)
+      type: string
+      default: ""
 
     # Networking Configuration
     - name: ENABLE_RDMA
@@ -173,8 +173,8 @@ spec:
       env:
         - name: HOME
           value: /tmp
-      args:
-        - $(params.VLLM_ARGS[*])
+        - name: VLLM_ARGS_INPUT
+          value: $(params.VLLM_ARGS)
       script: |
         #!/bin/bash
         set -e
@@ -265,13 +265,17 @@ spec:
           /tmp/yq -i '.decode.containers[0].args += ["--revision", "$(params.MODEL_REVISION)"]' $MS_VALUES_FILE
         fi
 
-        # 6. Additional vLLM Args (apply to both prefill and decode)
-        for arg in "$@"; do
-          if [ -n "$arg" ]; then
-            /tmp/yq -i '.prefill.containers[0].args += ["'"$arg"'"]' $MS_VALUES_FILE
-            /tmp/yq -i '.decode.containers[0].args += ["'"$arg"'"]' $MS_VALUES_FILE
-          fi
-        done
+        # 6. Additional vLLM Args (apply to both prefill and decode, parse from newline-delimited string)
+        if [ -n "$VLLM_ARGS_INPUT" ]; then
+          echo "  Adding vLLM arguments from configuration..."
+          while IFS= read -r arg; do
+            if [ -n "$arg" ]; then
+              echo "    - $arg"
+              /tmp/yq -i '.prefill.containers[0].args += ["'"$arg"'"]' $MS_VALUES_FILE
+              /tmp/yq -i '.decode.containers[0].args += ["'"$arg"'"]' $MS_VALUES_FILE
+            fi
+          done <<< "$VLLM_ARGS_INPUT"
+        fi
 
         # 7. RDMA Configuration
         if [ "$(params.ENABLE_RDMA)" != "true" ]; then
@@ -503,9 +507,11 @@ spec:
           fi
 
           # Check ModelService pods (both prefill and decode)
-          # Using generic label that should match all inference serving pods
+          # Using generic label that should match all inference serving pods (try both formats)
           MS_READY=false
           if check_pods "llm-d.ai/inference-serving=true" "ModelService (all workers)"; then
+            MS_READY=true
+          elif check_pods "llm-d.ai/inferenceServing=true" "ModelService (all workers, legacy label)"; then
             MS_READY=true
           fi
 

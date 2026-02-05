@@ -418,7 +418,7 @@ spec:
         - name: HF_TOKEN_SECRET
           value: $(params.HF_TOKEN_SECRET)
         - name: VLLM_ARGS
-          value: $(params.VLLM_ARGS[*])
+          value: $(tasks.merge-configs.results.vllm-args)
         - name: SKIP_IF_EXISTS
           value: "true"
       workspaces:
@@ -466,7 +466,7 @@ spec:
         - name: HF_TOKEN_SECRET
           value: $(params.HF_TOKEN_SECRET)
         - name: VLLM_ARGS
-          value: $(params.VLLM_ARGS[*])
+          value: $(tasks.merge-configs.results.vllm-args)
         - name: SKIP_IF_EXISTS
           value: "true"
       workspaces:
@@ -512,7 +512,7 @@ spec:
         - name: HF_TOKEN_SECRET
           value: $(params.HF_TOKEN_SECRET)
         - name: VLLM_ARGS
-          value: $(params.VLLM_ARGS[*])
+          value: $(tasks.merge-configs.results.vllm-args)
         - name: SKIP_IF_EXISTS
           value: "true"
       workspaces:
