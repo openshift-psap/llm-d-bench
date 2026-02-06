@@ -23,11 +23,11 @@ spec:
     - name: GIT_URL
       value: "https://github.com/openshift-psap/llm-d-bench.git"
     - name: GIT_REVISION
-      value: "main"
+      value: "feature/llm-d-dev-image"
     - name: IMAGE_NAME
       value: "guidellm-custom"
     - name: IMAGE_TAG
-      value: "latest"
+      value: "multiturn"
     - name: REGISTRY
       value: "image-registry.openshift-image-registry.svc:5000"
     - name: NAMESPACE
