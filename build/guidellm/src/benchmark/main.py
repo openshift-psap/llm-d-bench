@@ -217,9 +217,10 @@ def run_guidellm_cli(
         output_path,
     ]
 
+    cmd.extend(["--backend-args", '{"timeout": 600}'])
     if target.startswith("https://"):
         # cmd.extend(["--backend-kwargs", '{"verify": false}'])
-        cmd.extend(["--backend-args", '{"verify": false}'])
+        cmd.extend(["--backend-args", '{"verify": false, "timeout": 600}'])
     if data:
         cmd.extend(["--data", data])
     if max_seconds:
