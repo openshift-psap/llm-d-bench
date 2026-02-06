@@ -8,7 +8,7 @@ USER root
 
 RUN mkdir -p /tmp/.huggingface && chmod -R 777 /tmp/.huggingface
 
-RUN git clone --branch feat/adv_prefix --single-branch https://github.com/vllm-project/guidellm.git /tmp/guidellm && cd /tmp/guidellm && pip install -e .
+RUN dnf install git -y && git clone --branch feat/adv_prefix --single-branch https://github.com/vllm-project/guidellm.git /tmp/guidellm && cd /tmp/guidellm && pip install -e .
 
 COPY pyproject.toml .
 COPY src/ src/
