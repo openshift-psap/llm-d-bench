@@ -467,20 +467,32 @@ def run_benchmark_with_mlflow(
     version: str = None,
     tp_size: int = 1,
     runtime_args: str = "",
+    run_uuid: str = None,
 ) -> str:
     if mlflow_tracking_uri:
         mlflow.set_tracking_uri(mlflow_tracking_uri)
 
     mlflow.set_experiment(experiment_name)
 
-    # Run name for the whole sweep
-    run_name = (
-        f"{model.split('/')[-1]}_sweep_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    )
+    # Run name: use pipeline UUID if provided, otherwise generate
+    if run_uuid:
+        run_name = run_uuid
+        logger.info(f"Using pipeline RUN_UUID as MLflow run name: {run_uuid}")
+    else:
+        run_name = (
+            f"{model.split('/')[-1]}_sweep_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )
+        logger.info(f"Generated MLflow run name: {run_name}")
 
     logger.info(f"Starting benchmark sweep: rates={rate}")
 
     with mlflow.start_run(run_name=run_name) as run:
+        # Save MLflow run_id to file for finally block to append artifacts
+        mlflow_run_id_file = "/tmp/mlflow_run_id.txt"
+        with open(mlflow_run_id_file, "w") as f:
+            f.write(run.info.run_id)
+        logger.info(f"Saved MLflow run_id to {mlflow_run_id_file}: {run.info.run_id}")
+
         try:
             # Common params for the whole sweep
             params = {
@@ -491,6 +503,8 @@ def run_benchmark_with_mlflow(
                 "rates": rate,
                 "tp": tp_size,
             }
+            if run_uuid:
+                params["run_uuid"] = run_uuid
             if data:
                 params.update(
                     {
@@ -527,6 +541,9 @@ def run_benchmark_with_mlflow(
             }
             if accelerator:
                 default_tags["accelerator"] = accelerator
+            if run_uuid:
+                default_tags["run_uuid"] = run_uuid
+                default_tags["pipeline_run_uuid"] = run_uuid  # Alias for clarity
             if tags:
                 default_tags.update(tags)
             mlflow.set_tags(default_tags)
@@ -941,6 +958,10 @@ def main():
         "--version", help="Version identifier for visualization reports"
     )
     parser.add_argument(
+        "--run-uuid",
+        help="Pipeline run UUID for tracking correlation. If provided, uses this as MLflow run name instead of auto-generating.",
+    )
+    parser.add_argument(
         "--tp",
         type=int,
         default=1,
@@ -1118,6 +1139,7 @@ def main():
             version=args.version,
             tp_size=args.tp,
             runtime_args=args.runtime_args,
+            run_uuid=args.run_uuid,
         )
         logger.info("\nBenchmark sweep completed successfully.")
         logger.info(f"  MLflow Run ID: {run_id}")

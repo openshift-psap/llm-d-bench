@@ -198,17 +198,30 @@ spec:
       type: string
       default: "false"
 
+    # Kueue Integration
+    - name: KUEUE_QUEUE_NAME
+      description: Kueue LocalQueue name for GPU scheduling (empty to disable Kueue)
+      type: string
+      default: ""
+
   workspaces:
     - name: models-storage
       description: PVC for model storage (required for download and deploy stages)
 
     - name: results
-      description: PVC for benchmark results (optional, only for non-MLflow mode)
-      optional: true
+      description: Workspace for rendered configs and benchmark results
+
 
   tasks:
+    # Stage 0: Generate Run UUID (first task - tracks entire pipeline)
+    - name: generate-run-uuid
+      taskRef:
+        name: generate-run-uuid
+
     # Stage 1: Download Model
     - name: download-model
+      runAfter:
+        - generate-run-uuid
       when:
         - input: "$(params.SKIP_DOWNLOAD)"
           operator: in
@@ -226,8 +239,8 @@ spec:
         - name: models-storage
           workspace: models-storage
 
-    # Stage 2: Deploy Model with KServe
-    - name: deploy-rhaiis
+    # Stage 2a: Generate unique deployment name (using RUN_UUID for consistent tracking)
+    - name: generate-deployment-name
       runAfter:
         - download-model
       when:
@@ -235,29 +248,66 @@ spec:
           operator: in
           values: ["false"]
       taskRef:
-        name: deploy-rhaiis
+        name: generate-deployment-name
       params:
         - name: MODEL_NAME
           value: $(params.MODEL_NAME)
+        - name: RUN_UUID
+          value: $(tasks.generate-run-uuid.results.RUN_UUID)
+
+    # Stage 2b: Render deployment config (Jinja2 templating)
+    - name: render-deployment-config
+      runAfter:
+        - generate-deployment-name
+      when:
+        - input: "$(params.SKIP_DEPLOY)"
+          operator: in
+          values: ["false"]
+      taskRef:
+        name: render-deployment-config
+      params:
+        - name: MODEL_NAME
+          value: $(params.MODEL_NAME)
+        - name: DEPLOYMENT_NAME
+          value: $(tasks.generate-deployment-name.results.DEPLOYMENT_NAME)
         - name: NAMESPACE
           value: $(params.NAMESPACE)
-        - name: TP
-          value: $(params.TP)
-        - name: VLLM_ARGS
-          value: $(params.VLLM_ARGS[*])
-        - name: SKIP_IF_EXISTS
-          value: "true"
         - name: IMAGE
           value: $(params.DEPLOYMENT_IMAGE)
+        - name: ACCELERATOR
+          value: $(params.ACCELERATOR)
+        - name: TP
+          value: $(params.TP)
         - name: REPLICAS
           value: $(params.REPLICAS)
         - name: MODEL_PVC
           value: $(params.MODEL_PVC)
-        - name: CACHE_DIR
-          value: $(params.CACHE_DIR)
+        - name: MODEL_DIR_NAME
+          value: $(tasks.generate-deployment-name.results.MODEL_DIR_NAME)
+        - name: KUEUE_QUEUE_NAME
+          value: $(params.KUEUE_QUEUE_NAME)
       workspaces:
-        - name: models-storage
-          workspace: models-storage
+        - name: results
+          workspace: results
+
+    # Stage 2c: Deploy Model with KServe (Kueue-managed Job wrapper)
+    - name: deploy-rhaiis
+      runAfter:
+        - render-deployment-config
+      when:
+        - input: "$(params.SKIP_DEPLOY)"
+          operator: in
+          values: ["false"]
+      taskRef:
+        name: deploy-rhaiis-with-kueue
+      params:
+        - name: DEPLOYMENT_NAME
+          value: $(tasks.generate-deployment-name.results.DEPLOYMENT_NAME)
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+      workspaces:
+        - name: results
+          workspace: results
 
     # Stage 3: Wait for Endpoint
     - name: wait-for-endpoint
@@ -316,32 +366,34 @@ spec:
           value: $(tasks.deploy-rhaiis.results.ENDPOINT_URL)
         - name: MODEL
           value: $(params.MODEL_NAME)
-        - name: GUIDELLM_PROCESSOR
+        - name: PROCESSOR
           value: $(params.GUIDELLM_PROCESSOR)
-        - name: GUIDELLM_BACKEND_TYPE
+        - name: BACKEND_TYPE
           value: $(params.GUIDELLM_BACKEND_TYPE)
-        - name: GUIDELLM_RATE_TYPE
+        - name: RATE_TYPE
           value: $(params.GUIDELLM_RATE_TYPE)
-        - name: GUIDELLM_RATE
+        - name: RATE
           value: $(params.GUIDELLM_RATE)
-        - name: GUIDELLM_DATA
+        - name: DATA
           value: $(params.GUIDELLM_DATA)
-        - name: GUIDELLM_MAX_SECONDS
+        - name: MAX_SECONDS
           value: $(params.GUIDELLM_MAX_SECONDS)
-        - name: GUIDELLM_MAX_REQUESTS
+        - name: MAX_REQUESTS
           value: $(params.GUIDELLM_MAX_REQUESTS)
         - name: ACCELERATOR
           value: $(params.ACCELERATOR)
-        - name: MLFLOW_EXPERIMENT_NAME
+        - name: EXPERIMENT_NAME
           value: $(params.MLFLOW_EXPERIMENT_NAME)
         - name: MLFLOW_ENABLED
           value: $(params.MLFLOW_ENABLED)
-        - name: MLFLOW_TAGS
+        - name: TAGS
           value: $(params.MLFLOW_TAGS[*])
         - name: VERSION
           value: $(params.VERSION)
         - name: TP
           value: $(params.TP)
+        - name: RUN_UUID
+          value: $(tasks.generate-run-uuid.results.RUN_UUID)
         - name: BENCHMARK_ENV_VARS
           value: $(params.BENCHMARK_ENV_VARS[*])
       workspaces:
@@ -366,7 +418,7 @@ spec:
         - name: IMAGE
           value: $(params.IMAGE)
         - name: TARGET
-          value: $(params.TARGET)
+          value: $(tasks.deploy-rhaiis.results.ENDPOINT_URL)
         - name: MODEL
           value: $(params.MODEL_NAME)
         - name: ACCELERATOR
@@ -403,22 +455,34 @@ spec:
         - name: results
           workspace: results
 
-    # Stage 5: Cleanup KServe Deployment
-    - name: cleanup-rhaiis
-      runAfter:
-        - run-guidellm-benchmark
-      when:
-        - input: "$(params.SKIP_CLEANUP)"
-          operator: in
-          values: ["false"]
+  # Finally block: Runs regardless of success/failure
+  # Single task that collects artifacts, uploads to MLflow, then cleans up
+  # Note: finally tasks cannot use runAfter, so we use a combined task
+  finally:
+    - name: finalize-pipeline
       taskRef:
-        name: cleanup-rhaiis
+        name: finalize-pipeline-run
       params:
-        - name: MODEL_NAME
-          value: $(params.MODEL_NAME)
+        - name: RUN_UUID
+          value: $(tasks.generate-run-uuid.results.RUN_UUID)
+        - name: DEPLOYMENT_NAME
+          value: $(tasks.deploy-rhaiis.results.DEPLOYMENT_NAME)
         - name: NAMESPACE
           value: $(params.NAMESPACE)
-        - name: WAIT_FOR_DELETION
-          value: "true"
-        - name: SKIP_IF_NOT_EXISTS
-          value: "true"
+        - name: PIPELINERUN_NAME
+          value: $(context.pipelineRun.name)
+        - name: MODEL_NAME
+          value: $(params.MODEL_NAME)
+        - name: ACCELERATOR
+          value: $(params.ACCELERATOR)
+        - name: VERSION
+          value: $(params.VERSION)
+        - name: TP
+          value: $(params.TP)
+        - name: MLFLOW_ENABLED
+          value: $(params.MLFLOW_ENABLED)
+        - name: SKIP_CLEANUP
+          value: $(params.SKIP_CLEANUP)
+      workspaces:
+        - name: artifacts
+          workspace: results

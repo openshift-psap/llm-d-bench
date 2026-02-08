@@ -1,0 +1,79 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: deploy-rhaiis-with-kueue
+  labels:
+    app.kubernetes.io/version: "0.3"
+  annotations:
+    tekton.dev/displayName: "Deploy Model (RHAIIS/vLLM)"
+    tekton.dev/tags: model, deploy, kserve, rhaiis, vllm
+spec:
+  description: >-
+    Deploy a model by applying pre-rendered ServingRuntime and InferenceService manifests.
+    Reads config from workspace and applies it directly.
+
+  params:
+    - name: DEPLOYMENT_NAME
+      description: Deployment name (with unique suffix)
+      type: string
+
+    - name: NAMESPACE
+      description: Namespace for deployment
+      type: string
+
+  workspaces:
+    - name: results
+      description: Workspace containing rendered deployment config
+
+  results:
+    - name: ENDPOINT_URL
+      description: The internal service URL for the deployed model
+    - name: DEPLOYMENT_NAME
+      description: The deployment name (passed through)
+
+  steps:
+    - name: apply-config
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        DEPLOYMENT_NAME="$(params.DEPLOYMENT_NAME)"
+        CONFIG_PATH="/workspace/results/deployment-config.yaml"
+
+        echo "============================================"
+        echo "Deploying Model"
+        echo "============================================"
+        echo "Deployment: $DEPLOYMENT_NAME"
+        echo "Namespace: $(params.NAMESPACE)"
+        echo "Config: $CONFIG_PATH"
+        echo ""
+
+        # Verify config exists
+        if [ ! -f "$CONFIG_PATH" ]; then
+          echo "ERROR: Config file not found at $CONFIG_PATH"
+          exit 1
+        fi
+
+        echo "Applying deployment config:"
+        echo "============================================"
+        cat "$CONFIG_PATH"
+        echo ""
+        echo "============================================"
+
+        # Apply the config
+        oc apply -f "$CONFIG_PATH"
+
+        echo ""
+        echo "ServingRuntime and InferenceService created successfully!"
+        echo ""
+
+        # Output results
+        ENDPOINT_URL="http://${DEPLOYMENT_NAME}-predictor.$(params.NAMESPACE).svc.cluster.local:8080"
+        printf "%s" "$ENDPOINT_URL" > $(results.ENDPOINT_URL.path)
+        printf "%s" "$DEPLOYMENT_NAME" > $(results.DEPLOYMENT_NAME.path)
+
+        echo "Endpoint URL: $ENDPOINT_URL"
+        echo "Deployment Name: $DEPLOYMENT_NAME"
+        echo ""
+        echo "Use wait-for-endpoint task to wait for the service to be ready."

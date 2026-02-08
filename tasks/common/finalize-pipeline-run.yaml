@@ -1,0 +1,413 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: finalize-pipeline-run
+  annotations:
+    tekton.dev/displayName: "Finalize Pipeline Run"
+    tekton.dev/categories: "Common"
+    tekton.dev/tags: "finally,cleanup,mlflow,artifacts"
+spec:
+  description: |
+    Combined finally task that runs sequentially:
+    1. Collect all artifacts (vLLM logs, task logs, configs)
+    2. Upload to MLflow (if enabled)
+    3. Cleanup deployment (if not skipped)
+
+    This task is designed for the finally block where runAfter is not allowed.
+
+  params:
+    - name: RUN_UUID
+      description: Unique run identifier
+      type: string
+
+    - name: DEPLOYMENT_NAME
+      description: InferenceService deployment name
+      type: string
+      default: ""
+
+    - name: NAMESPACE
+      description: Namespace
+      type: string
+
+    - name: PIPELINERUN_NAME
+      description: Name of the PipelineRun
+      type: string
+
+    - name: MODEL_NAME
+      description: Model name
+      type: string
+
+    - name: ACCELERATOR
+      description: GPU accelerator type
+      type: string
+      default: ""
+
+    - name: VERSION
+      description: Version tag
+      type: string
+      default: ""
+
+    - name: TP
+      description: Tensor parallelism
+      type: string
+      default: "1"
+
+    - name: MLFLOW_ENABLED
+      description: Enable MLflow upload
+      type: string
+      default: "false"
+
+    - name: SKIP_CLEANUP
+      description: Skip deployment cleanup
+      type: string
+      default: "false"
+
+  workspaces:
+    - name: artifacts
+      description: Workspace for collected artifacts
+
+  steps:
+    # Step 1: Collect vLLM pod logs
+    - name: collect-vllm-logs
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        RUN_UUID="$(params.RUN_UUID)"
+        DEPLOYMENT_NAME="$(params.DEPLOYMENT_NAME)"
+        NAMESPACE="$(params.NAMESPACE)"
+        ARTIFACT_DIR="$(workspaces.artifacts.path)/${RUN_UUID}"
+
+        mkdir -p "${ARTIFACT_DIR}/vllm-logs"
+        mkdir -p "${ARTIFACT_DIR}/task-logs"
+        mkdir -p "${ARTIFACT_DIR}/configs"
+
+        echo "============================================"
+        echo "Step 1: Collecting vLLM Logs"
+        echo "============================================"
+        echo "Run UUID: ${RUN_UUID}"
+        echo "Deployment: ${DEPLOYMENT_NAME}"
+
+        if [ -z "${DEPLOYMENT_NAME}" ]; then
+          echo "No deployment name provided, skipping vLLM log collection"
+          exit 0
+        fi
+
+        # Try multiple selectors to find vLLM pods
+        FOUND_PODS=0
+
+        # Method 1: KServe InferenceService selector
+        for pod in $(oc get pods -n ${NAMESPACE} \
+          --selector=serving.kserve.io/inferenceservice=${DEPLOYMENT_NAME} \
+          -o name 2>/dev/null || true); do
+          POD_NAME=$(basename $pod)
+          echo "Found pod: ${POD_NAME}"
+          FOUND_PODS=$((FOUND_PODS + 1))
+
+          oc logs -n ${NAMESPACE} ${pod} --all-containers \
+            > "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}.log" 2>&1 || true
+
+          oc logs -n ${NAMESPACE} ${pod} --all-containers --previous \
+            > "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}-previous.log" 2>&1 || true
+
+          # Remove empty previous log files
+          [ ! -s "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}-previous.log" ] && \
+            rm -f "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}-previous.log"
+
+          oc describe pod ${POD_NAME} -n ${NAMESPACE} \
+            > "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}-describe.txt" 2>&1 || true
+        done
+
+        # Method 2: Name-based search
+        if [ ${FOUND_PODS} -eq 0 ]; then
+          for pod in $(oc get pods -n ${NAMESPACE} -o name 2>/dev/null | grep "${DEPLOYMENT_NAME}" || true); do
+            POD_NAME=$(basename $pod)
+            echo "Found pod: ${POD_NAME}"
+            FOUND_PODS=$((FOUND_PODS + 1))
+
+            oc logs -n ${NAMESPACE} ${pod} --all-containers \
+              > "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}.log" 2>&1 || true
+            oc logs -n ${NAMESPACE} ${pod} --all-containers --previous \
+              > "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}-previous.log" 2>&1 || true
+            [ ! -s "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}-previous.log" ] && \
+              rm -f "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}-previous.log"
+          done
+        fi
+
+        echo "Collected logs from ${FOUND_PODS} vLLM pod(s)"
+
+    # Step 2: Collect task logs
+    - name: collect-task-logs
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        RUN_UUID="$(params.RUN_UUID)"
+        PIPELINERUN_NAME="$(params.PIPELINERUN_NAME)"
+        NAMESPACE="$(params.NAMESPACE)"
+        ARTIFACT_DIR="$(workspaces.artifacts.path)/${RUN_UUID}"
+
+        echo "============================================"
+        echo "Step 2: Collecting Task Logs"
+        echo "============================================"
+
+        FOUND_TASKS=0
+        for pod in $(oc get pods -n ${NAMESPACE} \
+          -l tekton.dev/pipelineRun=${PIPELINERUN_NAME} \
+          -o name 2>/dev/null || true); do
+          POD_NAME=$(basename $pod)
+          echo "Collecting: ${POD_NAME}"
+          FOUND_TASKS=$((FOUND_TASKS + 1))
+          oc logs -n ${NAMESPACE} ${pod} --all-containers \
+            > "${ARTIFACT_DIR}/task-logs/${POD_NAME}.log" 2>&1 || true
+        done
+
+        echo "Collected logs from ${FOUND_TASKS} task pod(s)"
+
+        # Get TaskRun and PipelineRun status
+        oc get taskruns -n ${NAMESPACE} \
+          -l tekton.dev/pipelineRun=${PIPELINERUN_NAME} \
+          -o yaml > "${ARTIFACT_DIR}/task-logs/taskruns-status.yaml" 2>&1 || true
+
+        oc get pipelinerun ${PIPELINERUN_NAME} -n ${NAMESPACE} \
+          -o yaml > "${ARTIFACT_DIR}/task-logs/pipelinerun-status.yaml" 2>&1 || true
+
+    # Step 3: Collect configs and create metadata
+    - name: collect-configs
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        RUN_UUID="$(params.RUN_UUID)"
+        DEPLOYMENT_NAME="$(params.DEPLOYMENT_NAME)"
+        NAMESPACE="$(params.NAMESPACE)"
+        PIPELINERUN_NAME="$(params.PIPELINERUN_NAME)"
+        MODEL_NAME="$(params.MODEL_NAME)"
+        ARTIFACT_DIR="$(workspaces.artifacts.path)/${RUN_UUID}"
+
+        echo "============================================"
+        echo "Step 3: Collecting Configs & Metadata"
+        echo "============================================"
+
+        if [ -n "${DEPLOYMENT_NAME}" ]; then
+          oc get inferenceservice ${DEPLOYMENT_NAME} -n ${NAMESPACE} \
+            -o yaml > "${ARTIFACT_DIR}/configs/inferenceservice.yaml" 2>/dev/null || true
+          oc get servingruntime ${DEPLOYMENT_NAME} -n ${NAMESPACE} \
+            -o yaml > "${ARTIFACT_DIR}/configs/servingruntime.yaml" 2>/dev/null || true
+        fi
+
+        # Copy rendered config if exists
+        [ -f "$(workspaces.artifacts.path)/deployment-config.yaml" ] && \
+          cp "$(workspaces.artifacts.path)/deployment-config.yaml" \
+            "${ARTIFACT_DIR}/configs/rendered-deployment-config.yaml"
+
+        # Get pipeline status
+        PIPELINE_STATUS=$(oc get pipelinerun ${PIPELINERUN_NAME} -n ${NAMESPACE} \
+          -o jsonpath='{.status.conditions[0].reason}' 2>/dev/null || echo "Unknown")
+
+        # Create metadata
+        cat > "${ARTIFACT_DIR}/metadata.json" <<EOF
+        {
+          "run_uuid": "${RUN_UUID}",
+          "model_name": "${MODEL_NAME}",
+          "deployment_name": "${DEPLOYMENT_NAME}",
+          "pipelinerun_name": "${PIPELINERUN_NAME}",
+          "namespace": "${NAMESPACE}",
+          "pipeline_status": "${PIPELINE_STATUS}",
+          "accelerator": "$(params.ACCELERATOR)",
+          "version": "$(params.VERSION)",
+          "tp": "$(params.TP)",
+          "collected_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+        }
+        EOF
+
+        echo "Metadata created. Pipeline status: ${PIPELINE_STATUS}"
+
+        # Create archive
+        cd "$(workspaces.artifacts.path)"
+        tar -czvf "${RUN_UUID}-artifacts.tar.gz" "${RUN_UUID}/" 2>/dev/null || true
+        echo "Archive created: ${RUN_UUID}-artifacts.tar.gz"
+
+    # Step 4: Upload to MLflow (if enabled)
+    - name: upload-to-mlflow
+      image: python:3.11-slim
+      env:
+        - name: MLFLOW_TRACKING_URI
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: tracking_uri
+              optional: true
+        - name: MLFLOW_TRACKING_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: username
+              optional: true
+        - name: MLFLOW_TRACKING_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: password
+              optional: true
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: AWS_ACCESS_KEY_ID
+              optional: true
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: AWS_SECRET_ACCESS_KEY
+              optional: true
+        - name: MLFLOW_TRACKING_INSECURE_TLS
+          value: "true"
+      script: |
+        #!/usr/bin/env python3
+        import os
+        import sys
+        import json
+
+        mlflow_enabled = "$(params.MLFLOW_ENABLED)"
+        if mlflow_enabled.lower() != "true":
+            print("MLflow upload disabled, skipping")
+            sys.exit(0)
+
+        mlflow_uri = os.environ.get("MLFLOW_TRACKING_URI", "")
+        if not mlflow_uri:
+            print("MLFLOW_TRACKING_URI not set, skipping upload")
+            sys.exit(0)
+
+        run_uuid = "$(params.RUN_UUID)"
+        model_name = "$(params.MODEL_NAME)"
+        accelerator = "$(params.ACCELERATOR)"
+        version = "$(params.VERSION)"
+        tp = "$(params.TP)"
+        workspace_path = "$(workspaces.artifacts.path)"
+        artifact_dir = f"{workspace_path}/{run_uuid}"
+
+        print("=" * 50)
+        print("Step 4: Uploading to MLflow")
+        print("=" * 50)
+        print(f"Run UUID: {run_uuid}")
+        print(f"Model: {model_name}")
+
+        # Install mlflow
+        import subprocess
+        subprocess.run(['pip', 'install', '--quiet', 'mlflow', 'boto3'], check=True)
+
+        import mlflow
+        import urllib3
+        urllib3.disable_warnings()
+
+        try:
+            # Try to find existing run by searching for run_uuid tag
+            experiment_name = model_name.replace("/", "-")
+            mlflow.set_experiment(experiment_name)
+
+            # Search for existing run with this UUID
+            client = mlflow.tracking.MlflowClient()
+            runs = client.search_runs(
+                experiment_ids=[mlflow.get_experiment_by_name(experiment_name).experiment_id],
+                filter_string=f"tags.run_uuid = '{run_uuid}'"
+            )
+
+            if runs:
+                # Append to existing run created by guidellm
+                run_id = runs[0].info.run_id
+                print(f"Found existing MLflow run: {run_id}")
+
+                # Log additional artifacts
+                archive_path = f"{workspace_path}/{run_uuid}-artifacts.tar.gz"
+                if os.path.exists(archive_path):
+                    client.log_artifact(run_id, archive_path, "pipeline-artifacts")
+
+                vllm_logs = f"{artifact_dir}/vllm-logs"
+                if os.path.exists(vllm_logs) and os.listdir(vllm_logs):
+                    for f in os.listdir(vllm_logs):
+                        client.log_artifact(run_id, f"{vllm_logs}/{f}", "vllm-logs")
+
+                task_logs = f"{artifact_dir}/task-logs"
+                if os.path.exists(task_logs) and os.listdir(task_logs):
+                    for f in os.listdir(task_logs):
+                        client.log_artifact(run_id, f"{task_logs}/{f}", "task-logs")
+
+                print(f"Appended artifacts to existing run: {run_id}")
+
+            else:
+                # Create new run (guidellm didn't create one or MLflow was disabled for benchmark)
+                print("No existing run found, creating new one")
+                with mlflow.start_run(run_name=run_uuid) as run:
+                    mlflow.set_tag("run_uuid", run_uuid)
+                    mlflow.set_tag("pipeline_run_uuid", run_uuid)
+                    mlflow.log_param("model_name", model_name)
+                    mlflow.log_param("accelerator", accelerator)
+                    mlflow.log_param("version", version)
+                    mlflow.log_param("tp", tp)
+
+                    archive_path = f"{workspace_path}/{run_uuid}-artifacts.tar.gz"
+                    if os.path.exists(archive_path):
+                        mlflow.log_artifact(archive_path, "pipeline-artifacts")
+
+                    vllm_logs = f"{artifact_dir}/vllm-logs"
+                    if os.path.exists(vllm_logs):
+                        mlflow.log_artifacts(vllm_logs, "vllm-logs")
+
+                    task_logs = f"{artifact_dir}/task-logs"
+                    if os.path.exists(task_logs):
+                        mlflow.log_artifacts(task_logs, "task-logs")
+
+                    print(f"Created new MLflow run: {run.info.run_id}")
+
+            print("MLflow upload complete")
+
+        except Exception as e:
+            print(f"MLflow upload failed: {e}")
+            print("Continuing with cleanup...")
+
+    # Step 5: Cleanup deployment
+    - name: cleanup-deployment
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        SKIP_CLEANUP="$(params.SKIP_CLEANUP)"
+        if [ "$SKIP_CLEANUP" = "true" ]; then
+          echo "Cleanup skipped (SKIP_CLEANUP=true)"
+          exit 0
+        fi
+
+        DEPLOYMENT_NAME="$(params.DEPLOYMENT_NAME)"
+        NAMESPACE="$(params.NAMESPACE)"
+        MODEL_NAME="$(params.MODEL_NAME)"
+
+        echo "============================================"
+        echo "Step 5: Cleanup Deployment"
+        echo "============================================"
+
+        if [ -z "${DEPLOYMENT_NAME}" ]; then
+          echo "No deployment name, nothing to clean up"
+          exit 0
+        fi
+
+        echo "Deleting InferenceService: ${DEPLOYMENT_NAME}"
+        oc delete inferenceservice ${DEPLOYMENT_NAME} -n ${NAMESPACE} --ignore-not-found=true
+
+        echo "Deleting ServingRuntime: ${DEPLOYMENT_NAME}"
+        oc delete servingruntime ${DEPLOYMENT_NAME} -n ${NAMESPACE} --ignore-not-found=true
+
+        echo "Waiting for pods to terminate..."
+        oc wait --for=delete pod -l serving.kserve.io/inferenceservice=${DEPLOYMENT_NAME} \
+          -n ${NAMESPACE} --timeout=120s 2>/dev/null || true
+
+        echo "Cleanup complete"
+        echo "============================================"
+        echo "Pipeline finalization complete"
+        echo "Run UUID: $(params.RUN_UUID)"
+        echo "============================================"

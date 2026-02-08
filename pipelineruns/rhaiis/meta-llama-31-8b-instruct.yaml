@@ -15,11 +15,11 @@
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
-  generateName: qwen-qwen3-06b-example-
+  generateName: meta-llama-31-8b-instruct
   labels:
     app: llm-d-bench
     pipeline: rhaiis-end-to-end-benchmark
-    experiment: qwen-qwen3-06b-example
+    experiment: qmeta-llama-31-8b-instruct
     benchmark-tool: guidellm
     deployment-mode: rhaiis
 spec:
@@ -40,7 +40,7 @@ spec:
     - name: MODEL_NAME
       # REQUIRED - HuggingFace model identifier
       # Examples: "meta-llama/Llama-3.1-8B", "Qwen/Qwen3-0.6B", "mistralai/Mistral-7B-v0.1"
-      value: "Qwen/Qwen3-0.6B"
+      value: "meta-llama/Llama-3.1-8B-Instruct"
 
     - name: MODEL_REVISION
       # DEFAULT: "main"
@@ -61,7 +61,7 @@ spec:
       #   - RHAIIS: "registry.redhat.io/rhaiis/vllm-cuda-rhel9:3.2.3" (Red Hat supported)
       #   - Upstream: "vllm/vllm-openai:latest" (community)
       #   - Custom: Your own vLLM image
-      value: "registry.redhat.io/rhaiis/vllm-cuda-rhel9:3.2.3"
+      value: "registry.redhat.io/rhaiis/vllm-cuda-rhel9:3.2.5"
 
     - name: REPLICAS
       # DEFAULT: "1"
@@ -117,7 +117,7 @@ spec:
       # DEFAULT: "" (empty, uses MODEL_NAME)
       # Tokenizer/processor model name for GuideLLM
       # Set explicitly if different from MODEL_NAME
-      value: "Qwen/Qwen3-0.6B"
+      value: "meta-llama/Llama-3.1-8B-Instruct"
 
     - name: GUIDELLM_BACKEND_TYPE
       # DEFAULT: "openai_http"
@@ -137,20 +137,20 @@ spec:
       # Comma-separated list of rates to test
       # For concurrent: number of concurrent requests
       # For synchronous: requests per second
-      value: "1,50,100,200"
+      value: "1,50,100"
 
     - name: GUIDELLM_DATA
       # DEFAULT: "prompt_tokens=1000,output_tokens=1000"
       # Request data profile
       # Format: prompt_tokens=N,output_tokens=M
       # Or use dataset name: "emulated:prompt_tokens=1000,output_tokens=1000"
-      value: "prompt_tokens=512,output_tokens=2048"
+      value: "prompt_tokens=1000,output_tokens=1000"
 
     - name: GUIDELLM_MAX_SECONDS
       # DEFAULT: "600"
       # Maximum duration per rate in seconds
       # Set lower for quick tests, higher for stable measurements
-      value: "60"
+      value: "100"
 
     - name: GUIDELLM_MAX_REQUESTS
       # DEFAULT: "" (unlimited)
@@ -170,13 +170,13 @@ spec:
     - name: MLFLOW_EXPERIMENT_NAME
       # DEFAULT: "guidellm-benchmarks"
       # MLflow experiment name
-      value: "qwen-qwen3-06b"
+      value: "meta-llama-31-8b-instruct"
 
     - name: VERSION
       # DEFAULT: "" (empty)
       # Version identifier for visualization reports
       # Useful for comparing different configurations
-      value: "RHAIIS-3.2.3"
+      value: "RHAIIS-3.2.5"
 
     - name: ACCELERATOR
       # DEFAULT: "" (empty)

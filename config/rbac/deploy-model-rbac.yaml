@@ -12,11 +12,12 @@ metadata:
   labels:
     app: llm-d-bench
 rules:
-  # Allow creating, getting, and deleting LLMInferenceService resources
+  # Allow creating, getting, and deleting LLMInferenceService and InferenceService resources
   - apiGroups:
       - serving.kserve.io
     resources:
       - llminferenceservices
+      - inferenceservices
     verbs:
       - create
       - get
@@ -24,6 +25,30 @@ rules:
       - update
       - patch
       - delete
+
+  # Kubernetes batch Jobs (for Kueue integration)
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
+    verbs:
+      - create
+      - get
+      - list
+      - update
+      - patch
+      - delete
+      - watch
+
+  # Kueue workloads (for checking admission status)
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - workloads
+    verbs:
+      - get
+      - list
+      - watch
 
   # Allow managing namespaces (for Helm --create-namespace flag)
   - apiGroups:
@@ -249,11 +274,12 @@ rules:
       - get
 
   # Cross-namespace deployment permissions (all rules from Role)
-  # Allow creating, getting, and deleting LLMInferenceService resources
+  # Allow creating, getting, and deleting LLMInferenceService and InferenceService resources
   - apiGroups:
       - serving.kserve.io
     resources:
       - llminferenceservices
+      - inferenceservices
     verbs:
       - create
       - get
@@ -261,6 +287,30 @@ rules:
       - update
       - patch
       - delete
+
+  # Kubernetes batch Jobs (for Kueue integration)
+  - apiGroups:
+      - batch
+    resources:
+      - jobs
+    verbs:
+      - create
+      - get
+      - list
+      - update
+      - patch
+      - delete
+      - watch
+
+  # Kueue workloads (for checking admission status)
+  - apiGroups:
+      - kueue.x-k8s.io
+    resources:
+      - workloads
+    verbs:
+      - get
+      - list
+      - watch
 
   # Allow managing namespaces (for Helm --create-namespace flag)
   - apiGroups:

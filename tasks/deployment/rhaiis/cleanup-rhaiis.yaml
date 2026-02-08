@@ -16,6 +16,10 @@ spec:
       description: HuggingFace model identifier
       type: string
 
+    - name: DEPLOYMENT_NAME
+      description: Actual deployment name (with random suffix)
+      type: string
+
     - name: NAMESPACE
       description: Namespace for deployment
       type: string
@@ -37,8 +41,7 @@ spec:
         #!/bin/bash
         set -e
 
-        # Generate deployment name (same logic as deploy task)
-        DEPLOYMENT_NAME=$(echo "$(params.MODEL_NAME)" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-42)
+        DEPLOYMENT_NAME="$(params.DEPLOYMENT_NAME)"
 
         echo "Cleaning up KServe deployment:"
         echo "  Name: $DEPLOYMENT_NAME"

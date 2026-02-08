@@ -1,0 +1,241 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: collect-vllm-logs
+  annotations:
+    tekton.dev/displayName: "Collect vLLM Pod Logs"
+    tekton.dev/categories: "Logging"
+    tekton.dev/tags: "logs,vllm,mlflow"
+spec:
+  description: |
+    Collects logs from vLLM InferenceService predictor pods and uploads to MLflow.
+
+    This task:
+    1. Finds the predictor pod based on InferenceService name
+    2. Retrieves complete pod logs
+    3. Uploads logs to MLflow as artifacts (if enabled)
+    4. Stores logs to PVC workspace for local access
+
+  params:
+    - name: NAMESPACE
+      description: Kubernetes namespace where InferenceService is deployed
+      type: string
+
+    - name: MODEL_NAME
+      description: Model name (used to derive InferenceService name)
+      type: string
+
+    - name: DEPLOYMENT_NAME
+      description: Actual deployment name (with random suffix)
+      type: string
+
+    - name: BENCHMARK_UUID
+      description: Benchmark UUID for correlation
+      type: string
+      default: ""
+
+    - name: MLFLOW_ENABLED
+      description: Enable MLflow artifact upload (true or false)
+      type: string
+      default: "true"
+
+    - name: EXPERIMENT_NAME
+      description: MLflow experiment name
+      type: string
+      default: "guidellm-benchmarks"
+
+  workspaces:
+    - name: logs
+      description: Workspace for storing collected logs
+      optional: true
+
+  steps:
+    - name: collect-logs
+      image: image-registry.openshift-image-registry.svc:5000/openshift/cli:latest
+      env:
+        - name: MLFLOW_ENABLED
+          value: $(params.MLFLOW_ENABLED)
+        - name: MLFLOW_TRACKING_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: username
+              optional: true
+        - name: MLFLOW_TRACKING_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: password
+              optional: true
+        - name: MLFLOW_TRACKING_URI
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: tracking_uri
+              optional: true
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: AWS_ACCESS_KEY_ID
+              optional: true
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: AWS_SECRET_ACCESS_KEY
+              optional: true
+        - name: MLFLOW_TRACKING_INSECURE_TLS
+          value: "true"
+
+      script: |
+        #!/bin/bash
+        set -e
+
+        echo "Collecting vLLM pod logs..."
+        echo "Namespace: $(params.NAMESPACE)"
+        echo "Model: $(params.MODEL_NAME)"
+        echo "Benchmark UUID: $(params.BENCHMARK_UUID)"
+
+        DEPLOYMENT_NAME="$(params.DEPLOYMENT_NAME)"
+        echo "Looking for InferenceService: $DEPLOYMENT_NAME"
+
+        # Find predictor pod (contains "-predictor-" in name)
+        POD_NAME=$(oc get pods -n $(params.NAMESPACE) \
+          --selector=serving.kserve.io/inferenceservice=$DEPLOYMENT_NAME \
+          --field-selector=status.phase=Running \
+          -o jsonpath='{.items[?(@.metadata.name contains "predictor")].metadata.name}' \
+          | head -n 1)
+
+        if [ -z "$POD_NAME" ]; then
+          echo "Warning: No running predictor pod found for $DEPLOYMENT_NAME"
+          echo "Searching for any pod with deployment name..."
+          POD_NAME=$(oc get pods -n $(params.NAMESPACE) \
+            -o name | grep "$DEPLOYMENT_NAME" | grep predictor | head -n 1 | cut -d'/' -f2)
+        fi
+
+        if [ -z "$POD_NAME" ]; then
+          echo "Error: Could not find predictor pod"
+          exit 1
+        fi
+
+        echo "Found predictor pod: $POD_NAME"
+
+        # Create log directory
+        LOG_DIR="/logs/vllm-$(params.BENCHMARK_UUID)"
+        mkdir -p "$LOG_DIR"
+
+        # Collect logs from all containers in the pod
+        echo "Collecting logs from all containers..."
+
+        # Get list of containers
+        CONTAINERS=$(oc get pod $POD_NAME -n $(params.NAMESPACE) -o jsonpath='{.spec.containers[*].name}')
+
+        for container in $CONTAINERS; do
+          echo "Collecting logs from container: $container"
+          LOG_FILE="$LOG_DIR/vllm-${container}.log"
+
+          # Get current logs
+          oc logs $POD_NAME -n $(params.NAMESPACE) -c $container > "$LOG_FILE" 2>&1 || {
+            echo "Warning: Could not get logs from container $container"
+          }
+
+          # Get previous logs if pod was restarted
+          if oc logs $POD_NAME -n $(params.NAMESPACE) -c $container --previous > /dev/null 2>&1; then
+            echo "Found previous logs for container $container"
+            oc logs $POD_NAME -n $(params.NAMESPACE) -c $container --previous > "$LOG_FILE.previous" 2>&1
+          fi
+
+          echo "Saved logs to $LOG_FILE"
+        done
+
+        # Collect pod describe output for troubleshooting
+        echo "Collecting pod description..."
+        oc describe pod $POD_NAME -n $(params.NAMESPACE) > "$LOG_DIR/pod-describe.txt"
+
+        # Collect events related to the pod
+        echo "Collecting pod events..."
+        oc get events -n $(params.NAMESPACE) \
+          --field-selector involvedObject.name=$POD_NAME \
+          --sort-by='.lastTimestamp' > "$LOG_DIR/pod-events.txt" 2>&1 || true
+
+        # Create metadata file
+        cat > "$LOG_DIR/metadata.json" <<EOF
+        {
+          "pod_name": "$POD_NAME",
+          "namespace": "$(params.NAMESPACE)",
+          "model": "$(params.MODEL_NAME)",
+          "deployment_name": "$DEPLOYMENT_NAME",
+          "benchmark_uuid": "$(params.BENCHMARK_UUID)",
+          "collection_timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+          "containers": "$CONTAINERS"
+        }
+        EOF
+
+        echo "Log collection complete. Files saved to $LOG_DIR"
+        ls -lh "$LOG_DIR"
+
+        # Upload to MLflow if enabled
+        if [ "$(params.MLFLOW_ENABLED)" = "true" ] && [ -n "$MLFLOW_TRACKING_URI" ]; then
+          echo "Uploading logs to MLflow..."
+
+          # Install Python and MLflow
+          echo "Installing MLflow..."
+          microdnf install -y python3 python3-pip || {
+            echo "Warning: Could not install Python/pip. Skipping MLflow upload."
+            exit 0
+          }
+
+          pip3 install --quiet mlflow boto3 || {
+            echo "Warning: Could not install MLflow. Skipping upload."
+            exit 0
+          }
+
+          # Upload logs to MLflow
+          python3 <<PYEOF
+        import mlflow
+        import os
+
+        # Disable SSL warnings if needed
+        if os.environ.get("MLFLOW_TRACKING_INSECURE_TLS", "false").lower() == "true":
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+        # Set MLflow tracking URI
+        mlflow.set_tracking_uri(os.environ["MLFLOW_TRACKING_URI"])
+
+        # Set experiment
+        mlflow.set_experiment("$(params.EXPERIMENT_NAME)")
+
+        # Find or create run with our UUID
+        run_id = "$(params.BENCHMARK_UUID)"
+
+        try:
+            # Try to use existing run (created by guidellm benchmark)
+            run = mlflow.get_run(run_id)
+            print(f"Found existing MLflow run: {run_id}")
+
+            # Log artifacts to the existing run
+            client = mlflow.tracking.MlflowClient()
+            client.log_artifact(run_id, "$LOG_DIR", artifact_path="vllm-logs")
+            print(f"Uploaded vLLM logs to MLflow run {run_id}")
+
+        except Exception as e:
+            print(f"Warning: Could not upload logs to MLflow: {e}")
+            print(f"Logs are still available in workspace at: $LOG_DIR")
+        PYEOF
+
+          echo "MLflow upload complete"
+        else
+          echo "MLflow disabled or not configured. Logs saved to workspace only."
+        fi
+
+        echo "vLLM log collection task complete"
+
+      volumeMounts:
+        - name: logs-volume
+          mountPath: /logs
+
+  volumes:
+    - name: logs-volume
+      emptyDir: {}

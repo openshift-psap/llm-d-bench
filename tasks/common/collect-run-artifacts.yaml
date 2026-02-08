@@ -1,0 +1,310 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: collect-run-artifacts
+  annotations:
+    tekton.dev/displayName: "Collect Run Artifacts"
+    tekton.dev/categories: "Common"
+    tekton.dev/tags: "artifacts,logs,finally"
+spec:
+  description: |
+    Collect all artifacts from a pipeline run including:
+    - vLLM pod logs (current and previous if restarted)
+    - Task pod logs for all tasks in this PipelineRun
+    - Benchmark results
+    - Rendered deployment configs
+    - Pod descriptions and events
+
+    This task is designed to run in the 'finally' block and will
+    gracefully handle missing resources.
+
+  params:
+    - name: RUN_UUID
+      description: Unique run identifier
+      type: string
+
+    - name: DEPLOYMENT_NAME
+      description: InferenceService deployment name
+      type: string
+      default: ""
+
+    - name: NAMESPACE
+      description: Namespace
+      type: string
+
+    - name: PIPELINERUN_NAME
+      description: Name of the PipelineRun
+      type: string
+
+    - name: MODEL_NAME
+      description: Model name for organizing artifacts
+      type: string
+
+  workspaces:
+    - name: artifacts
+      description: Workspace to store collected artifacts
+
+  steps:
+    - name: collect-vllm-logs
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        RUN_UUID="$(params.RUN_UUID)"
+        DEPLOYMENT_NAME="$(params.DEPLOYMENT_NAME)"
+        NAMESPACE="$(params.NAMESPACE)"
+        ARTIFACT_DIR="$(workspaces.artifacts.path)/${RUN_UUID}"
+
+        mkdir -p "${ARTIFACT_DIR}/vllm-logs"
+        mkdir -p "${ARTIFACT_DIR}/task-logs"
+        mkdir -p "${ARTIFACT_DIR}/configs"
+
+        echo "============================================"
+        echo "Collecting vLLM Logs"
+        echo "============================================"
+        echo "Run UUID: ${RUN_UUID}"
+        echo "Deployment: ${DEPLOYMENT_NAME}"
+        echo "Namespace: ${NAMESPACE}"
+        echo "============================================"
+
+        if [ -z "${DEPLOYMENT_NAME}" ]; then
+          echo "No deployment name provided, skipping vLLM log collection"
+          exit 0
+        fi
+
+        # Try multiple selectors to find vLLM pods
+        FOUND_PODS=0
+
+        # Method 1: KServe InferenceService selector
+        echo "Looking for pods with KServe selector..."
+        for pod in $(oc get pods -n ${NAMESPACE} \
+          --selector=serving.kserve.io/inferenceservice=${DEPLOYMENT_NAME} \
+          -o name 2>/dev/null || true); do
+          POD_NAME=$(basename $pod)
+          echo "Found pod: ${POD_NAME}"
+          FOUND_PODS=$((FOUND_PODS + 1))
+
+          # Get current logs from all containers
+          echo "  Collecting current logs..."
+          oc logs -n ${NAMESPACE} ${pod} --all-containers \
+            > "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}.log" 2>&1 || true
+
+          # Get previous logs if container restarted
+          echo "  Checking for previous logs..."
+          oc logs -n ${NAMESPACE} ${pod} --all-containers --previous \
+            > "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}-previous.log" 2>&1 || true
+
+          # Remove empty previous log files
+          if [ ! -s "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}-previous.log" ]; then
+            rm -f "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}-previous.log"
+          fi
+
+          # Get pod description
+          echo "  Collecting pod description..."
+          oc describe pod ${POD_NAME} -n ${NAMESPACE} \
+            > "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}-describe.txt" 2>&1 || true
+        done
+
+        # Method 2: Try label-based search if Method 1 found nothing
+        if [ ${FOUND_PODS} -eq 0 ]; then
+          echo "Trying label-based search for model=${DEPLOYMENT_NAME}..."
+          for pod in $(oc get pods -n ${NAMESPACE} -l model=${DEPLOYMENT_NAME} -o name 2>/dev/null || true); do
+            POD_NAME=$(basename $pod)
+            echo "Found pod: ${POD_NAME}"
+            FOUND_PODS=$((FOUND_PODS + 1))
+
+            oc logs -n ${NAMESPACE} ${pod} --all-containers \
+              > "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}.log" 2>&1 || true
+            oc logs -n ${NAMESPACE} ${pod} --all-containers --previous \
+              > "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}-previous.log" 2>&1 || true
+
+            if [ ! -s "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}-previous.log" ]; then
+              rm -f "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}-previous.log"
+            fi
+
+            oc describe pod ${POD_NAME} -n ${NAMESPACE} \
+              > "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}-describe.txt" 2>&1 || true
+          done
+        fi
+
+        # Method 3: Try name-based search if still nothing
+        if [ ${FOUND_PODS} -eq 0 ]; then
+          echo "Trying name-based search for ${DEPLOYMENT_NAME}..."
+          for pod in $(oc get pods -n ${NAMESPACE} -o name 2>/dev/null | grep "${DEPLOYMENT_NAME}" || true); do
+            POD_NAME=$(basename $pod)
+            echo "Found pod: ${POD_NAME}"
+            FOUND_PODS=$((FOUND_PODS + 1))
+
+            oc logs -n ${NAMESPACE} ${pod} --all-containers \
+              > "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}.log" 2>&1 || true
+            oc logs -n ${NAMESPACE} ${pod} --all-containers --previous \
+              > "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}-previous.log" 2>&1 || true
+
+            if [ ! -s "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}-previous.log" ]; then
+              rm -f "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}-previous.log"
+            fi
+
+            oc describe pod ${POD_NAME} -n ${NAMESPACE} \
+              > "${ARTIFACT_DIR}/vllm-logs/${POD_NAME}-describe.txt" 2>&1 || true
+          done
+        fi
+
+        if [ ${FOUND_PODS} -eq 0 ]; then
+          echo "Warning: No vLLM pods found for deployment ${DEPLOYMENT_NAME}"
+          echo "This may be expected if deployment failed or was already cleaned up"
+        else
+          echo "Collected logs from ${FOUND_PODS} pod(s)"
+        fi
+
+        echo "vLLM log collection complete"
+
+    - name: collect-task-logs
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        RUN_UUID="$(params.RUN_UUID)"
+        PIPELINERUN_NAME="$(params.PIPELINERUN_NAME)"
+        NAMESPACE="$(params.NAMESPACE)"
+        ARTIFACT_DIR="$(workspaces.artifacts.path)/${RUN_UUID}"
+
+        echo "============================================"
+        echo "Collecting Task Logs"
+        echo "============================================"
+        echo "PipelineRun: ${PIPELINERUN_NAME}"
+        echo "============================================"
+
+        # Get all TaskRun pods for this PipelineRun
+        FOUND_TASKS=0
+        for pod in $(oc get pods -n ${NAMESPACE} \
+          -l tekton.dev/pipelineRun=${PIPELINERUN_NAME} \
+          -o name 2>/dev/null || true); do
+          POD_NAME=$(basename $pod)
+          echo "Collecting logs from task pod: ${POD_NAME}"
+          FOUND_TASKS=$((FOUND_TASKS + 1))
+
+          oc logs -n ${NAMESPACE} ${pod} --all-containers \
+            > "${ARTIFACT_DIR}/task-logs/${POD_NAME}.log" 2>&1 || true
+        done
+
+        echo "Collected logs from ${FOUND_TASKS} task pod(s)"
+
+        # Get TaskRun status YAML
+        echo "Collecting TaskRun status..."
+        oc get taskruns -n ${NAMESPACE} \
+          -l tekton.dev/pipelineRun=${PIPELINERUN_NAME} \
+          -o yaml > "${ARTIFACT_DIR}/task-logs/taskruns-status.yaml" 2>&1 || true
+
+        # Get PipelineRun status
+        echo "Collecting PipelineRun status..."
+        oc get pipelinerun ${PIPELINERUN_NAME} -n ${NAMESPACE} \
+          -o yaml > "${ARTIFACT_DIR}/task-logs/pipelinerun-status.yaml" 2>&1 || true
+
+        echo "Task log collection complete"
+
+    - name: collect-configs
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        RUN_UUID="$(params.RUN_UUID)"
+        DEPLOYMENT_NAME="$(params.DEPLOYMENT_NAME)"
+        NAMESPACE="$(params.NAMESPACE)"
+        ARTIFACT_DIR="$(workspaces.artifacts.path)/${RUN_UUID}"
+
+        echo "============================================"
+        echo "Collecting Deployment Configs"
+        echo "============================================"
+
+        if [ -z "${DEPLOYMENT_NAME}" ]; then
+          echo "No deployment name provided, skipping config collection"
+          exit 0
+        fi
+
+        # Get InferenceService
+        echo "Collecting InferenceService..."
+        oc get inferenceservice ${DEPLOYMENT_NAME} -n ${NAMESPACE} \
+          -o yaml > "${ARTIFACT_DIR}/configs/inferenceservice.yaml" 2>/dev/null || \
+          echo "InferenceService not found (may have been cleaned up)"
+
+        # Get ServingRuntime
+        echo "Collecting ServingRuntime..."
+        oc get servingruntime ${DEPLOYMENT_NAME} -n ${NAMESPACE} \
+          -o yaml > "${ARTIFACT_DIR}/configs/servingruntime.yaml" 2>/dev/null || \
+          echo "ServingRuntime not found (may have been cleaned up)"
+
+        # Copy rendered config from results workspace if exists
+        if [ -f "$(workspaces.artifacts.path)/deployment-config.yaml" ]; then
+          echo "Copying rendered deployment config..."
+          cp "$(workspaces.artifacts.path)/deployment-config.yaml" \
+            "${ARTIFACT_DIR}/configs/rendered-deployment-config.yaml"
+        fi
+
+        # Get related events
+        echo "Collecting events..."
+        oc get events -n ${NAMESPACE} \
+          --field-selector involvedObject.name=${DEPLOYMENT_NAME} \
+          --sort-by='.lastTimestamp' > "${ARTIFACT_DIR}/configs/events.txt" 2>&1 || true
+
+        echo "Config collection complete"
+
+    - name: create-metadata
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        RUN_UUID="$(params.RUN_UUID)"
+        MODEL_NAME="$(params.MODEL_NAME)"
+        DEPLOYMENT_NAME="$(params.DEPLOYMENT_NAME)"
+        PIPELINERUN_NAME="$(params.PIPELINERUN_NAME)"
+        NAMESPACE="$(params.NAMESPACE)"
+        ARTIFACT_DIR="$(workspaces.artifacts.path)/${RUN_UUID}"
+
+        echo "============================================"
+        echo "Creating Metadata and Archive"
+        echo "============================================"
+
+        # Get pipeline status
+        PIPELINE_STATUS=$(oc get pipelinerun ${PIPELINERUN_NAME} -n ${NAMESPACE} \
+          -o jsonpath='{.status.conditions[0].status}' 2>/dev/null || echo "Unknown")
+
+        PIPELINE_REASON=$(oc get pipelinerun ${PIPELINERUN_NAME} -n ${NAMESPACE} \
+          -o jsonpath='{.status.conditions[0].reason}' 2>/dev/null || echo "Unknown")
+
+        # Create metadata file
+        cat > "${ARTIFACT_DIR}/metadata.json" <<EOF
+        {
+          "run_uuid": "${RUN_UUID}",
+          "model_name": "${MODEL_NAME}",
+          "deployment_name": "${DEPLOYMENT_NAME}",
+          "pipelinerun_name": "${PIPELINERUN_NAME}",
+          "namespace": "${NAMESPACE}",
+          "pipeline_status": "${PIPELINE_STATUS}",
+          "pipeline_reason": "${PIPELINE_REASON}",
+          "collected_at": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+        }
+        EOF
+
+        echo "Metadata created:"
+        cat "${ARTIFACT_DIR}/metadata.json"
+
+        # Create compressed archive
+        echo ""
+        echo "Creating archive..."
+        cd "$(workspaces.artifacts.path)"
+        tar -czvf "${RUN_UUID}-artifacts.tar.gz" "${RUN_UUID}/"
+
+        echo ""
+        echo "============================================"
+        echo "Artifact Collection Summary"
+        echo "============================================"
+        echo "Archive: ${RUN_UUID}-artifacts.tar.gz"
+        ls -lh "${RUN_UUID}-artifacts.tar.gz"
+        echo ""
+        echo "Contents:"
+        find "${RUN_UUID}" -type f | head -20
+        echo "============================================"

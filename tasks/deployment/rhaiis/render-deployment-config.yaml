@@ -1,0 +1,276 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: render-deployment-config
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "Render Deployment Config (Jinja2)"
+    tekton.dev/tags: render, template, jinja2, kserve
+spec:
+  description: |
+    Renders KServe ServingRuntime and InferenceService manifests using Jinja2 templates.
+    Supports multiple accelerators (nvidia, amd) and inference engines.
+
+  params:
+    - name: MODEL_NAME
+      description: HuggingFace model identifier
+      type: string
+
+    - name: DEPLOYMENT_NAME
+      description: Deployment name (with unique suffix)
+      type: string
+
+    - name: NAMESPACE
+      description: Namespace for deployment
+      type: string
+
+    - name: IMAGE
+      description: vLLM container image
+      type: string
+      default: "registry.redhat.io/rhaiis/vllm-cuda-rhel9:3.2.3"
+
+    - name: ACCELERATOR
+      description: Accelerator type (nvidia, amd)
+      type: string
+      default: "nvidia"
+
+    - name: TP
+      description: Tensor parallelism size (number of GPUs)
+      type: string
+      default: "1"
+
+    - name: REPLICAS
+      description: Number of replicas
+      type: string
+      default: "1"
+
+    - name: MODEL_PVC
+      description: PVC name for model storage
+      type: string
+      default: "models-storage"
+
+    - name: MODEL_DIR_NAME
+      description: Model directory name on PVC
+      type: string
+
+    - name: VLLM_ARGS
+      description: Additional vLLM arguments as JSON array
+      type: string
+      default: "[]"
+
+    - name: MODEL_LOADING_TIMEOUT
+      description: Model loading timeout in milliseconds
+      type: string
+      default: "300000"
+
+    - name: KUEUE_QUEUE_NAME
+      description: Kueue LocalQueue name for GPU scheduling
+      type: string
+      default: "psap-benchmark"
+
+    - name: CPU_REQUEST
+      description: CPU request
+      type: string
+      default: "2"
+
+    - name: MEMORY_REQUEST
+      description: Memory request
+      type: string
+      default: "16Gi"
+
+  results:
+    - name: CONFIG_PATH
+      description: Path to rendered config file
+
+  workspaces:
+    - name: results
+      description: Workspace to store rendered config
+
+  steps:
+    - name: render-template
+      image: python:3.11-slim
+      env:
+        - name: MODEL_NAME
+          value: "$(params.MODEL_NAME)"
+        - name: DEPLOYMENT_NAME
+          value: "$(params.DEPLOYMENT_NAME)"
+        - name: NAMESPACE
+          value: "$(params.NAMESPACE)"
+        - name: IMAGE
+          value: "$(params.IMAGE)"
+        - name: ACCELERATOR
+          value: "$(params.ACCELERATOR)"
+        - name: TP
+          value: "$(params.TP)"
+        - name: REPLICAS
+          value: "$(params.REPLICAS)"
+        - name: MODEL_PVC
+          value: "$(params.MODEL_PVC)"
+        - name: MODEL_DIR_NAME
+          value: "$(params.MODEL_DIR_NAME)"
+        - name: VLLM_ARGS_JSON
+          value: "$(params.VLLM_ARGS)"
+        - name: MODEL_LOADING_TIMEOUT
+          value: "$(params.MODEL_LOADING_TIMEOUT)"
+        - name: KUEUE_QUEUE_NAME
+          value: "$(params.KUEUE_QUEUE_NAME)"
+        - name: CPU_REQUEST
+          value: "$(params.CPU_REQUEST)"
+        - name: MEMORY_REQUEST
+          value: "$(params.MEMORY_REQUEST)"
+      script: |
+        #!/usr/bin/env python3
+        import json
+        import os
+        import textwrap
+
+        # Get parameters from environment
+        model_name = os.environ['MODEL_NAME']
+        deployment_name = os.environ['DEPLOYMENT_NAME']
+        namespace = os.environ['NAMESPACE']
+        image = os.environ['IMAGE']
+        accelerator = os.environ['ACCELERATOR']
+        tp = int(os.environ['TP'])
+        replicas = int(os.environ['REPLICAS'])
+        model_pvc = os.environ['MODEL_PVC']
+        model_dir_name = os.environ['MODEL_DIR_NAME']
+        vllm_args_json = os.environ.get('VLLM_ARGS_JSON', '[]')
+        model_loading_timeout = int(os.environ['MODEL_LOADING_TIMEOUT'])
+        kueue_queue_name = os.environ['KUEUE_QUEUE_NAME']
+        cpu_request = os.environ['CPU_REQUEST']
+        memory_request = os.environ['MEMORY_REQUEST']
+
+        # Parse vLLM args
+        try:
+            vllm_args = json.loads(vllm_args_json) if vllm_args_json else []
+        except:
+            vllm_args = []
+
+        # Detect GPU vendor from accelerator name
+        # AMD: MI300X, MI350X, etc.
+        # NVIDIA: H100, H200, A100, L40S, V100, etc. (default)
+        accelerator_lower = accelerator.lower()
+        is_amd = any(x in accelerator_lower for x in ['mi300', 'amd', 'rocm'])
+        gpu_vendor = "amd" if is_amd else "nvidia"
+        gpu_resource = "amd.com/gpu" if is_amd else "nvidia.com/gpu"
+
+        print(f"Detected GPU vendor: {gpu_vendor} (accelerator: {accelerator})")
+
+        # Build vLLM args list
+        base_args = [
+            "--port=8080",
+            "--host=0.0.0.0",
+            "--model=/mnt/models",
+            f"--served-model-name={model_name}",
+            f"--tensor-parallel-size={tp}",
+        ]
+        all_args = base_args + [a for a in vllm_args if a]
+
+        # Environment variables based on accelerator
+        env_vars = [{"name": "HF_HUB_OFFLINE", "value": "1"}]
+        if is_amd:
+            env_vars.append({"name": "VLLM_USE_V1", "value": "1"})
+
+        # Build args YAML
+        args_yaml = "\n".join([f'      - "{arg}"' for arg in all_args])
+
+        # Build env YAML
+        env_yaml = "\n".join([f'      - name: {e["name"]}\n        value: "{e["value"]}"' for e in env_vars])
+
+        # Shared memory volume for TP > 1
+        volume_mounts_yaml = ""
+        volumes_yaml = ""
+        if tp > 1:
+            volume_mounts_yaml = """
+            volumeMounts:
+            - name: shared-memory
+              mountPath: /dev/shm"""
+            volumes_yaml = """
+          volumes:
+          - name: shared-memory
+            emptyDir:
+              medium: Memory
+              sizeLimit: 8Gi"""
+
+        # Generate manifest
+        manifest = f"""apiVersion: serving.kserve.io/v1alpha1
+        kind: ServingRuntime
+        metadata:
+          name: {deployment_name}
+          namespace: {namespace}
+          labels:
+            app: vllm-inference
+            model: {deployment_name}
+            deployment-mode: rhaiis
+        spec:
+          builtInAdapter:
+            modelLoadingTimeoutMillis: {model_loading_timeout}
+          multiModel: false
+          supportedModelFormats:
+          - autoSelect: true
+            name: pytorch
+          containers:
+          - name: kserve-container
+            image: {image}
+            command: ["python3", "-m", "vllm.entrypoints.openai.api_server"]
+            args:
+        {args_yaml}
+            env:
+        {env_yaml}
+            ports:
+              - containerPort: 8080
+                protocol: TCP{volume_mounts_yaml}{volumes_yaml}
+        ---
+        apiVersion: serving.kserve.io/v1beta1
+        kind: InferenceService
+        metadata:
+          name: {deployment_name}
+          namespace: {namespace}
+          labels:
+            app: vllm-inference
+            model: {deployment_name}
+            deployment-mode: rhaiis
+            kueue.x-k8s.io/queue-name: {kueue_queue_name}
+          annotations:
+            serving.kserve.io/deploymentMode: RawDeployment
+            serving.knative.dev/autoscaleClass: external
+            prometheus.io/scrape: "true"
+            prometheus.io/path: "/metrics"
+            prometheus.io/port: "8080"
+        spec:
+          predictor:
+            labels:
+              kueue.x-k8s.io/queue-name: {kueue_queue_name}
+            minReplicas: {replicas}
+            maxReplicas: {replicas}
+            model:
+              runtime: {deployment_name}
+              modelFormat:
+                name: pytorch
+              resources:
+                limits:
+                  {gpu_resource}: "{tp}"
+                requests:
+                  {gpu_resource}: "{tp}"
+                  cpu: "{cpu_request}"
+                  memory: "{memory_request}"
+              storageUri: pvc://{model_pvc}/models/{model_dir_name}
+        """
+
+        # Fix indentation (remove leading spaces from f-string)
+        manifest = textwrap.dedent(manifest)
+
+        # Write to workspace
+        config_path = "/workspace/results/deployment-config.yaml"
+        with open(config_path, 'w') as f:
+            f.write(manifest)
+
+        print(f"Rendered config saved to: {config_path}")
+        print("=" * 50)
+        print(manifest)
+        print("=" * 50)
+
+        # Write result
+        with open("/tekton/results/CONFIG_PATH", 'w') as f:
+            f.write(config_path)

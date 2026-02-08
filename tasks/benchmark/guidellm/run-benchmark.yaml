@@ -91,6 +91,11 @@ spec:
       type: string
       default: "1"
 
+    - name: RUN_UUID
+      description: Pipeline run UUID for tracking correlation. Links benchmark results with vLLM logs and task logs in MLflow.
+      type: string
+      default: ""
+
     - name: LOG_LEVEL
       description: Logging level (DEBUG, INFO, WARNING, ERROR)
       type: string
@@ -220,6 +225,7 @@ spec:
         [ -n "$(params.ACCELERATOR)" ] && ARGS+=(--accelerator "$(params.ACCELERATOR)")
         [ -n "$(params.VERSION)" ] && ARGS+=(--version "$(params.VERSION)")
         [ -n "$(params.TP)" ] && ARGS+=(--tp "$(params.TP)")
+        [ -n "$(params.RUN_UUID)" ] && ARGS+=(--run-uuid "$(params.RUN_UUID)")
 
         if [ "$(params.MLFLOW_ENABLED)" = "true" ]; then
           ARGS+=(--experiment-name "$(params.MLFLOW_EXPERIMENT_NAME)")

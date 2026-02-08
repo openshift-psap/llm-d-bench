@@ -1,0 +1,65 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: generate-deployment-name
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "Generate Unique Deployment Name"
+    tekton.dev/tags: utility, deployment
+spec:
+  description: |
+    Generates a unique deployment name from MODEL_NAME with a random suffix.
+    Also derives the model directory name for PVC storage.
+
+  params:
+    - name: MODEL_NAME
+      description: HuggingFace model identifier
+      type: string
+
+    - name: RUN_UUID
+      description: Pipeline run UUID (5-char). If provided, uses this instead of generating a new random suffix.
+      type: string
+      default: ""
+
+  results:
+    - name: DEPLOYMENT_NAME
+      description: Generated deployment name with unique suffix
+    - name: MODEL_DIR_NAME
+      description: Model directory name (MODEL_NAME with / replaced by -)
+
+  steps:
+    - name: generate-name
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        MODEL_NAME="$(params.MODEL_NAME)"
+        RUN_UUID="$(params.RUN_UUID)"
+
+        # Generate base name from model name
+        BASE_NAME=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-36)
+
+        # Use RUN_UUID if provided, otherwise generate random suffix
+        if [ -n "$RUN_UUID" ]; then
+          SUFFIX="$RUN_UUID"
+          echo "Using pipeline RUN_UUID: $SUFFIX"
+        else
+          SUFFIX=$(head /dev/urandom | tr -dc 'a-z0-9' | head -c 5)
+          echo "Generated random suffix: $SUFFIX"
+        fi
+
+        # Combine for deployment name
+        DEPLOYMENT_NAME="${BASE_NAME}-${SUFFIX}"
+
+        # Model directory name (simple replacement)
+        MODEL_DIR_NAME=$(echo "$MODEL_NAME" | sed 's/\//-/g')
+
+        echo "Model Name: $MODEL_NAME"
+        echo "Deployment Name: $DEPLOYMENT_NAME"
+        echo "Model Dir Name: $MODEL_DIR_NAME"
+
+        # Write results
+        printf "%s" "$DEPLOYMENT_NAME" > $(results.DEPLOYMENT_NAME.path)
+        printf "%s" "$MODEL_DIR_NAME" > $(results.MODEL_DIR_NAME.path)

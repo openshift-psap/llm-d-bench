@@ -1,0 +1,47 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: generate-run-uuid
+  annotations:
+    tekton.dev/displayName: "Generate Run UUID"
+    tekton.dev/categories: "Common"
+    tekton.dev/tags: "uuid,tracking"
+spec:
+  description: |
+    Generate a unique 5-character UUID prefix for the pipeline run.
+    This UUID is used to correlate all tasks, artifacts, and MLflow runs
+    for a single end-to-end benchmark execution.
+
+  results:
+    - name: RUN_UUID
+      description: 5-character unique identifier for this run
+    - name: RUN_TIMESTAMP
+      description: ISO timestamp for the run start
+
+  steps:
+    - name: generate
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        # Generate 5-char alphanumeric UUID (lowercase)
+        RUN_UUID=$(head /dev/urandom | tr -dc 'a-z0-9' | head -c 5)
+        RUN_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+        printf "%s" "$RUN_UUID" > $(results.RUN_UUID.path)
+        printf "%s" "$RUN_TIMESTAMP" > $(results.RUN_TIMESTAMP.path)
+
+        echo "============================================"
+        echo "Pipeline Run Tracking"
+        echo "============================================"
+        echo "Run UUID: $RUN_UUID"
+        echo "Timestamp: $RUN_TIMESTAMP"
+        echo "============================================"
+        echo ""
+        echo "This UUID will be used to track:"
+        echo "  - All task executions in this pipeline"
+        echo "  - vLLM pod logs and artifacts"
+        echo "  - MLflow experiment run"
+        echo "  - Deployment cleanup"
+        echo "============================================"

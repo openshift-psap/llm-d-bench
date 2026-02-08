@@ -1,0 +1,237 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: upload-to-mlflow
+  annotations:
+    tekton.dev/displayName: "Upload to MLflow"
+    tekton.dev/categories: "Common"
+    tekton.dev/tags: "mlflow,artifacts,finally"
+spec:
+  description: |
+    Upload run artifacts and metrics to MLflow.
+
+    This task:
+    1. Creates/finds MLflow experiment based on model name
+    2. Creates a new run with the pipeline's RUN_UUID as the run name
+    3. Logs all parameters (model, accelerator, TP, version, etc.)
+    4. Uploads all collected artifacts (logs, configs, results)
+    5. Logs benchmark metrics if available
+
+  params:
+    - name: RUN_UUID
+      description: Unique run identifier (becomes MLflow run name)
+      type: string
+
+    - name: MODEL_NAME
+      description: Model name (used as experiment name)
+      type: string
+
+    - name: ACCELERATOR
+      description: GPU accelerator type
+      type: string
+      default: ""
+
+    - name: VERSION
+      description: Version tag (e.g., RHAIIS-3.2.3)
+      type: string
+      default: ""
+
+    - name: TP
+      description: Tensor parallelism
+      type: string
+      default: "1"
+
+    - name: PIPELINERUN_NAME
+      description: Name of the PipelineRun
+      type: string
+      default: ""
+
+    - name: PIPELINE_STATUS
+      description: Pipeline execution status
+      type: string
+      default: ""
+
+  workspaces:
+    - name: artifacts
+      description: Workspace containing collected artifacts
+
+  steps:
+    - name: upload
+      image: python:3.11-slim
+      env:
+        - name: MLFLOW_TRACKING_URI
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: tracking_uri
+              optional: true
+        - name: MLFLOW_TRACKING_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: username
+              optional: true
+        - name: MLFLOW_TRACKING_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: password
+              optional: true
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: AWS_ACCESS_KEY_ID
+              optional: true
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: AWS_SECRET_ACCESS_KEY
+              optional: true
+        - name: MLFLOW_TRACKING_INSECURE_TLS
+          value: "true"
+      script: |
+        #!/usr/bin/env python3
+        import os
+        import sys
+        import json
+        import subprocess
+
+        run_uuid = "$(params.RUN_UUID)"
+        model_name = "$(params.MODEL_NAME)"
+        accelerator = "$(params.ACCELERATOR)"
+        version = "$(params.VERSION)"
+        tp = "$(params.TP)"
+        pipelinerun_name = "$(params.PIPELINERUN_NAME)"
+        pipeline_status = "$(params.PIPELINE_STATUS)"
+        workspace_path = "$(workspaces.artifacts.path)"
+
+        artifact_dir = f"{workspace_path}/{run_uuid}"
+        archive_path = f"{workspace_path}/{run_uuid}-artifacts.tar.gz"
+
+        print("=" * 60)
+        print("MLflow Upload")
+        print("=" * 60)
+        print(f"Run UUID: {run_uuid}")
+        print(f"Model: {model_name}")
+        print(f"Accelerator: {accelerator}")
+        print(f"Version: {version}")
+        print(f"TP: {tp}")
+        print("=" * 60)
+
+        # Check if MLflow is configured
+        mlflow_uri = os.environ.get("MLFLOW_TRACKING_URI", "")
+        if not mlflow_uri:
+            print("Warning: MLFLOW_TRACKING_URI not set. Skipping upload.")
+            print("Artifacts are available in workspace.")
+            sys.exit(0)
+
+        # Install mlflow
+        print("\nInstalling MLflow...")
+        result = subprocess.run(
+            ['pip', 'install', '--quiet', 'mlflow', 'boto3'],
+            capture_output=True, text=True
+        )
+        if result.returncode != 0:
+            print(f"Warning: Could not install MLflow: {result.stderr}")
+            sys.exit(0)
+
+        import mlflow
+        import urllib3
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+        try:
+            # Set experiment (creates if not exists)
+            # Use model name as experiment, replacing / with -
+            experiment_name = model_name.replace("/", "-")
+            print(f"\nSetting experiment: {experiment_name}")
+            mlflow.set_experiment(experiment_name)
+
+            # Start run with UUID as run name
+            print(f"Creating MLflow run: {run_uuid}")
+            with mlflow.start_run(run_name=run_uuid) as run:
+                mlflow_run_id = run.info.run_id
+
+                # Log parameters
+                print("\nLogging parameters...")
+                mlflow.log_param("run_uuid", run_uuid)
+                mlflow.log_param("model_name", model_name)
+                mlflow.log_param("accelerator", accelerator)
+                mlflow.log_param("version", version)
+                mlflow.log_param("tensor_parallelism", tp)
+                mlflow.log_param("pipelinerun_name", pipelinerun_name)
+
+                # Log metadata from collected artifacts
+                metadata_path = f"{artifact_dir}/metadata.json"
+                if os.path.exists(metadata_path):
+                    print("Loading metadata...")
+                    with open(metadata_path) as f:
+                        metadata = json.load(f)
+                    mlflow.log_param("pipeline_status", metadata.get("pipeline_status", "Unknown"))
+                    mlflow.log_param("pipeline_reason", metadata.get("pipeline_reason", "Unknown"))
+                    mlflow.log_param("collected_at", metadata.get("collected_at", ""))
+
+                # Log benchmark results if exists
+                # Check multiple possible locations
+                results_files = [
+                    f"{artifact_dir}/benchmark-results.json",
+                    f"{workspace_path}/benchmark-results.json",
+                    f"{artifact_dir}/guidellm-results.json",
+                    f"{workspace_path}/guidellm-results.json"
+                ]
+
+                for results_path in results_files:
+                    if os.path.exists(results_path):
+                        print(f"Found benchmark results: {results_path}")
+                        try:
+                            with open(results_path) as f:
+                                results = json.load(f)
+
+                            # Log key metrics
+                            if isinstance(results, dict):
+                                for key in ["throughput", "latency_p50", "latency_p99",
+                                             "tokens_per_second", "requests_per_second"]:
+                                    if key in results:
+                                        mlflow.log_metric(key, float(results[key]))
+                                        print(f"  Logged metric: {key}={results[key]}")
+                        except Exception as e:
+                            print(f"Warning: Could not parse results: {e}")
+                        break
+
+                # Upload artifact archive
+                print("\nUploading artifacts...")
+                if os.path.exists(archive_path):
+                    mlflow.log_artifact(archive_path, "archives")
+                    print(f"  Uploaded: {archive_path}")
+
+                # Upload individual log files for easy access
+                vllm_logs_dir = f"{artifact_dir}/vllm-logs"
+                if os.path.exists(vllm_logs_dir) and os.listdir(vllm_logs_dir):
+                    mlflow.log_artifacts(vllm_logs_dir, "vllm-logs")
+                    print(f"  Uploaded: vllm-logs/")
+
+                task_logs_dir = f"{artifact_dir}/task-logs"
+                if os.path.exists(task_logs_dir) and os.listdir(task_logs_dir):
+                    mlflow.log_artifacts(task_logs_dir, "task-logs")
+                    print(f"  Uploaded: task-logs/")
+
+                configs_dir = f"{artifact_dir}/configs"
+                if os.path.exists(configs_dir) and os.listdir(configs_dir):
+                    mlflow.log_artifacts(configs_dir, "configs")
+                    print(f"  Uploaded: configs/")
+
+                print("\n" + "=" * 60)
+                print("MLflow Upload Complete")
+                print("=" * 60)
+                print(f"MLflow Run ID: {mlflow_run_id}")
+                print(f"Experiment: {experiment_name}")
+                print(f"Run Name (UUID): {run_uuid}")
+                print(f"Tracking URI: {mlflow_uri}")
+                print("=" * 60)
+
+        except Exception as e:
+            print(f"\nError uploading to MLflow: {e}")
+            print("Artifacts are still available in workspace.")
+            # Don't fail the task - artifacts are still collected
+            sys.exit(0)
