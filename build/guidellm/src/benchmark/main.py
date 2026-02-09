@@ -47,6 +47,66 @@ def _get_nested(d: Dict[str, Any], *keys: str, default: Any = None) -> Any:
     return d
 
 
+def parse_multiturn_expression(expression: str, concurrency: int) -> str:
+    """
+    Parse expression containing '*concurrency' and replace with actual value.
+
+    Examples:
+        "2*concurrency" with concurrency=32 -> "64"
+        "10*concurrency" with concurrency=64 -> "640"
+        "128" with concurrency=32 -> "128"
+
+    Args:
+        expression: String expression that may contain '*concurrency'
+        concurrency: The concurrency value to substitute
+
+    Returns:
+        Parsed string with concurrency substituted
+    """
+    expression = str(expression).strip()
+    if "*concurrency" in expression.lower():
+        # Extract the multiplier
+        parts = expression.lower().split("*concurrency")
+        try:
+            multiplier = int(parts[0].strip())
+            return str(multiplier * concurrency)
+        except ValueError:
+            logger.warning(f"Could not parse multiplier in expression: {expression}")
+            return expression
+    return expression
+
+
+def parse_multiturn_data_param(data: str, concurrency: int) -> str:
+    """
+    Parse data parameter and replace *concurrency expressions.
+
+    Example:
+        "prompt_tokens=128,output_tokens=128,prefix_count=2*concurrency"
+        with concurrency=32 becomes
+        "prompt_tokens=128,output_tokens=128,prefix_count=64"
+
+    Args:
+        data: Data parameter string with potential *concurrency expressions
+        concurrency: The concurrency value to substitute
+
+    Returns:
+        Parsed data string with concurrency values substituted
+    """
+    if not data:
+        return data
+
+    parts = []
+    for part in data.split(","):
+        if "=" in part:
+            key, value = part.split("=", 1)
+            parsed_value = parse_multiturn_expression(value.strip(), concurrency)
+            parts.append(f"{key.strip()}={parsed_value}")
+        else:
+            parts.append(part.strip())
+
+    return ",".join(parts)
+
+
 def extract_metrics_from_benchmark(benchmark: Dict[str, Any]) -> Dict[str, Any]:
     metrics = {}
     try:
@@ -486,12 +546,18 @@ def run_benchmark_with_mlflow(
 
     mlflow.set_experiment(experiment_name)
 
+    # Check if multi-turn mode is enabled
+    multiturn_mode = os.environ.get("MULTITURN", "false").lower() == "true"
+
     # Run name for the whole sweep
-    run_name = (
-        f"{model.split('/')[-1]}_sweep_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    )
+    mode_suffix = "multiturn" if multiturn_mode else "sweep"
+    run_name = f"{model.split('/')[-1]}_{mode_suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
     logger.info(f"Starting benchmark sweep: rates={rate}")
+    if multiturn_mode:
+        logger.info(
+            "MULTITURN mode enabled - running separate commands per concurrency"
+        )
 
     with mlflow.start_run(run_name=run_name) as run:
         try:
@@ -506,6 +572,7 @@ def run_benchmark_with_mlflow(
                 "replicas": replicas,
                 "prefill_replicas": prefill_replicas,
                 "decode_replicas": decode_replicas,
+                "multiturn_mode": multiturn_mode,
             }
             if data:
                 params.update(
@@ -547,71 +614,177 @@ def run_benchmark_with_mlflow(
                 default_tags.update(tags)
             mlflow.set_tags(default_tags)
 
-            (
-                json_path,
-                console_log_path,
-                benchmarks,
-                html_report,
-            ) = _run_and_process_benchmark(
-                target=target,
-                model=model,
-                rate=rate,
-                backend_type=backend_type,
-                rate_type=rate_type,
-                data=data,
-                max_seconds=max_seconds,
-                max_requests=max_requests,
-                processor=processor,
-                output_dir="/tmp",
-                accelerator=accelerator,
-                version=version,
-                tp_size=tp_size,
-                runtime_args=runtime_args,
-                replicas=int(replicas) if replicas != "N/A" else 1,
-            )
+            # Multi-turn mode: loop over concurrencies and run separate commands
+            if multiturn_mode:
+                concurrencies = [r.strip() for r in rate.split(",")]
+                logger.info(f"Running {len(concurrencies)} separate benchmark commands")
 
-            if not benchmarks:
-                logger.warning("No benchmarks found in JSON output")
-
-            for benchmark in benchmarks:
-                concurrency_step = 0
-                config_or_args = benchmark.get("config") or benchmark.get("args", {})
-                try:
-                    concurrency_step = int(config_or_args["strategy"]["streams"])
-                except (KeyError, TypeError, IndexError):
+                for concurrency_str in concurrencies:
                     try:
-                        concurrency_step = int(config_or_args["profile"]["streams"][0])
-                    except (KeyError, TypeError, IndexError):
-                        logger.warning(
-                            "Could not find concurrency 'streams'. "
-                            "Metrics will be logged without a step."
+                        concurrency = int(concurrency_str)
+                        logger.info(f"Starting benchmark for concurrency={concurrency}")
+
+                        # Parse data and max_requests with concurrency substitution
+                        parsed_data = (
+                            parse_multiturn_data_param(data, concurrency)
+                            if data
+                            else None
+                        )
+                        parsed_max_requests = None
+                        if max_requests:
+                            parsed_max_requests = int(
+                                parse_multiturn_expression(
+                                    str(max_requests), concurrency
+                                )
+                            )
+
+                        logger.info(f"  Original data: {data}")
+                        logger.info(f"  Parsed data: {parsed_data}")
+                        logger.info(f"  Original max_requests: {max_requests}")
+                        logger.info(f"  Parsed max_requests: {parsed_max_requests}")
+
+                        # Generate unique output paths for this concurrency
+                        output_json = f"/tmp/benchmark_output_rate_{concurrency}.json"
+                        console_log_path = output_json.replace(".json", "_console.log")
+
+                        # Run guidellm for this concurrency only
+                        json_path, console_log = run_guidellm_cli(
+                            target=target,
+                            model=model,
+                            rate=concurrency_str,
+                            backend_type=backend_type,
+                            rate_type=rate_type,
+                            data=parsed_data,
+                            max_seconds=max_seconds,
+                            max_requests=parsed_max_requests,
+                            processor=processor,
+                            output_path=output_json,
                         )
 
-                metrics = extract_metrics_from_benchmark(benchmark)
-                if metrics:
-                    metrics["concurrency"] = concurrency_step
-                    for key, value in metrics.items():
-                        mlflow.log_metric(key, value, step=concurrency_step)
-                    logger.info(
-                        f"Logged {len(metrics)} metrics for step "
-                        f"(concurrency={concurrency_step})"
-                    )
+                        # Process results
+                        benchmarks = []
+                        if Path(json_path).exists():
+                            logger.info(f"Benchmark results saved to: {json_path}")
+                            with open(json_path, "r") as f:
+                                result_json = json.load(f)
+                            benchmarks = result_json.get("benchmarks", [])
+                            logger.info(f"Found {len(benchmarks)} benchmark results")
+                        else:
+                            logger.warning(f"Output JSON not found: {json_path}")
 
-            if Path(json_path).exists():
-                mlflow.log_artifact(json_path, "results")
-                logger.info("Logged full JSON artifact")
+                        # Extract and log metrics with step=concurrency
+                        for benchmark in benchmarks:
+                            metrics = extract_metrics_from_benchmark(benchmark)
+                            if metrics:
+                                metrics["concurrency"] = concurrency
+                                for key, value in metrics.items():
+                                    mlflow.log_metric(key, value, step=concurrency)
+                                logger.info(
+                                    f"Logged {len(metrics)} metrics for concurrency={concurrency}"
+                                )
 
-            if Path(console_log_path).exists():
-                mlflow.log_artifact(console_log_path, "logs")
-                logger.info("Logged console output")
+                        # Log artifacts for this concurrency
+                        if Path(json_path).exists():
+                            mlflow.log_artifact(json_path, "results")
+                            logger.info(
+                                f"Logged JSON artifact for concurrency={concurrency}"
+                            )
 
-            if html_report and Path(html_report).exists():
-                mlflow.log_artifact(html_report, "reports")
-                logger.info(f"Logged visualization report to MLflow: {html_report}")
-            else:
+                        if Path(console_log).exists():
+                            mlflow.log_artifact(console_log, "logs")
+                            logger.info(
+                                f"Logged console log for concurrency={concurrency}"
+                            )
+
+                        logger.info(
+                            f"Completed benchmark for concurrency={concurrency}"
+                        )
+
+                    except Exception as e:
+                        logger.error(
+                            f"Benchmark failed for concurrency={concurrency_str}: {e}",
+                            exc_info=True,
+                        )
+                        logger.info("Continuing with remaining concurrencies...")
+                        continue
+
+                # NOTE: HTML report generation is skipped for multi-turn mode
+                # Report generation will be handled separately after all runs complete
                 logger.info(
-                    "Visualization report not generated (continuing without it)"
+                    "Multi-turn benchmarks completed. HTML report generation skipped (handle separately)."
                 )
+
+            else:
+                # Original single-command mode (backward compatible)
+                (
+                    json_path,
+                    console_log_path,
+                    benchmarks,
+                    html_report,
+                ) = _run_and_process_benchmark(
+                    target=target,
+                    model=model,
+                    rate=rate,
+                    backend_type=backend_type,
+                    rate_type=rate_type,
+                    data=data,
+                    max_seconds=max_seconds,
+                    max_requests=max_requests,
+                    processor=processor,
+                    output_dir="/tmp",
+                    accelerator=accelerator,
+                    version=version,
+                    tp_size=tp_size,
+                    runtime_args=runtime_args,
+                    replicas=int(replicas) if replicas != "N/A" else 1,
+                )
+
+                if not benchmarks:
+                    logger.warning("No benchmarks found in JSON output")
+
+                for benchmark in benchmarks:
+                    concurrency_step = 0
+                    config_or_args = benchmark.get("config") or benchmark.get(
+                        "args", {}
+                    )
+                    try:
+                        concurrency_step = int(config_or_args["strategy"]["streams"])
+                    except (KeyError, TypeError, IndexError):
+                        try:
+                            concurrency_step = int(
+                                config_or_args["profile"]["streams"][0]
+                            )
+                        except (KeyError, TypeError, IndexError):
+                            logger.warning(
+                                "Could not find concurrency 'streams'. "
+                                "Metrics will be logged without a step."
+                            )
+
+                    metrics = extract_metrics_from_benchmark(benchmark)
+                    if metrics:
+                        metrics["concurrency"] = concurrency_step
+                        for key, value in metrics.items():
+                            mlflow.log_metric(key, value, step=concurrency_step)
+                        logger.info(
+                            f"Logged {len(metrics)} metrics for step "
+                            f"(concurrency={concurrency_step})"
+                        )
+
+                if Path(json_path).exists():
+                    mlflow.log_artifact(json_path, "results")
+                    logger.info("Logged full JSON artifact")
+
+                if Path(console_log_path).exists():
+                    mlflow.log_artifact(console_log_path, "logs")
+                    logger.info("Logged console output")
+
+                if html_report and Path(html_report).exists():
+                    mlflow.log_artifact(html_report, "reports")
+                    logger.info(f"Logged visualization report to MLflow: {html_report}")
+                else:
+                    logger.info(
+                        "Visualization report not generated (continuing without it)"
+                    )
 
             logger.info(f"Run completed: {run.info.run_id}")
             return run.info.run_id
