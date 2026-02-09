@@ -1,5 +1,5 @@
 ARG IMAGE_VERSION=v0.5.2
-FROM ghcr.io/vllm-project/guidellm:${IMAGE_VERSION}
+FROM quay.io/fedora/python-313-minimal:latest
 
 # XXX: Temporary fix to keep track of the GuideLLM version
 ENV GUIDELLM_VERSION=multiturn(e6c7e55)
@@ -8,10 +8,13 @@ USER root
 
 RUN mkdir -p /tmp/.huggingface && chmod -R 777 /tmp/.huggingface
 
-RUN dnf install git -y && git clone --branch feat/adv_prefix --single-branch https://github.com/vllm-project/guidellm.git /tmp/guidellm && cd /tmp/guidellm && pip install -e .
+RUN dnf install -y git \
+    && /usr/bin/python3 -m venv /tmp/pdm \
+    && /tmp/pdm/bin/pip install --no-cache-dir -U pdm \
+    && ln -s /tmp/pdm/bin/pdm /usr/local/bin/pdm
 
-# Install missing dependency for culsans (needed by GuideLLM)
-RUN pip install --no-cache-dir 'culsans~=0.9.0'
+RUN git clone --branch feat/adv_prefix --single-branch https://github.com/vllm-project/guidellm.git /tmp/guidellm && cd /tmp/guidellm && pip install -e . \
+    && pip install --no-cache-dir 'aiologic==0.14.0'
 
 COPY pyproject.toml .
 COPY src/ src/
