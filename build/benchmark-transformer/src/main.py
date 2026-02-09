@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Benchmark Transformer - Post-processing pipeline for GuideLLM results.
 
-This script transforms GuideLLM benchmark output through a 3-stage pipeline:
+This script transforms GuideLLM benchmark output through a 4-stage pipeline:
 1. Generate PSAP payload (add metadata wrapper)
 2. Generate CSV metrics file
 3. Generate HTML visualization report (optional)
+4. Upload to MLflow (metrics + artifacts, optional)
 
 Usage:
     python main.py \
@@ -27,6 +28,7 @@ from models import TransformConfig
 from psap_generator import write_psap_payload
 from csv_generator import write_csv
 from visualization import generate_visualization_report
+from mlflow_uploader import upload_to_mlflow
 
 # Configure logging
 logging.basicConfig(
@@ -116,6 +118,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip CSV generation",
     )
+    parser.add_argument(
+        "--mlflow-upload",
+        action="store_true",
+        help="Upload results to MLflow (requires MLFLOW_TRACKING_URI env var)",
+    )
 
     return parser.parse_args()
 
@@ -170,12 +177,14 @@ def main() -> int:
         generate_visualization=not args.skip_visualization,
         generate_psap=not args.skip_psap,
         generate_csv=not args.skip_csv,
+        mlflow_upload=args.mlflow_upload,
     )
 
     results = {
         "psap_path": None,
         "csv_path": None,
         "html_path": None,
+        "mlflow_run_id": None,
     }
 
     # Step 1: Generate PSAP payload
@@ -228,14 +237,37 @@ def main() -> int:
     else:
         logger.info("Step 3: Skipping visualization generation")
 
+    # Step 4: Upload to MLflow
+    if config.mlflow_upload:
+        logger.info("")
+        logger.info("Step 4: Uploading to MLflow...")
+        try:
+            mlflow_run_id = upload_to_mlflow(
+                guidellm_output=guidellm_output,
+                config=config,
+                psap_path=results["psap_path"],
+                csv_path=results["csv_path"],
+                html_path=results["html_path"],
+            )
+            if mlflow_run_id:
+                results["mlflow_run_id"] = mlflow_run_id
+                logger.info(f"MLflow run ID: {mlflow_run_id}")
+            else:
+                logger.warning("MLflow upload skipped or failed")
+        except Exception as e:
+            logger.warning(f"MLflow upload failed (non-fatal): {e}")
+    else:
+        logger.info("Step 4: Skipping MLflow upload")
+
     # Summary
     logger.info("")
     logger.info("=" * 60)
     logger.info("Transformation Complete")
     logger.info("=" * 60)
-    logger.info(f"PSAP:  {results['psap_path'] or 'not generated'}")
-    logger.info(f"CSV:   {results['csv_path'] or 'not generated'}")
-    logger.info(f"HTML:  {results['html_path'] or 'not generated'}")
+    logger.info(f"PSAP:   {results['psap_path'] or 'not generated'}")
+    logger.info(f"CSV:    {results['csv_path'] or 'not generated'}")
+    logger.info(f"HTML:   {results['html_path'] or 'not generated'}")
+    logger.info(f"MLflow: {results['mlflow_run_id'] or 'not uploaded'}")
     logger.info("=" * 60)
 
     # Write results manifest for downstream tasks

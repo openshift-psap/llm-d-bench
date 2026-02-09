@@ -53,6 +53,7 @@ class TransformConfig:
     generate_visualization: bool = True
     generate_psap: bool = True
     generate_csv: bool = True
+    mlflow_upload: bool = False
 
 
 @dataclass

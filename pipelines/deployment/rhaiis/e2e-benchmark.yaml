@@ -404,6 +404,40 @@ spec:
         - name: results
           workspace: results
 
+    # Stage 4a.1: Transform GuideLLM Results (PSAP + CSV)
+    - name: transform-benchmark-results
+      runAfter:
+        - run-guidellm-benchmark
+      when:
+        - input: "$(params.SKIP_BENCHMARK)"
+          operator: in
+          values: ["false"]
+        - input: "$(tasks.detect-benchmark-type.results.BENCHMARK_TYPE)"
+          operator: in
+          values: ["guidellm"]
+      taskRef:
+        name: transform-benchmark-results
+      params:
+        - name: RUN_UUID
+          value: $(tasks.generate-run-uuid.results.RUN_UUID)
+        - name: MODEL_NAME
+          value: $(params.MODEL_NAME)
+        - name: ACCELERATOR
+          value: $(params.ACCELERATOR)
+        - name: VERSION
+          value: $(params.VERSION)
+        - name: TP
+          value: $(params.TP)
+        - name: DEPLOYMENT_IMAGE
+          value: $(params.DEPLOYMENT_IMAGE)
+        - name: GUIDELLM_DATA
+          value: $(params.GUIDELLM_DATA)
+        - name: MLFLOW_ENABLED
+          value: $(params.MLFLOW_ENABLED)
+      workspaces:
+        - name: results
+          workspace: results
+
     # Stage 4b: Run MLPerf Benchmark (if IMAGE contains "mlperf")
     - name: run-mlperf-benchmark
       runAfter:

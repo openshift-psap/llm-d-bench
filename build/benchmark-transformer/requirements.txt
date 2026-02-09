@@ -3,5 +3,8 @@ pandas>=2.0.0
 plotly>=5.0.0
 boto3>=1.26.0
 
+# MLflow for experiment tracking
+mlflow>=2.0.0
+
 # For timezone handling
 tzdata

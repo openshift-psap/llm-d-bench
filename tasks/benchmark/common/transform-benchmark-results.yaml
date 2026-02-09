@@ -10,10 +10,11 @@ metadata:
     tekton.dev/platforms: "linux/amd64"
 spec:
   description: >-
-    Transform GuideLLM benchmark results through a 3-stage pipeline:
+    Transform GuideLLM benchmark results through a 4-stage pipeline:
     1. Generate PSAP payload (add metadata wrapper)
     2. Generate CSV metrics file
     3. Generate HTML visualization report (optional)
+    4. Upload to MLflow (if enabled)
 
   params:
     - name: IMAGE
@@ -62,6 +63,11 @@ spec:
       type: string
       default: "false"
 
+    - name: MLFLOW_ENABLED
+      description: Enable MLflow upload
+      type: string
+      default: "false"
+
   results:
     - name: PSAP_PATH
       description: Path to generated PSAP file
@@ -69,6 +75,8 @@ spec:
       description: Path to generated CSV file
     - name: HTML_PATH
       description: Path to generated HTML report
+    - name: MLFLOW_RUN_ID
+      description: MLflow run ID (if uploaded)
 
   workspaces:
     - name: results
@@ -77,6 +85,39 @@ spec:
   steps:
     - name: transform
       image: $(params.IMAGE)
+      env:
+        - name: MLFLOW_TRACKING_URI
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: tracking-uri
+              optional: true
+        - name: MLFLOW_TRACKING_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: username
+              optional: true
+        - name: MLFLOW_TRACKING_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: password
+              optional: true
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: access-key
+              optional: true
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: secret-key
+              optional: true
+        - name: MLFLOW_TRACKING_INSECURE_TLS
+          value: "true"
       args:
         - $(params.VLLM_ARGS[*])
       script: |
@@ -136,19 +177,25 @@ spec:
           CMD="${CMD} --skip-visualization"
         fi
 
+        if [ "$(params.MLFLOW_ENABLED)" = "true" ]; then
+          CMD="${CMD} --mlflow-upload"
+        fi
+
         echo "Running: ${CMD}"
         eval ${CMD}
 
         # Read results manifest and write to Tekton results
         MANIFEST="${INPUT_DIR}/transform_results.json"
         if [ -f "${MANIFEST}" ]; then
-          PSAP_PATH=$(python3 -c "import json; print(json.load(open('${MANIFEST}')).get('psap_path', ''))")
-          CSV_PATH=$(python3 -c "import json; print(json.load(open('${MANIFEST}')).get('csv_path', ''))")
-          HTML_PATH=$(python3 -c "import json; print(json.load(open('${MANIFEST}')).get('html_path', ''))")
+          PSAP_PATH=$(python3 -c "import json; print(json.load(open('${MANIFEST}')).get('psap_path', '') or '')")
+          CSV_PATH=$(python3 -c "import json; print(json.load(open('${MANIFEST}')).get('csv_path', '') or '')")
+          HTML_PATH=$(python3 -c "import json; print(json.load(open('${MANIFEST}')).get('html_path', '') or '')")
+          MLFLOW_RUN_ID=$(python3 -c "import json; print(json.load(open('${MANIFEST}')).get('mlflow_run_id', '') or '')")
 
           printf "%s" "${PSAP_PATH}" > $(results.PSAP_PATH.path)
           printf "%s" "${CSV_PATH}" > $(results.CSV_PATH.path)
           printf "%s" "${HTML_PATH}" > $(results.HTML_PATH.path)
+          printf "%s" "${MLFLOW_RUN_ID}" > $(results.MLFLOW_RUN_ID.path)
         fi
 
         echo "============================================"

@@ -241,7 +241,36 @@ spec:
 
         echo "Starting benchmark with args: ${ARGS[@]}"
 
-        exec python3 -m benchmark.main "${ARGS[@]}"
+        python3 -m benchmark.main "${ARGS[@]}"
+
+        # Copy results to workspace for downstream tasks
+        RUN_UUID="$(params.RUN_UUID)"
+        if [ -n "$RUN_UUID" ]; then
+          OUTPUT_DIR="/workspace/results/${RUN_UUID}"
+          mkdir -p "${OUTPUT_DIR}"
+
+          # Copy benchmark output files
+          if [ -f "/benchmark-results/benchmark_output.json" ]; then
+            cp /benchmark-results/benchmark_output.json "${OUTPUT_DIR}/"
+            echo "Copied benchmark_output.json to ${OUTPUT_DIR}/"
+          fi
+
+          if [ -f "/benchmark-results/benchmark_output_console.log" ]; then
+            cp /benchmark-results/benchmark_output_console.log "${OUTPUT_DIR}/"
+            echo "Copied console log to ${OUTPUT_DIR}/"
+          fi
+
+          # Copy any HTML reports
+          for html_file in /benchmark-results/*.html; do
+            if [ -f "$html_file" ]; then
+              cp "$html_file" "${OUTPUT_DIR}/"
+              echo "Copied $(basename $html_file) to ${OUTPUT_DIR}/"
+            fi
+          done
+
+          echo "Results copied to workspace: ${OUTPUT_DIR}"
+          ls -la "${OUTPUT_DIR}/"
+        fi
 
       volumeMounts:
         - name: results-volume
