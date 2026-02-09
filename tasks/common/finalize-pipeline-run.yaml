@@ -235,6 +235,11 @@ spec:
     - name: upload-to-mlflow
       image: python:3.11-slim
       env:
+        # Set writable directories for pip install
+        - name: HOME
+          value: /tmp
+        - name: PIP_CACHE_DIR
+          value: /tmp/.cache/pip
         - name: MLFLOW_TRACKING_URI
           valueFrom:
             secretKeyRef:
@@ -297,9 +302,10 @@ spec:
         print(f"Run UUID: {run_uuid}")
         print(f"Model: {model_name}")
 
-        # Install mlflow
+        # Install mlflow to /tmp (writable location)
         import subprocess
-        subprocess.run(['pip', 'install', '--quiet', 'mlflow', 'boto3'], check=True)
+        subprocess.run(['pip', 'install', '--quiet', '--target', '/tmp/pylibs', 'mlflow', 'boto3'], check=True)
+        sys.path.insert(0, '/tmp/pylibs')
 
         import mlflow
         import urllib3
@@ -322,20 +328,35 @@ spec:
                 run_id = runs[0].info.run_id
                 print(f"Found existing MLflow run: {run_id}")
 
-                # Log additional artifacts
-                archive_path = f"{workspace_path}/{run_uuid}-artifacts.tar.gz"
-                if os.path.exists(archive_path):
-                    client.log_artifact(run_id, archive_path, "pipeline-artifacts")
+                # Log artifacts with organized structure:
+                # - artifacts/logs/vllm-logs/* for vLLM pod logs
+                # - artifacts/logs/task-logs/* for Tekton task logs
+                # - results/* for benchmark results archive
 
                 vllm_logs = f"{artifact_dir}/vllm-logs"
                 if os.path.exists(vllm_logs) and os.listdir(vllm_logs):
                     for f in os.listdir(vllm_logs):
-                        client.log_artifact(run_id, f"{vllm_logs}/{f}", "vllm-logs")
+                        client.log_artifact(run_id, f"{vllm_logs}/{f}", "artifacts/logs/vllm-logs")
+                    print(f"Uploaded vLLM logs to artifacts/logs/vllm-logs/")
 
                 task_logs = f"{artifact_dir}/task-logs"
                 if os.path.exists(task_logs) and os.listdir(task_logs):
                     for f in os.listdir(task_logs):
-                        client.log_artifact(run_id, f"{task_logs}/{f}", "task-logs")
+                        client.log_artifact(run_id, f"{task_logs}/{f}", "artifacts/logs/task-logs")
+                    print(f"Uploaded task logs to artifacts/logs/task-logs/")
+
+                # Upload configs to artifacts/configs
+                configs = f"{artifact_dir}/configs"
+                if os.path.exists(configs) and os.listdir(configs):
+                    for f in os.listdir(configs):
+                        client.log_artifact(run_id, f"{configs}/{f}", "artifacts/configs")
+                    print(f"Uploaded configs to artifacts/configs/")
+
+                # Upload archive to results
+                archive_path = f"{workspace_path}/{run_uuid}-artifacts.tar.gz"
+                if os.path.exists(archive_path):
+                    client.log_artifact(run_id, archive_path, "results")
+                    print(f"Uploaded archive to results/")
 
                 print(f"Appended artifacts to existing run: {run_id}")
 
@@ -350,17 +371,21 @@ spec:
                     mlflow.log_param("version", version)
                     mlflow.log_param("tp", tp)
 
-                    archive_path = f"{workspace_path}/{run_uuid}-artifacts.tar.gz"
-                    if os.path.exists(archive_path):
-                        mlflow.log_artifact(archive_path, "pipeline-artifacts")
-
                     vllm_logs = f"{artifact_dir}/vllm-logs"
                     if os.path.exists(vllm_logs):
-                        mlflow.log_artifacts(vllm_logs, "vllm-logs")
+                        mlflow.log_artifacts(vllm_logs, "artifacts/logs/vllm-logs")
 
                     task_logs = f"{artifact_dir}/task-logs"
                     if os.path.exists(task_logs):
-                        mlflow.log_artifacts(task_logs, "task-logs")
+                        mlflow.log_artifacts(task_logs, "artifacts/logs/task-logs")
+
+                    configs = f"{artifact_dir}/configs"
+                    if os.path.exists(configs):
+                        mlflow.log_artifacts(configs, "artifacts/configs")
+
+                    archive_path = f"{workspace_path}/{run_uuid}-artifacts.tar.gz"
+                    if os.path.exists(archive_path):
+                        mlflow.log_artifact(archive_path, "results")
 
                     print(f"Created new MLflow run: {run.info.run_id}")
 

@@ -8,48 +8,59 @@ metadata:
     tekton.dev/tags: "uuid,tracking"
 spec:
   description: |
-    Generate unique identifiers for the pipeline run.
-    - Full UUID for MLflow tracking and correlation
-    - Short 5-char suffix for Kubernetes resource names (length limits)
+    Extract unique identifiers from the PipelineRun for tracking.
+    Uses Tekton's built-in PipelineRun identifiers for consistent correlation.
+    - Full UUID: PipelineRun's Kubernetes UID
+    - Short UUID: Suffix from PipelineRun name (e.g., 'v4xw4' from 'example-v4xw4')
+
+  params:
+    - name: PIPELINERUN_NAME
+      description: Name of the PipelineRun (use context.pipelineRun.name)
+      type: string
+    - name: PIPELINERUN_UID
+      description: UID of the PipelineRun (use context.pipelineRun.uid)
+      type: string
 
   results:
     - name: RUN_UUID
-      description: Full UUID for MLflow tracking (36 characters)
+      description: Full UUID (PipelineRun UID) for MLflow tracking
     - name: RUN_UUID_SHORT
-      description: Short 5-character suffix for K8s resource names
+      description: Short suffix from PipelineRun name for K8s resource names
     - name: RUN_TIMESTAMP
       description: ISO timestamp for the run start
+    - name: PIPELINERUN_NAME
+      description: Full PipelineRun name for reference
 
   steps:
-    - name: generate
+    - name: extract-ids
       image: registry.redhat.io/openshift4/ose-cli:latest
       script: |
         #!/bin/bash
         set -e
 
-        # Generate full UUID (using /proc/sys/kernel/random/uuid if available, else fallback)
-        if [ -f /proc/sys/kernel/random/uuid ]; then
-          RUN_UUID=$(cat /proc/sys/kernel/random/uuid)
-        else
-          # Fallback: generate UUID-like string from urandom
-          RUN_UUID=$(head /dev/urandom | tr -dc 'a-f0-9' | head -c 32 | sed 's/\(.\{8\}\)\(.\{4\}\)\(.\{4\}\)\(.\{4\}\)\(.\{12\}\)/\1-\2-\3-\4-\5/')
-        fi
+        PIPELINERUN_NAME="$(params.PIPELINERUN_NAME)"
+        PIPELINERUN_UID="$(params.PIPELINERUN_UID)"
 
-        # Short version for K8s names (last 5 chars of UUID without dashes)
-        RUN_UUID_SHORT=$(echo "$RUN_UUID" | tr -d '-' | tail -c 6 | head -c 5)
+        # Full UUID is the PipelineRun's Kubernetes UID
+        RUN_UUID="$PIPELINERUN_UID"
+
+        # Short UUID is the suffix from PipelineRun name (after last dash)
+        RUN_UUID_SHORT=$(echo "$PIPELINERUN_NAME" | rev | cut -d'-' -f1 | rev)
 
         RUN_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
         printf "%s" "$RUN_UUID" > $(results.RUN_UUID.path)
         printf "%s" "$RUN_UUID_SHORT" > $(results.RUN_UUID_SHORT.path)
         printf "%s" "$RUN_TIMESTAMP" > $(results.RUN_TIMESTAMP.path)
+        printf "%s" "$PIPELINERUN_NAME" > $(results.PIPELINERUN_NAME.path)
 
         echo "============================================"
         echo "Pipeline Run Tracking"
         echo "============================================"
-        echo "Full UUID:  $RUN_UUID"
-        echo "Short UUID: $RUN_UUID_SHORT"
-        echo "Timestamp:  $RUN_TIMESTAMP"
+        echo "PipelineRun:  $PIPELINERUN_NAME"
+        echo "Full UUID:    $RUN_UUID"
+        echo "Short UUID:   $RUN_UUID_SHORT"
+        echo "Timestamp:    $RUN_TIMESTAMP"
         echo "============================================"
         echo ""
         echo "Full UUID used for:"
@@ -58,5 +69,5 @@ spec:
         echo ""
         echo "Short UUID used for:"
         echo "  - Kubernetes deployment names"
-        echo "  - Pod naming (K8s length limits)"
+        echo "  - Pod naming (matches PipelineRun suffix)"
         echo "============================================"

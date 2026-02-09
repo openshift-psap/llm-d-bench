@@ -213,10 +213,15 @@ spec:
 
 
   tasks:
-    # Stage 0: Generate Run UUID (first task - tracks entire pipeline)
+    # Stage 0: Extract Run UUID from PipelineRun (first task - tracks entire pipeline)
     - name: generate-run-uuid
       taskRef:
         name: generate-run-uuid
+      params:
+        - name: PIPELINERUN_NAME
+          value: $(context.pipelineRun.name)
+        - name: PIPELINERUN_UID
+          value: $(context.pipelineRun.uid)
 
     # Stage 1: Download Model
     - name: download-model
