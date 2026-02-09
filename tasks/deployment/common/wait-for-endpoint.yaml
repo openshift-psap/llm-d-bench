@@ -25,9 +25,9 @@ spec:
       default: "/v1/models"
 
     - name: TIMEOUT_SECONDS
-      description: Maximum time to wait for endpoint (in seconds)
+      description: Maximum time to wait for endpoint (in seconds). Default 4 hours to allow for Kueue GPU scheduling.
       type: string
-      default: "3600"
+      default: "14400"
 
     - name: RETRY_INTERVAL
       description: Time to wait between retries (in seconds)

@@ -240,10 +240,10 @@ spec:
     # Health Check Configuration
     # ===========================================
     - name: HEALTH_CHECK_TIMEOUT
-      # DEFAULT: "3600"
+      # DEFAULT: "14400" (4 hours)
       # Endpoint health check timeout in seconds
-      # Increase for large models that take longer to load
-      value: "3600"
+      # Accounts for Kueue GPU scheduling wait time + model loading
+      value: "14400"
 
     # ===========================================
     # Stage Control
