@@ -88,6 +88,11 @@ spec:
       type: string
       default: ""
 
+    - name: IMAGE
+      description: Benchmark image (used as fallback if profile doesn't specify GUIDELLM_IMAGE)
+      type: string
+      default: ""
+
   results:
     - name: merged-config
       description: JSON object with merged configuration
@@ -119,6 +124,8 @@ spec:
       description: Number of prefill replicas (PD mode only)
     - name: decode-replicas
       description: Number of decode replicas (PD mode only)
+    - name: guidellm-image
+      description: GuideLLM benchmark image
 
   steps:
     - name: merge
@@ -242,6 +249,13 @@ spec:
         echo -n "$DEPLOYMENT_MODE" > $(results.deployment-mode.path)
 
         # GuideLLM benchmark parameters
+        # Use profile IMAGE if available, otherwise fall back to pipeline param
+        IMAGE_VALUE=$(echo "$MERGED" | jq -r '.IMAGE // ""')
+        if [ -z "$IMAGE_VALUE" ] && [ -n "$(params.IMAGE)" ]; then
+          IMAGE_VALUE="$(params.IMAGE)"
+          echo "Using fallback IMAGE from pipeline parameter: $IMAGE_VALUE"
+        fi
+        echo -n "$IMAGE_VALUE" > $(results.guidellm-image.path)
         echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_PROCESSOR // ""')" > $(results.guidellm-processor.path)
         echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_BACKEND_TYPE // ""')" > $(results.guidellm-backend-type.path)
         echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_RATE_TYPE // ""')" > $(results.guidellm-rate-type.path)

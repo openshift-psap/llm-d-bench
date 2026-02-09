@@ -10,6 +10,9 @@ RUN mkdir -p /tmp/.huggingface && chmod -R 777 /tmp/.huggingface
 
 RUN dnf install git -y && git clone --branch feat/adv_prefix --single-branch https://github.com/vllm-project/guidellm.git /tmp/guidellm && cd /tmp/guidellm && pip install -e .
 
+# Install missing dependency for culsans (needed by GuideLLM)
+RUN pip install --no-cache-dir 'culsans~=0.9.0'
+
 COPY pyproject.toml .
 COPY src/ src/
 RUN pip install --no-warn-script-location .

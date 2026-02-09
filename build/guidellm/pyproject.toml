@@ -2,6 +2,7 @@
 name = "benchmark"
 version = "0.1.0"
 dependencies = [
+    "aiologic>=0.14.0",
     "boto3>=1.26.0",
     "pandas>=1.5.0",
     "plotly>=5.11.0",

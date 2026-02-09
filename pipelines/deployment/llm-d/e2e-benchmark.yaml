@@ -344,6 +344,8 @@ spec:
           value: $(params.GATEWAY_PROVIDER)
         - name: TARGET
           value: $(params.TARGET)
+        - name: IMAGE
+          value: $(params.IMAGE)
 
     # Stage 1: Download Model
     - name: download-model
@@ -555,7 +557,7 @@ spec:
         name: detect-benchmark-type
       params:
         - name: IMAGE
-          value: $(params.IMAGE)
+          value: $(tasks.merge-configs.results.guidellm-image)
 
     # Stage 4a: Run GuideLLM Benchmark
     - name: run-guidellm-benchmark
@@ -573,7 +575,7 @@ spec:
         name: run-guidellm-benchmark
       params:
         - name: IMAGE
-          value: $(params.IMAGE)
+          value: $(tasks.merge-configs.results.guidellm-image)
         - name: TARGET
           value: $(tasks.merge-configs.results.target-url)
         - name: MODEL
