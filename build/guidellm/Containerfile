@@ -19,7 +19,8 @@ RUN pip install --no-warn-script-location .
 
 RUN git clone --branch feat/adv_prefix --single-branch https://github.com/vllm-project/guidellm.git /tmp/guidellm && cd /tmp/guidellm && pip install -e .
 
-RUN pip install --no-cache-dir 'aiologic==0.14.0'
+# Pin compatible versions to prevent import errors
+RUN pip install --no-cache-dir 'transformers<5.0.0' 'aiologic==0.14.0'
 
 ENTRYPOINT ["python3", "-m", "benchmark.main"]
 
