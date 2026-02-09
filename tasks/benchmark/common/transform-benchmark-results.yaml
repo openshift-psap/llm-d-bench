@@ -1,0 +1,165 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: transform-benchmark-results
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "Transform Benchmark Results"
+    tekton.dev/tags: benchmark, transform, psap, csv
+    tekton.dev/platforms: "linux/amd64"
+spec:
+  description: >-
+    Transform GuideLLM benchmark results through a 3-stage pipeline:
+    1. Generate PSAP payload (add metadata wrapper)
+    2. Generate CSV metrics file
+    3. Generate HTML visualization report (optional)
+
+  params:
+    - name: IMAGE
+      description: Benchmark transformer container image
+      type: string
+      default: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/benchmark-transformer:latest"
+
+    - name: RUN_UUID
+      description: Pipeline run UUID for tracking
+      type: string
+
+    - name: MODEL_NAME
+      description: Model name (e.g., Qwen/Qwen3-0.6B)
+      type: string
+
+    - name: ACCELERATOR
+      description: Accelerator type (e.g., H200, MI300X)
+      type: string
+
+    - name: VERSION
+      description: Version identifier (e.g., RHAIIS-3.2.3)
+      type: string
+
+    - name: TP
+      description: Tensor parallelism size
+      type: string
+      default: "1"
+
+    - name: DEPLOYMENT_IMAGE
+      description: vLLM deployment container image
+      type: string
+      default: ""
+
+    - name: VLLM_ARGS
+      description: vLLM arguments as array
+      type: array
+      default: []
+
+    - name: GUIDELLM_DATA
+      description: GuideLLM data profile
+      type: string
+      default: ""
+
+    - name: SKIP_VISUALIZATION
+      description: Skip HTML visualization generation
+      type: string
+      default: "false"
+
+  results:
+    - name: PSAP_PATH
+      description: Path to generated PSAP file
+    - name: CSV_PATH
+      description: Path to generated CSV file
+    - name: HTML_PATH
+      description: Path to generated HTML report
+
+  workspaces:
+    - name: results
+      description: Workspace containing benchmark_output.json and for storing outputs
+
+  steps:
+    - name: transform
+      image: $(params.IMAGE)
+      args:
+        - $(params.VLLM_ARGS[*])
+      script: |
+        #!/bin/bash
+        set -e
+
+        RUN_UUID="$(params.RUN_UUID)"
+        INPUT_DIR="/workspace/results/${RUN_UUID}"
+        INPUT_FILE="${INPUT_DIR}/benchmark_output.json"
+
+        echo "============================================"
+        echo "Transform Benchmark Results"
+        echo "============================================"
+        echo "Run UUID: ${RUN_UUID}"
+        echo "Input: ${INPUT_FILE}"
+        echo "============================================"
+
+        # Check input file exists
+        if [ ! -f "${INPUT_FILE}" ]; then
+          echo "ERROR: Input file not found: ${INPUT_FILE}"
+          echo "Contents of ${INPUT_DIR}:"
+          ls -la "${INPUT_DIR}" 2>/dev/null || echo "Directory does not exist"
+          exit 1
+        fi
+
+        # Build vLLM args from positional parameters
+        VLLM_ARGS=""
+        for arg in "$@"; do
+          if [ -n "$arg" ]; then
+            VLLM_ARGS="${VLLM_ARGS} ${arg}"
+          fi
+        done
+
+        # Build command
+        CMD="python /app/main.py \
+          --input ${INPUT_FILE} \
+          --output-dir ${INPUT_DIR} \
+          --run-uuid ${RUN_UUID} \
+          --model '$(params.MODEL_NAME)' \
+          --accelerator '$(params.ACCELERATOR)' \
+          --version '$(params.VERSION)' \
+          --tp $(params.TP)"
+
+        if [ -n "$(params.DEPLOYMENT_IMAGE)" ]; then
+          CMD="${CMD} --deployment-image '$(params.DEPLOYMENT_IMAGE)'"
+        fi
+
+        if [ -n "$(params.GUIDELLM_DATA)" ]; then
+          CMD="${CMD} --guidellm-data '$(params.GUIDELLM_DATA)'"
+        fi
+
+        if [ -n "${VLLM_ARGS}" ]; then
+          CMD="${CMD} --vllm-args ${VLLM_ARGS}"
+        fi
+
+        if [ "$(params.SKIP_VISUALIZATION)" = "true" ]; then
+          CMD="${CMD} --skip-visualization"
+        fi
+
+        echo "Running: ${CMD}"
+        eval ${CMD}
+
+        # Read results manifest and write to Tekton results
+        MANIFEST="${INPUT_DIR}/transform_results.json"
+        if [ -f "${MANIFEST}" ]; then
+          PSAP_PATH=$(python3 -c "import json; print(json.load(open('${MANIFEST}')).get('psap_path', ''))")
+          CSV_PATH=$(python3 -c "import json; print(json.load(open('${MANIFEST}')).get('csv_path', ''))")
+          HTML_PATH=$(python3 -c "import json; print(json.load(open('${MANIFEST}')).get('html_path', ''))")
+
+          printf "%s" "${PSAP_PATH}" > $(results.PSAP_PATH.path)
+          printf "%s" "${CSV_PATH}" > $(results.CSV_PATH.path)
+          printf "%s" "${HTML_PATH}" > $(results.HTML_PATH.path)
+        fi
+
+        echo "============================================"
+        echo "Transform Complete"
+        echo "============================================"
+
+  # Avoid scheduling on GPU nodes
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: nvidia.com/gpu
+                operator: DoesNotExist

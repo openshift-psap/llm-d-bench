@@ -1,0 +1,48 @@
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: build-transformer-image-
+  labels:
+    app: llm-d-bench
+    pipeline: build-image
+spec:
+  pipelineRef:
+    name: transformer-build-image
+
+  taskRunTemplate:
+    podTemplate:
+      labels:
+        # Kueue integration for quota management
+        kueue.x-k8s.io/queue-name: psap-releases-queue
+        kueue.x-k8s.io/priority-class: psap-releases
+
+  # Automatically clean up completed PipelineRun after 1 hour
+  ttlSecondsAfterFinished: 3600
+
+  params:
+    - name: GIT_URL
+      value: "https://github.com/openshift-psap/llm-d-bench.git"
+    - name: GIT_REVISION
+      value: "main"
+    - name: IMAGE_NAME
+      value: "benchmark-transformer"
+    - name: IMAGE_TAG
+      value: "latest"
+    - name: REGISTRY
+      value: "image-registry.openshift-image-registry.svc:5000"
+    - name: NAMESPACE
+      value: "llm-d-bench"
+
+  timeouts:
+    pipeline: "30m"
+    tasks: "30m"
+
+  workspaces:
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 2Gi

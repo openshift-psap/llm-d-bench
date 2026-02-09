@@ -1,0 +1,101 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: transformer-buildah-build
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "Build Benchmark Transformer Image"
+    tekton.dev/tags: image-build, buildah
+    tekton.dev/platforms: "linux/amd64"
+spec:
+  description: >-
+    Build the benchmark-transformer container image using buildah.
+    This image contains the post-processing pipeline for GuideLLM results.
+
+  params:
+    - name: IMAGE_NAME
+      description: Name of the image to build
+      type: string
+      default: "benchmark-transformer"
+
+    - name: IMAGE_TAG
+      description: Tag for the built image
+      type: string
+      default: "latest"
+
+    - name: REGISTRY
+      description: Container registry URL
+      type: string
+      default: "image-registry.openshift-image-registry.svc:5000"
+
+    - name: NAMESPACE
+      description: Namespace where image will be pushed
+      type: string
+      default: "llm-d-bench"
+
+  results:
+    - name: IMAGE_DIGEST
+      description: Digest of the built image
+    - name: IMAGE_URL
+      description: Full URL of the built image
+
+  workspaces:
+    - name: source
+      description: Workspace containing the source code
+
+  steps:
+    - name: build-and-push
+      image: registry.redhat.io/rhel8/buildah:latest
+      securityContext:
+        privileged: true
+      env:
+        - name: STORAGE_DRIVER
+          value: vfs
+      script: |
+        #!/bin/bash
+        set -ex
+
+        CONTEXT_DIR=$(workspaces.source.path)/build/benchmark-transformer
+        IMAGE_NAME="$(params.IMAGE_NAME)"
+        IMAGE_TAG="$(params.IMAGE_TAG)"
+        REGISTRY="$(params.REGISTRY)"
+        NAMESPACE="$(params.NAMESPACE)"
+        FULL_IMAGE="${REGISTRY}/${NAMESPACE}/${IMAGE_NAME}:${IMAGE_TAG}"
+
+        echo "============================================"
+        echo "Building Benchmark Transformer Image"
+        echo "============================================"
+        echo "Context: ${CONTEXT_DIR}"
+        echo "Image: ${FULL_IMAGE}"
+        echo "============================================"
+
+        cd ${CONTEXT_DIR}
+
+        # Build the image
+        buildah bud \
+          --format docker \
+          --tls-verify=false \
+          --storage-driver vfs \
+          -t ${FULL_IMAGE} \
+          .
+
+        # Push to registry
+        buildah push \
+          --tls-verify=false \
+          --storage-driver vfs \
+          ${FULL_IMAGE}
+
+        # Get digest
+        DIGEST=$(buildah inspect --format '{{.FromImageDigest}}' ${FULL_IMAGE} || echo "unknown")
+
+        echo "============================================"
+        echo "Build Complete"
+        echo "============================================"
+        echo "Image: ${FULL_IMAGE}"
+        echo "Digest: ${DIGEST}"
+        echo "============================================"
+
+        # Write results
+        printf "%s" "${DIGEST}" > $(results.IMAGE_DIGEST.path)
+        printf "%s" "${FULL_IMAGE}" > $(results.IMAGE_URL.path)
