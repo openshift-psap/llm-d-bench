@@ -254,8 +254,8 @@ def run_guidellm_cli(
     backend_type: str = "openai_http",
     rate_type: str = "concurrent",
     data: str = None,
-    max_seconds: int = None,
-    max_requests: int = None,
+    max_seconds=None,
+    max_requests=None,
     processor: str = None,
     output_path: str = "benchmark_output.json",
 ) -> tuple[str, str]:
@@ -410,8 +410,8 @@ def _run_and_process_benchmark(
     backend_type: str,
     rate_type: str,
     data: str,
-    max_seconds: int,
-    max_requests: int,
+    max_seconds,
+    max_requests,
     processor: str,
     output_dir: str,
     accelerator: str,
@@ -471,8 +471,8 @@ def run_benchmark_without_mlflow(
     backend_type: str = "openai_http",
     rate_type: str = "concurrent",
     data: str = None,
-    max_seconds: int = None,
-    max_requests: int = None,
+    max_seconds=None,
+    max_requests=None,
     processor: str = None,
     output_dir: str = "/benchmark-results",
     accelerator: str = None,
@@ -527,8 +527,8 @@ def run_benchmark_with_mlflow(
     backend_type: str = "openai_http",
     rate_type: str = "concurrent",
     data: str = None,
-    max_seconds: int = None,
-    max_requests: int = None,
+    max_seconds=None,
+    max_requests=None,
     processor: str = None,
     accelerator: str = None,
     experiment_name: str = "guidellm-benchmarks",
@@ -638,10 +638,20 @@ def run_benchmark_with_mlflow(
                                 )
                             )
 
+                        parsed_max_seconds = None
+                        if max_seconds:
+                            parsed_max_seconds = int(
+                                parse_multiturn_expression(
+                                    str(max_seconds), concurrency
+                                )
+                            )
+
                         logger.info(f"  Original data: {data}")
                         logger.info(f"  Parsed data: {parsed_data}")
                         logger.info(f"  Original max_requests: {max_requests}")
                         logger.info(f"  Parsed max_requests: {parsed_max_requests}")
+                        logger.info(f"  Original max_seconds: {max_seconds}")
+                        logger.info(f"  Parsed max_seconds: {parsed_max_seconds}")
 
                         # Generate unique output paths for this concurrency
                         output_json = f"/tmp/benchmark_output_rate_{concurrency}.json"
@@ -655,7 +665,7 @@ def run_benchmark_with_mlflow(
                             backend_type=backend_type,
                             rate_type=rate_type,
                             data=parsed_data,
-                            max_seconds=max_seconds,
+                            max_seconds=parsed_max_seconds,
                             max_requests=parsed_max_requests,
                             processor=processor,
                             output_path=output_json,
@@ -1139,8 +1149,14 @@ def main():
     parser.add_argument(
         "--data", help="Data config (e.g., 'prompt_tokens=1000,output_tokens=1000')"
     )
-    parser.add_argument("--max-seconds", type=int, help="Max duration in seconds")
-    parser.add_argument("--max-requests", type=int, help="Max number of requests")
+    parser.add_argument(
+        "--max-seconds",
+        help="Max duration in seconds (supports expressions in MULTITURN mode)",
+    )
+    parser.add_argument(
+        "--max-requests",
+        help="Max number of requests (supports expressions like '10*concurrency' in MULTITURN mode)",
+    )
     parser.add_argument("--processor", help="Processor/tokenizer name")
 
     parser.add_argument("--accelerator", help="Accelerator type (e.g., H200, A100)")
