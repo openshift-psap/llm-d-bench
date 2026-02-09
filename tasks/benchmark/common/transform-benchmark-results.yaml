@@ -85,6 +85,7 @@ spec:
   steps:
     - name: transform
       image: $(params.IMAGE)
+      imagePullPolicy: Always
       env:
         - name: MLFLOW_TRACKING_URI
           valueFrom:
