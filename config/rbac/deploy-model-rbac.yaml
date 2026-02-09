@@ -90,6 +90,14 @@ rules:
       - delete
       - watch
 
+  # Allow reading pod logs (for finalize task to collect vLLM logs)
+  - apiGroups:
+      - ""
+    resources:
+      - pods/log
+    verbs:
+      - get
+
   - apiGroups:
       - apps
     resources:
@@ -351,6 +359,14 @@ rules:
       - patch
       - delete
       - watch
+
+  # Allow reading pod logs (for finalize task to collect vLLM logs)
+  - apiGroups:
+      - ""
+    resources:
+      - pods/log
+    verbs:
+      - get
 
   - apiGroups:
       - apps
