@@ -249,24 +249,38 @@ spec:
           OUTPUT_DIR="/workspace/results/${RUN_UUID}"
           mkdir -p "${OUTPUT_DIR}"
 
-          # Copy benchmark output files
-          if [ -f "/benchmark-results/benchmark_output.json" ]; then
-            cp /benchmark-results/benchmark_output.json "${OUTPUT_DIR}/"
-            echo "Copied benchmark_output.json to ${OUTPUT_DIR}/"
+          # Determine source directory
+          # When MLFLOW_ENABLED=true, output goes to /tmp
+          # When MLFLOW_ENABLED=false, output goes to /benchmark-results
+          if [ -f "/tmp/benchmark_output.json" ]; then
+            SOURCE_DIR="/tmp"
+          elif [ -f "/benchmark-results/benchmark_output.json" ]; then
+            SOURCE_DIR="/benchmark-results"
+          else
+            echo "WARNING: benchmark_output.json not found in /tmp or /benchmark-results"
+            SOURCE_DIR=""
           fi
 
-          if [ -f "/benchmark-results/benchmark_output_console.log" ]; then
-            cp /benchmark-results/benchmark_output_console.log "${OUTPUT_DIR}/"
-            echo "Copied console log to ${OUTPUT_DIR}/"
-          fi
-
-          # Copy any HTML reports
-          for html_file in /benchmark-results/*.html; do
-            if [ -f "$html_file" ]; then
-              cp "$html_file" "${OUTPUT_DIR}/"
-              echo "Copied $(basename $html_file) to ${OUTPUT_DIR}/"
+          if [ -n "$SOURCE_DIR" ]; then
+            # Copy benchmark output files
+            if [ -f "${SOURCE_DIR}/benchmark_output.json" ]; then
+              cp "${SOURCE_DIR}/benchmark_output.json" "${OUTPUT_DIR}/"
+              echo "Copied benchmark_output.json from ${SOURCE_DIR} to ${OUTPUT_DIR}/"
             fi
-          done
+
+            if [ -f "${SOURCE_DIR}/benchmark_output_console.log" ]; then
+              cp "${SOURCE_DIR}/benchmark_output_console.log" "${OUTPUT_DIR}/"
+              echo "Copied console log to ${OUTPUT_DIR}/"
+            fi
+
+            # Copy any HTML reports
+            for html_file in ${SOURCE_DIR}/*.html; do
+              if [ -f "$html_file" ]; then
+                cp "$html_file" "${OUTPUT_DIR}/"
+                echo "Copied $(basename $html_file) to ${OUTPUT_DIR}/"
+              fi
+            done
+          fi
 
           echo "Results copied to workspace: ${OUTPUT_DIR}"
           ls -la "${OUTPUT_DIR}/"

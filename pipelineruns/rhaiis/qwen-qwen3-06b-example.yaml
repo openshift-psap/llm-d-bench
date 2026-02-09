@@ -165,7 +165,7 @@ spec:
       # DEFAULT: "false"
       # Enable MLflow experiment tracking
       # Requires MLflow server and mlflow-auth secret
-      value: "false"
+      value: "true"
 
     - name: MLFLOW_EXPERIMENT_NAME
       # DEFAULT: "guidellm-benchmarks"
