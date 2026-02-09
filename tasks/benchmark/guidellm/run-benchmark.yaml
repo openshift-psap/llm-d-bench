@@ -124,6 +124,7 @@ spec:
   steps:
     - name: run-guidellm-benchmark
       image: $(params.IMAGE)
+      imagePullPolicy: Always
       workingDir: /tmp
       env:
         - name: MLFLOW_ENABLED
