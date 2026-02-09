@@ -240,10 +240,11 @@ spec:
     # Health Check Configuration
     # ===========================================
     - name: HEALTH_CHECK_TIMEOUT
-      # DEFAULT: "14400" (4 hours)
-      # Endpoint health check timeout in seconds
-      # Accounts for Kueue GPU scheduling wait time + model loading
-      value: "14400"
+      # DEFAULT: "1800" (30 minutes)
+      # Model loading timeout once pod is Running
+      # Kueue wait time has no timeout (waits indefinitely)
+      # Only times out if pod is Running but model doesn't load
+      value: "1800"
 
     # ===========================================
     # Stage Control

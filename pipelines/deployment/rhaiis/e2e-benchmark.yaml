@@ -309,7 +309,7 @@ spec:
         - name: results
           workspace: results
 
-    # Stage 3: Wait for Endpoint
+    # Stage 3: Wait for Endpoint (Smart - Kueue aware)
     - name: wait-for-endpoint
       runAfter:
         - deploy-rhaiis
@@ -324,7 +324,11 @@ spec:
           value: $(tasks.deploy-rhaiis.results.ENDPOINT_URL)
         - name: ENDPOINT_PATH
           value: "/v1/models"
-        - name: TIMEOUT_SECONDS
+        - name: DEPLOYMENT_NAME
+          value: $(tasks.deploy-rhaiis.results.DEPLOYMENT_NAME)
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: LOADING_TIMEOUT_SECONDS
           value: $(params.HEALTH_CHECK_TIMEOUT)
         - name: RETRY_INTERVAL
           value: "10"

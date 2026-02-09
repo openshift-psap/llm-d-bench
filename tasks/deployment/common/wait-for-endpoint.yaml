@@ -3,16 +3,19 @@ kind: Task
 metadata:
   name: wait-for-endpoint
   labels:
-    app.kubernetes.io/version: "0.1"
+    app.kubernetes.io/version: "0.2"
   annotations:
-    tekton.dev/displayName: "Wait for HTTP Endpoint"
-    tekton.dev/tags: health-check, http
+    tekton.dev/displayName: "Wait for HTTP Endpoint (Smart)"
+    tekton.dev/tags: health-check, http, kueue
     tekton.dev/platforms: "linux/amd64"
 spec:
   description: >-
-    Wait for an HTTP endpoint to become available by polling until it returns
-    a successful response. This task replicates the init container pattern used
-    in the Helm-based benchmark jobs.
+    Smart wait for vLLM endpoint with Kueue awareness.
+    - SchedulingGated: Waiting for Kueue GPU admission (no timeout)
+    - Pending: Being scheduled (no timeout)
+    - Running: Check logs for loading progress, poll endpoint
+    - Failed/Error: Fail immediately
+    Only times out if pod is Running but endpoint never becomes ready.
 
   params:
     - name: TARGET_URL
@@ -24,10 +27,20 @@ spec:
       type: string
       default: "/v1/models"
 
-    - name: TIMEOUT_SECONDS
-      description: Maximum time to wait for endpoint (in seconds). Default 4 hours to allow for Kueue GPU scheduling.
+    - name: DEPLOYMENT_NAME
+      description: InferenceService/deployment name to check pod status
       type: string
-      default: "14400"
+      default: ""
+
+    - name: NAMESPACE
+      description: Namespace where pods are running
+      type: string
+      default: ""
+
+    - name: LOADING_TIMEOUT_SECONDS
+      description: Timeout for model loading once pod is Running (in seconds)
+      type: string
+      default: "1800"
 
     - name: RETRY_INTERVAL
       description: Time to wait between retries (in seconds)
@@ -41,13 +54,15 @@ spec:
 
   steps:
     - name: wait-for-ready
-      image: registry.access.redhat.com/ubi9/ubi:latest
+      image: registry.redhat.io/openshift4/ose-cli:latest
       script: |
         #!/bin/bash
         set -e
 
         TARGET="$(params.TARGET_URL)$(params.ENDPOINT_PATH)"
-        TIMEOUT=$(params.TIMEOUT_SECONDS)
+        DEPLOYMENT_NAME="$(params.DEPLOYMENT_NAME)"
+        NAMESPACE="$(params.NAMESPACE)"
+        LOADING_TIMEOUT=$(params.LOADING_TIMEOUT_SECONDS)
         RETRY_INTERVAL=$(params.RETRY_INTERVAL)
         VERIFY_TLS=$(params.VERIFY_TLS)
 
@@ -56,36 +71,104 @@ spec:
           CURL_TLS_FLAG="-k"
         fi
 
-        echo "Waiting for endpoint to be ready..."
+        echo "============================================"
+        echo "Smart Wait for Endpoint"
+        echo "============================================"
         echo "Target URL: $TARGET"
-        echo "Timeout: ${TIMEOUT}s"
+        echo "Deployment: $DEPLOYMENT_NAME"
+        echo "Namespace: $NAMESPACE"
+        echo "Loading Timeout: ${LOADING_TIMEOUT}s (once Running)"
         echo "Retry Interval: ${RETRY_INTERVAL}s"
-        echo "TLS Verification: $VERIFY_TLS"
+        echo "============================================"
         echo ""
 
-        START_TIME=$(date +%s)
-        END_TIME=$((START_TIME + TIMEOUT))
+        RUNNING_START_TIME=""
+        LAST_STATUS=""
 
         while true; do
           CURRENT_TIME=$(date +%s)
 
-          if [ $CURRENT_TIME -ge $END_TIME ]; then
-            echo "ERROR: Timeout of ${TIMEOUT}s exceeded waiting for $TARGET"
-            exit 1
+          # Get pod status
+          if [ -n "$DEPLOYMENT_NAME" ] && [ -n "$NAMESPACE" ]; then
+            POD_INFO=$(oc get pods -n "$NAMESPACE" \
+              -l serving.kserve.io/inferenceservice="$DEPLOYMENT_NAME" \
+              -o jsonpath='{.items[0].metadata.name}:{.items[0].status.phase}:{.items[0].status.conditions[?(@.type=="PodScheduled")].reason}' 2>/dev/null || echo "")
+
+            POD_NAME=$(echo "$POD_INFO" | cut -d: -f1)
+            POD_PHASE=$(echo "$POD_INFO" | cut -d: -f2)
+            POD_CONDITION=$(echo "$POD_INFO" | cut -d: -f3)
+          else
+            POD_NAME=""
+            POD_PHASE=""
+            POD_CONDITION=""
           fi
 
-          echo "[$(date +'%Y-%m-%d %H:%M:%S')] Checking endpoint..."
-          if curl $CURL_TLS_FLAG -s -f -o /dev/null "$TARGET"; then
+          # Determine status
+          if [ "$POD_CONDITION" = "SchedulingGated" ]; then
+            STATUS="SchedulingGated"
+            STATUS_MSG="Waiting for Kueue GPU admission (no timeout)"
+            RUNNING_START_TIME=""  # Reset running timer
+          elif [ "$POD_PHASE" = "Pending" ]; then
+            STATUS="Pending"
+            STATUS_MSG="Pod being scheduled (no timeout)"
+            RUNNING_START_TIME=""
+          elif [ "$POD_PHASE" = "Running" ]; then
+            STATUS="Running"
+            # Start loading timer if not already started
+            if [ -z "$RUNNING_START_TIME" ]; then
+              RUNNING_START_TIME=$CURRENT_TIME
+              echo ""
+              echo "[$(date +'%Y-%m-%d %H:%M:%S')] Pod is Running - starting loading timeout (${LOADING_TIMEOUT}s)"
+            fi
+            LOADING_ELAPSED=$((CURRENT_TIME - RUNNING_START_TIME))
+            LOADING_REMAINING=$((LOADING_TIMEOUT - LOADING_ELAPSED))
+            STATUS_MSG="Model loading (${LOADING_ELAPSED}s elapsed, ${LOADING_REMAINING}s remaining)"
+
+            # Check loading timeout
+            if [ $LOADING_ELAPSED -ge $LOADING_TIMEOUT ]; then
+              echo ""
+              echo "ERROR: Loading timeout of ${LOADING_TIMEOUT}s exceeded"
+              echo "Pod $POD_NAME is Running but endpoint not responding"
+              echo "Check pod logs: oc logs $POD_NAME -n $NAMESPACE"
+              exit 1
+            fi
+          elif [ "$POD_PHASE" = "Failed" ] || [ "$POD_PHASE" = "Error" ]; then
             echo ""
-            echo "SUCCESS: Endpoint is ready!"
+            echo "ERROR: Pod is in $POD_PHASE state"
+            echo "Pod: $POD_NAME"
+            echo "Check pod logs: oc logs $POD_NAME -n $NAMESPACE"
+            exit 1
+          else
+            STATUS="Unknown"
+            STATUS_MSG="Pod status: ${POD_PHASE:-not found}"
+          fi
+
+          # Print status if changed
+          if [ "$STATUS" != "$LAST_STATUS" ]; then
+            echo ""
+            echo "[$(date +'%Y-%m-%d %H:%M:%S')] Status: $STATUS"
+            echo "  $STATUS_MSG"
+            LAST_STATUS="$STATUS"
+          fi
+
+          # Check endpoint
+          echo -n "[$(date +'%Y-%m-%d %H:%M:%S')] Checking endpoint... "
+          if curl $CURL_TLS_FLAG -s -f -o /dev/null --connect-timeout 5 "$TARGET"; then
+            echo "SUCCESS!"
+            echo ""
+            echo "============================================"
+            echo "Endpoint is ready!"
             echo "Target URL: $TARGET"
-            ELAPSED=$((CURRENT_TIME - START_TIME))
-            echo "Time elapsed: ${ELAPSED}s"
+            echo "Pod: $POD_NAME"
+            if [ -n "$RUNNING_START_TIME" ]; then
+              LOADING_TIME=$((CURRENT_TIME - RUNNING_START_TIME))
+              echo "Loading time: ${LOADING_TIME}s"
+            fi
+            echo "============================================"
             exit 0
           else
-            ELAPSED=$((CURRENT_TIME - START_TIME))
-            REMAINING=$((TIMEOUT - ELAPSED))
-            echo "Endpoint not ready yet (${ELAPSED}s elapsed, ${REMAINING}s remaining). Retrying in ${RETRY_INTERVAL}s..."
-            sleep "$RETRY_INTERVAL"
+            echo "not ready"
           fi
+
+          sleep "$RETRY_INTERVAL"
         done
