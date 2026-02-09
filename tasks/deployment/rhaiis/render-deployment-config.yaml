@@ -69,6 +69,11 @@ spec:
       type: string
       default: "psap-benchmark"
 
+    - name: RUN_UUID
+      description: Pipeline run UUID for metrics correlation
+      type: string
+      default: ""
+
     - name: CPU_REQUEST
       description: CPU request
       type: string
@@ -115,6 +120,8 @@ spec:
           value: "$(params.MODEL_LOADING_TIMEOUT)"
         - name: KUEUE_QUEUE_NAME
           value: "$(params.KUEUE_QUEUE_NAME)"
+        - name: RUN_UUID
+          value: "$(params.RUN_UUID)"
         - name: CPU_REQUEST
           value: "$(params.CPU_REQUEST)"
         - name: MEMORY_REQUEST
@@ -138,6 +145,7 @@ spec:
         vllm_args_json = os.environ.get('VLLM_ARGS_JSON', '[]')
         model_loading_timeout = int(os.environ['MODEL_LOADING_TIMEOUT'])
         kueue_queue_name = os.environ['KUEUE_QUEUE_NAME']
+        run_uuid = os.environ.get('RUN_UUID', '')
         cpu_request = os.environ['CPU_REQUEST']
         memory_request = os.environ['MEMORY_REQUEST']
 
@@ -231,6 +239,7 @@ spec:
             app: vllm-inference
             model: {deployment_name}
             deployment-mode: rhaiis
+            deployment_uuid: {run_uuid}
             kueue.x-k8s.io/queue-name: {kueue_queue_name}
           annotations:
             serving.kserve.io/deploymentMode: RawDeployment
@@ -241,6 +250,7 @@ spec:
         spec:
           predictor:
             labels:
+              deployment_uuid: {run_uuid}
               kueue.x-k8s.io/queue-name: {kueue_queue_name}
             minReplicas: {replicas}
             maxReplicas: {replicas}

@@ -150,7 +150,7 @@ spec:
       # DEFAULT: "600"
       # Maximum duration per rate in seconds
       # Set lower for quick tests, higher for stable measurements
-      value: "60"
+      value: "120"
 
     - name: GUIDELLM_MAX_REQUESTS
       # DEFAULT: "" (unlimited)
@@ -273,7 +273,7 @@ spec:
     # Kueue Integration (GPU Queuing)
     # ===========================================
     - name: KUEUE_QUEUE_NAME
-      # DEFAULT: "" (empty, Kueue disabled)
+      # REQUIRED - Kueue LocalQueue name for GPU scheduling
       # Set to LocalQueue name to enable GPU-based workload queuing
       # The vLLM pods will be queued and admitted based on GPU availability
       # Example: "psap-benchmark"
