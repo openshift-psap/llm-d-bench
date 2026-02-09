@@ -9,7 +9,7 @@ metadata:
     config-type: vllm
 data:
   VLLM_ARGS: |
-    --max-model-len=32768
+    --max-model-len=40960
     --uvicorn-log-level=debug
     --trust-remote-code
     --gpu-memory-utilization=0.92
