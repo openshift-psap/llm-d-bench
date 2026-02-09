@@ -8,56 +8,40 @@ metadata:
     tekton.dev/tags: "uuid,tracking"
 spec:
   description: |
-    Extract unique identifiers from the PipelineRun for tracking.
-    Uses Tekton's built-in PipelineRun identifiers for consistent correlation.
-    - Full UUID: PipelineRun's Kubernetes UID
-    - Short UUID: Suffix from PipelineRun name (e.g., 'v4xw4' from 'example-v4xw4')
-
-  params:
-    - name: PIPELINERUN_NAME
-      description: Name of the PipelineRun (use context.pipelineRun.name)
-      type: string
-    - name: PIPELINERUN_UID
-      description: UID of the PipelineRun (use context.pipelineRun.uid)
-      type: string
+    Generate unique identifiers for pipeline run tracking.
+    - Full UUID: Standard UUID for MLflow tracking and correlation
+    - Short UUID: First 5 characters of full UUID for K8s resource names
 
   results:
     - name: RUN_UUID
-      description: Full UUID (PipelineRun UID) for MLflow tracking
+      description: Full UUID for MLflow tracking (36 characters)
     - name: RUN_UUID_SHORT
-      description: Short suffix from PipelineRun name for K8s resource names
+      description: First 5 characters of UUID for K8s resource names
     - name: RUN_TIMESTAMP
       description: ISO timestamp for the run start
-    - name: PIPELINERUN_NAME
-      description: Full PipelineRun name for reference
 
   steps:
-    - name: extract-ids
+    - name: generate
       image: registry.redhat.io/openshift4/ose-cli:latest
       script: |
         #!/bin/bash
         set -e
 
-        PIPELINERUN_NAME="$(params.PIPELINERUN_NAME)"
-        PIPELINERUN_UID="$(params.PIPELINERUN_UID)"
+        # Generate full UUID
+        RUN_UUID=$(cat /proc/sys/kernel/random/uuid)
 
-        # Full UUID is the PipelineRun's Kubernetes UID
-        RUN_UUID="$PIPELINERUN_UID"
-
-        # Short UUID is the suffix from PipelineRun name (after last dash)
-        RUN_UUID_SHORT=$(echo "$PIPELINERUN_NAME" | rev | cut -d'-' -f1 | rev)
+        # Short UUID is first 5 characters of full UUID
+        RUN_UUID_SHORT=$(echo "$RUN_UUID" | cut -c1-5)
 
         RUN_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
         printf "%s" "$RUN_UUID" > $(results.RUN_UUID.path)
         printf "%s" "$RUN_UUID_SHORT" > $(results.RUN_UUID_SHORT.path)
         printf "%s" "$RUN_TIMESTAMP" > $(results.RUN_TIMESTAMP.path)
-        printf "%s" "$PIPELINERUN_NAME" > $(results.PIPELINERUN_NAME.path)
 
         echo "============================================"
         echo "Pipeline Run Tracking"
         echo "============================================"
-        echo "PipelineRun:  $PIPELINERUN_NAME"
         echo "Full UUID:    $RUN_UUID"
         echo "Short UUID:   $RUN_UUID_SHORT"
         echo "Timestamp:    $RUN_TIMESTAMP"
@@ -68,6 +52,6 @@ spec:
         echo "  - Artifact collection and upload"
         echo ""
         echo "Short UUID used for:"
-        echo "  - Kubernetes deployment names"
-        echo "  - Pod naming (matches PipelineRun suffix)"
+        echo "  - Kubernetes deployment names (e.g., model-name-$RUN_UUID_SHORT)"
+        echo "  - Correlates directly with full UUID"
         echo "============================================"
