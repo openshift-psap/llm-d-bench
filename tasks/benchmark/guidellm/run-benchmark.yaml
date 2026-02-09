@@ -167,7 +167,7 @@ spec:
               key: region
               optional: true
         - name: GUIDELLM__REQUEST_TIMEOUT
-          value: "6000"
+          value: "1000"
         - name: GUIDELLM__LOGGING__CONSOLE_LOG_LEVEL
           value: "INFO"
         - name: MLFLOW_TRACKING_INSECURE_TLS

@@ -239,7 +239,7 @@ spec:
           valueFrom:
             secretKeyRef:
               name: mlflow-ui-auth
-              key: tracking_uri
+              key: tracking-uri
               optional: true
         - name: MLFLOW_TRACKING_USERNAME
           valueFrom:
@@ -257,13 +257,13 @@ spec:
           valueFrom:
             secretKeyRef:
               name: mlflow-s3-secret
-              key: AWS_ACCESS_KEY_ID
+              key: access-key
               optional: true
         - name: AWS_SECRET_ACCESS_KEY
           valueFrom:
             secretKeyRef:
               name: mlflow-s3-secret
-              key: AWS_SECRET_ACCESS_KEY
+              key: secret-key
               optional: true
         - name: MLFLOW_TRACKING_INSECURE_TLS
           value: "true"

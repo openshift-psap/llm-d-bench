@@ -8,13 +8,15 @@ metadata:
     tekton.dev/tags: "uuid,tracking"
 spec:
   description: |
-    Generate a unique 5-character UUID prefix for the pipeline run.
-    This UUID is used to correlate all tasks, artifacts, and MLflow runs
-    for a single end-to-end benchmark execution.
+    Generate unique identifiers for the pipeline run.
+    - Full UUID for MLflow tracking and correlation
+    - Short 5-char suffix for Kubernetes resource names (length limits)
 
   results:
     - name: RUN_UUID
-      description: 5-character unique identifier for this run
+      description: Full UUID for MLflow tracking (36 characters)
+    - name: RUN_UUID_SHORT
+      description: Short 5-character suffix for K8s resource names
     - name: RUN_TIMESTAMP
       description: ISO timestamp for the run start
 
@@ -25,23 +27,36 @@ spec:
         #!/bin/bash
         set -e
 
-        # Generate 5-char alphanumeric UUID (lowercase)
-        RUN_UUID=$(head /dev/urandom | tr -dc 'a-z0-9' | head -c 5)
+        # Generate full UUID (using /proc/sys/kernel/random/uuid if available, else fallback)
+        if [ -f /proc/sys/kernel/random/uuid ]; then
+          RUN_UUID=$(cat /proc/sys/kernel/random/uuid)
+        else
+          # Fallback: generate UUID-like string from urandom
+          RUN_UUID=$(head /dev/urandom | tr -dc 'a-f0-9' | head -c 32 | sed 's/\(.\{8\}\)\(.\{4\}\)\(.\{4\}\)\(.\{4\}\)\(.\{12\}\)/\1-\2-\3-\4-\5/')
+        fi
+
+        # Short version for K8s names (last 5 chars of UUID without dashes)
+        RUN_UUID_SHORT=$(echo "$RUN_UUID" | tr -d '-' | tail -c 6 | head -c 5)
+
         RUN_TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
         printf "%s" "$RUN_UUID" > $(results.RUN_UUID.path)
+        printf "%s" "$RUN_UUID_SHORT" > $(results.RUN_UUID_SHORT.path)
         printf "%s" "$RUN_TIMESTAMP" > $(results.RUN_TIMESTAMP.path)
 
         echo "============================================"
         echo "Pipeline Run Tracking"
         echo "============================================"
-        echo "Run UUID: $RUN_UUID"
-        echo "Timestamp: $RUN_TIMESTAMP"
+        echo "Full UUID:  $RUN_UUID"
+        echo "Short UUID: $RUN_UUID_SHORT"
+        echo "Timestamp:  $RUN_TIMESTAMP"
         echo "============================================"
         echo ""
-        echo "This UUID will be used to track:"
-        echo "  - All task executions in this pipeline"
-        echo "  - vLLM pod logs and artifacts"
-        echo "  - MLflow experiment run"
-        echo "  - Deployment cleanup"
+        echo "Full UUID used for:"
+        echo "  - MLflow run tagging and correlation"
+        echo "  - Artifact collection and upload"
+        echo ""
+        echo "Short UUID used for:"
+        echo "  - Kubernetes deployment names"
+        echo "  - Pod naming (K8s length limits)"
         echo "============================================"

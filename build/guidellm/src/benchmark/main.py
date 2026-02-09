@@ -474,15 +474,11 @@ def run_benchmark_with_mlflow(
 
     mlflow.set_experiment(experiment_name)
 
-    # Run name: use pipeline UUID if provided, otherwise generate
+    # Run name: model + timestamp (UUID is tracked as a tag for correlation)
+    run_name = f"{model.split('/')[-1]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    logger.info(f"MLflow run name: {run_name}")
     if run_uuid:
-        run_name = run_uuid
-        logger.info(f"Using pipeline RUN_UUID as MLflow run name: {run_uuid}")
-    else:
-        run_name = (
-            f"{model.split('/')[-1]}_sweep_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        )
-        logger.info(f"Generated MLflow run name: {run_name}")
+        logger.info(f"Pipeline RUN_UUID for correlation: {run_uuid}")
 
     logger.info(f"Starting benchmark sweep: rates={rate}")
 
@@ -1071,7 +1067,7 @@ def main():
             key, value = tag.split("=", 1)
             tags[key.strip()] = value.strip()
 
-    logger.info(f"Starting benchmark sweep for rates: {args.rate}")
+    logger.info(f"Starting benchmark for rates: {args.rate}")
 
     # Log in to HF
     hf_token = os.environ.get("HF_TOKEN")
