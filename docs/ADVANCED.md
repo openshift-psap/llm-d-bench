@@ -281,9 +281,29 @@ params:
 
 ---
 
-## Image Registry Setup
+## Container Images
 
-Enable OpenShift internal registry:
+### Pre-built Images (Recommended)
+
+Pre-built benchmark images are automatically available from GitHub Container Registry:
+
+- **GuideLLM**: `ghcr.io/openshift-psap/llm-d-bench/guidellm:latest`
+- **MLPerf**: `ghcr.io/openshift-psap/llm-d-bench/mlperf:latest`
+- **PR builds**: `ghcr.io/openshift-psap/llm-d-bench/<tool>:pr-<number>`
+
+Images are built via GitHub Actions when changes are pushed to the `build/` directory:
+- Push to `main` → tagged as `latest`
+- Pull requests → tagged as `pr-<number>`
+
+**No local building or registry setup required for normal use.**
+
+---
+
+## Building Images Locally
+
+For local development or testing custom modifications:
+
+### 1. Setup Internal Image Registry
 
 ```bash
 ./scripts/install.sh --setup-image-registry
@@ -293,11 +313,13 @@ Registry endpoint: `image-registry.openshift-image-registry.svc:5000`
 
 For RWO storage (single-node), replicas automatically set to 1.
 
----
+### 2. Grant Registry Permissions
 
-## Building Custom Images
+```bash
+oc policy add-role-to-user system:image-builder -z default -n llm-d-bench
+```
 
-### Directory Structure
+### 3. Directory Structure
 
 ```
 build/
@@ -309,14 +331,15 @@ build/
     └── src/
 ```
 
-### Build via Pipeline
+### 4. Build via Pipeline
 
 ```bash
-oc create -f pipelineruns/benchmark/guidellm/build-image-run.yaml -n llm-d-bench
+# Build pipelineruns are prefixed with 'dev-' and not installed by default
+oc create -f pipelineruns/benchmark/guidellm/dev-build-image-run.yaml -n llm-d-bench
 tkn pipelinerun logs -f -n llm-d-bench
 ```
 
-Image: `image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest`
+Local image: `image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest`
 
 ### Best Practices
 
@@ -420,6 +443,85 @@ Tool-specific parameters use prefixes:
 ---
 
 ## Troubleshooting
+
+### Tekton Controllers Not Starting
+
+**Symptoms:**
+- PipelineRuns remain in pending state indefinitely
+- Tekton controller pods show status: `0/1` or `Deployment` shows `ReplicaFailure`
+- Events show: `unable to validate against any security context constraint: provider "anyuid": Forbidden: not usable by user or serviceaccount`
+- Error message: `provider restricted-v2: .containers[0].runAsUser: Invalid value: 65532: must be in the ranges`
+
+**Solution:**
+
+Grant the `anyuid` SCC to Tekton service accounts:
+
+```bash
+oc adm policy add-scc-to-user anyuid -z tekton-pipelines-controller -n tekton-pipelines
+oc adm policy add-scc-to-user anyuid -z tekton-pipelines-webhook -n tekton-pipelines
+oc adm policy add-scc-to-user anyuid -z tekton-events-controller -n tekton-pipelines
+```
+
+If deployments don't automatically restart, trigger a rollout:
+
+```bash
+oc rollout restart deployment/tekton-pipelines-controller -n tekton-pipelines
+oc rollout restart deployment/tekton-pipelines-webhook -n tekton-pipelines
+oc rollout restart deployment/tekton-events-controller -n tekton-pipelines
+```
+
+Verify controllers are running:
+```bash
+oc get pods -n tekton-pipelines
+```
+
+All pods should show `1/1 Running` status.
+
+**If `anyuid` SCC doesn't work:**
+
+In some cases, pods may still fail with errors like:
+```
+pod.metadata.annotations[container.seccomp.security.alpha.kubernetes.io/...]: Forbidden: seccomp may not be set
+```
+
+This happens because Tekton deployments include `seccompProfile.type: RuntimeDefault` in their securityContext, and the `anyuid` SCC doesn't allow seccomp profiles.
+
+Use the `privileged` SCC instead:
+
+```bash
+oc adm policy add-scc-to-user privileged system:serviceaccount:tekton-pipelines:tekton-pipelines-controller
+oc adm policy add-scc-to-user privileged system:serviceaccount:tekton-pipelines:tekton-pipelines-webhook
+oc adm policy add-scc-to-user privileged system:serviceaccount:tekton-pipelines:tekton-events-controller
+```
+
+Then restart the deployments:
+
+```bash
+oc rollout restart deployment tekton-pipelines-controller tekton-pipelines-webhook tekton-events-controller -n tekton-pipelines
+```
+
+---
+
+### Image Build Push Failures (Local Development)
+
+> **Note:** This only applies if you're building images locally. Pre-built images from GHCR don't require registry setup.
+
+**Symptoms:**
+- Build completes successfully
+- Push fails with: `authentication required`
+- Error: `writing blob: initiating layer upload to /v2/.../blobs/uploads/`
+
+**Solution:**
+
+Grant the `system:image-builder` role to the service account:
+
+```bash
+oc policy add-role-to-user system:image-builder -z default -n llm-d-bench
+```
+
+This allows the service account to push images to the internal OpenShift registry.
+
+---
 
 ### Pipeline Stuck in Pending
 
