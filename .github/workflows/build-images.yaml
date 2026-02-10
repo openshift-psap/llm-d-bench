@@ -68,8 +68,13 @@ jobs:
 
       - name: Build image with podman
         run: |
+          # Extract directory from containerfile path
+          BUILD_DIR=$(dirname "${{ matrix.containerfile }}")
+          CONTAINERFILE=$(basename "${{ matrix.containerfile }}")
+
+          cd "$BUILD_DIR"
           podman build \
-            -f ${{ matrix.containerfile }} \
+            -f "$CONTAINERFILE" \
             -t ${{ steps.tags.outputs.image_url }} \
             .
 
