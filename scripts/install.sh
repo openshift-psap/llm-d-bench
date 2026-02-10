@@ -5,13 +5,15 @@
 # This script installs Tasks, Pipelines, and optionally infrastructure components
 # and PVCs in the specified namespace.
 #
+# Note: Pre-built benchmark images are available from GHCR. Image building and
+# registry setup are optional for local development/testing only.
+#
 # Usage:
 #   ./scripts/install.sh                                    # Install in default namespace
 #   ./scripts/install.sh -n my-namespace                    # Install in specific namespace
 #   ./scripts/install.sh -n my-namespace --with-pvcs        # Also create PVCs
 #   ./scripts/install.sh --with-infra                       # Install infrastructure (Kueue, etc.)
-#   ./scripts/install.sh --setup-image-registry             # Setup internal image registry
-#   ./scripts/install.sh -n my-namespace --with-infra --with-pvcs --setup-image-registry  # Full installation
+#   ./scripts/install.sh --setup-image-registry             # [Local dev] Setup internal image registry
 #
 
 set -e
@@ -46,8 +48,10 @@ while [[ $# -gt 0 ]]; do
             echo "  -n, --namespace NAMESPACE   Install in specified namespace"
             echo "  --with-pvcs                 Also create PersistentVolumeClaims"
             echo "  --with-infra                Install infrastructure components (Kueue, etc.)"
-            echo "  --setup-image-registry      Setup OpenShift internal image registry with persistent storage"
+            echo "  --setup-image-registry      [Local dev only] Setup internal image registry (not needed with GHCR images)"
             echo "  -h, --help                  Show this help message"
+            echo ""
+            echo "Note: Pre-built images are available from GHCR. Image building is optional for local development."
             exit 0
             ;;
         *)
@@ -75,6 +79,9 @@ echo "Namespace: $NAMESPACE"
 echo "Create PVCs: $CREATE_PVCS"
 echo "Install Infrastructure: $INSTALL_INFRA"
 echo "Setup Image Registry: $SETUP_REGISTRY"
+echo ""
+echo "Note: Pre-built images are available from GitHub Container Registry (GHCR)."
+echo "      Image building is optional and only needed for local development."
 echo ""
 
 echo "Configuring Tekton Pipelines Security Context Constraints..."
@@ -105,11 +112,14 @@ done
 echo "✓ RBAC resources installed"
 echo ""
 
-echo "Configuring image registry permissions..."
-echo "  - Granting system:image-builder to default service account"
-oc policy add-role-to-user system:image-builder -z default $NS_FLAG 2>/dev/null || true
-echo "✓ Image registry permissions configured"
-echo ""
+# Image registry permissions (only needed for local image builds)
+# Pre-built images from GHCR don't require this configuration
+# Uncomment if you plan to build images locally
+# echo "Configuring image registry permissions..."
+# echo "  - Granting system:image-builder to default service account"
+# oc policy add-role-to-user system:image-builder -z default $NS_FLAG 2>/dev/null || true
+# echo "✓ Image registry permissions configured"
+# echo ""
 
 echo "Installing Secrets..."
 SECRET_COUNT=0
