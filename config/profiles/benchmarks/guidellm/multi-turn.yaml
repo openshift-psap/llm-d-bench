@@ -8,7 +8,7 @@ metadata:
   labels:
     config-type: benchmark
 data:
-  IMAGE: "ghcr.io/openshift-psap/llm-d-bench/guidellm:latest"
+  IMAGE: "ghcr.io/openshift-psap/llm-d-bench/guidellm:multiturn"
   GUIDELLM_BACKEND_TYPE: "openai_http"
   GUIDELLM_RATE_TYPE: "concurrent"
   GUIDELLM_RATE: "32,64,128,256,512"
