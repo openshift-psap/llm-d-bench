@@ -94,6 +94,7 @@ class BenchmarkProcessor:
         config_path: Optional[str] = None,
         output_html: Optional[str] = None,
         aws_profile: Optional[str] = None,
+        replicas: int = 1,
     ):
         """
         Initialize the benchmark processor.
@@ -111,6 +112,7 @@ class BenchmarkProcessor:
             config_path: Optional path to YAML config file (auto-generated if not provided)
             output_html: Output HTML report filename (optional)
             aws_profile: AWS profile name (optional)
+            replicas: Number of replicas (default: 1)
         """
         self.json_path = json_path
         self.config_path = config_path
@@ -121,6 +123,7 @@ class BenchmarkProcessor:
         self.version = version
         self.tp_size = tp_size
         self.runtime_args = runtime_args
+        self.replicas = replicas
         self.output_html = output_html or "benchmark_report.html"
 
         # Versions to comare (always include the current version)
@@ -343,6 +346,7 @@ class BenchmarkProcessor:
             "itl_mean": itl_metrics.get("mean"),
             "itl_p99": _get_nested(itl_metrics, "percentiles", "p99"),
             "runtime_args": self.runtime_args,
+            "replicas": self.replicas,
         }
 
         return row
@@ -445,6 +449,7 @@ class BenchmarkProcessor:
             "itl_mean",
             "itl_p99",
             "runtime_args",
+            "replicas",
         ]
 
         for col in fieldnames:

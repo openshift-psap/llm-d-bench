@@ -47,7 +47,7 @@ spec:
 
     # Deployment Configuration
     - name: DEPLOYMENT_MODE
-      description: "Deployment mode: inference-scheduling (default) or pd-disaggregation"
+      description: "Deployment mode: inference-scheduling (default), pd-disaggregation, or precise-prefix-cache"
       type: string
       default: "inference-scheduling"
 
@@ -111,6 +111,27 @@ spec:
       description: Enable RDMA/InfiniBand networking (pd-disaggregation mode only, requires rdma/ib resources)
       type: string
       default: "true"
+
+    # Precise Prefix Cache Mode Parameters (only used when DEPLOYMENT_MODE=precise-prefix-cache)
+    - name: BLOCK_SIZE
+      description: KV cache block size for precise prefix caching (must match between ModelService and EPP)
+      type: string
+      default: "64"
+
+    - name: HASH_SEED
+      description: Python hash seed for consistent hashing (must match between ModelService and EPP)
+      type: string
+      default: "42"
+
+    - name: ZMQ_PORT
+      description: ZMQ port for KV-events communication (precise-prefix-cache mode only)
+      type: string
+      default: "5557"
+
+    - name: MS_IMAGE
+      description: ModelService container image (precise-prefix-cache mode only)
+      type: string
+      default: "ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"
 
     # Common Parameters
     - name: HF_TOKEN_SECRET
@@ -323,6 +344,8 @@ spec:
           value: $(params.GATEWAY_PROVIDER)
         - name: TARGET
           value: $(params.TARGET)
+        - name: IMAGE
+          value: $(params.IMAGE)
 
     # Stage 1: Download Model
     - name: download-model
@@ -367,7 +390,7 @@ spec:
           workspace: source
 
     # Stage 2b: Deploy with Helmfile - Inference Scheduling Mode
-    - name: deploy-llm-d-helmfile
+    - name: deploy-llm-d-inference-scheduling
       runAfter:
         - git-clone-llm-d
       when:
@@ -378,7 +401,7 @@ spec:
           operator: in
           values: ["inference-scheduling"]
       taskRef:
-        name: deploy-llm-d-helmfile
+        name: deploy-llm-d-inference-scheduling
       params:
         - name: MODEL_NAME
           value: $(params.MODEL_NAME)
@@ -397,9 +420,7 @@ spec:
         - name: HF_TOKEN_SECRET
           value: $(params.HF_TOKEN_SECRET)
         - name: VLLM_ARGS
-          value: $(params.VLLM_ARGS[*])
-        - name: EPP_CONFIG
-          value: $(params.EPP_CONFIG)
+          value: $(tasks.merge-configs.results.vllm-args)
         - name: SKIP_IF_EXISTS
           value: "true"
       workspaces:
@@ -447,7 +468,53 @@ spec:
         - name: HF_TOKEN_SECRET
           value: $(params.HF_TOKEN_SECRET)
         - name: VLLM_ARGS
-          value: $(params.VLLM_ARGS[*])
+          value: $(tasks.merge-configs.results.vllm-args)
+        - name: SKIP_IF_EXISTS
+          value: "true"
+      workspaces:
+        - name: source
+          workspace: source
+
+    # Stage 2d: Deploy with Helmfile - Precise Prefix Cache Mode
+    - name: deploy-llm-d-precise-prefix-cache
+      runAfter:
+        - git-clone-llm-d
+      when:
+        - input: "$(params.SKIP_DEPLOY)"
+          operator: in
+          values: ["false"]
+        - input: "$(params.DEPLOYMENT_MODE)"
+          operator: in
+          values: ["precise-prefix-cache"]
+      taskRef:
+        name: deploy-llm-d-precise-prefix-cache
+      params:
+        - name: MODEL_NAME
+          value: $(params.MODEL_NAME)
+        - name: MODEL_REVISION
+          value: $(params.MODEL_REVISION)
+        - name: RELEASE_NAME
+          value: $(params.RELEASE_NAME)
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: GATEWAY_PROVIDER
+          value: $(params.GATEWAY_PROVIDER)
+        - name: REPLICAS
+          value: $(params.REPLICAS)
+        - name: TP
+          value: $(params.TP)
+        - name: BLOCK_SIZE
+          value: $(params.BLOCK_SIZE)
+        - name: HASH_SEED
+          value: $(params.HASH_SEED)
+        - name: ZMQ_PORT
+          value: $(params.ZMQ_PORT)
+        - name: MS_IMAGE
+          value: $(params.MS_IMAGE)
+        - name: HF_TOKEN_SECRET
+          value: $(params.HF_TOKEN_SECRET)
+        - name: VLLM_ARGS
+          value: $(tasks.merge-configs.results.vllm-args)
         - name: SKIP_IF_EXISTS
           value: "true"
       workspaces:
@@ -457,8 +524,9 @@ spec:
     # Stage 3: Wait for Endpoint
     - name: wait-for-endpoint
       runAfter:
-        - deploy-llm-d-helmfile
+        - deploy-llm-d-inference-scheduling
         - deploy-llm-d-pd-disaggregation
+        - deploy-llm-d-precise-prefix-cache
       when:
         - input: "$(params.SKIP_BENCHMARK)"
           operator: in
@@ -489,7 +557,7 @@ spec:
         name: detect-benchmark-type
       params:
         - name: IMAGE
-          value: $(params.IMAGE)
+          value: $(tasks.merge-configs.results.guidellm-image)
 
     # Stage 4a: Run GuideLLM Benchmark
     - name: run-guidellm-benchmark
@@ -507,7 +575,7 @@ spec:
         name: run-guidellm-benchmark
       params:
         - name: IMAGE
-          value: $(params.IMAGE)
+          value: $(tasks.merge-configs.results.guidellm-image)
         - name: TARGET
           value: $(tasks.merge-configs.results.target-url)
         - name: MODEL

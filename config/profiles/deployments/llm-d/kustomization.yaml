@@ -6,4 +6,5 @@ namespace: llm-d-bench
 resources:
   - inference-scheduling.yaml
   - pd-disaggregation.yaml
+  - precise-prefix-cache.yaml
   - epp/

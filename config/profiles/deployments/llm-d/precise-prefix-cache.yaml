@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deployment-llm-d-precise-prefix-cache
+  namespace: llm-d-bench
+  annotations:
+    description: "llm-d Precise Prefix Cache deployment with KV-events"
+  labels:
+    config-type: deployment
+data:
+  DEPLOYMENT_TYPE: "llm-d"
+  DEPLOYMENT_MODE: "precise-prefix-cache"
+  LLM_D_REPO_REF: "afc99a53d44103f552e12deb4f7df8a53fbbabc0"
+  GATEWAY_PROVIDER: "istio"
+  BLOCK_SIZE: "64"
+  HASH_SEED: "42"
+  ZMQ_PORT: "5557"

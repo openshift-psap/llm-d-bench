@@ -1,0 +1,602 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: deploy-llm-d-precise-prefix-cache
+  labels:
+    app.kubernetes.io/version: "0.2"
+  annotations:
+    tekton.dev/displayName: "Deploy llm-d Model with Precise Prefix Cache"
+    tekton.dev/tags: model, deploy, helm, helmfile, llm-d, gitops, kv-events, prefix-cache
+    tekton.dev/platforms: "linux/amd64"
+spec:
+  description: >-
+    Deploy a model using the llm-d precise-prefix-cache-aware guide with KV-events.
+    This enables precise prefix caching using a ZMQ-based KV-events subscriber for
+    optimal cache-aware scheduling. Requires consistent hash configuration between
+    ModelService and GAIE (blockSize, hashSeed). This task expects the llm-d repository
+    to be already cloned in the workspace.
+
+  params:
+    # Core Model Configuration
+    - name: MODEL_NAME
+      description: HuggingFace model identifier (e.g., meta-llama/Llama-3.1-8B)
+      type: string
+
+    - name: MODEL_REVISION
+      description: Model revision/branch to deploy
+      type: string
+      default: "main"
+
+    # Deployment Configuration
+    - name: RELEASE_NAME
+      description: Unique release name postfix
+      type: string
+
+    - name: NAMESPACE
+      description: Namespace for deployment
+      type: string
+
+    - name: GATEWAY_PROVIDER
+      description: "Gateway provider: istio (default), kgateway, gke. Note: standalone is NOT supported for precise-prefix-cache"
+      type: string
+      default: "istio"
+
+    # Scaling & Resources
+    - name: REPLICAS
+      description: Number of vLLM worker replicas
+      type: string
+      default: "1"
+
+    - name: TP
+      description: Tensor parallelism size (GPUs per pod)
+      type: string
+      default: "1"
+
+    # Precise Prefix Cache Configuration
+    - name: BLOCK_SIZE
+      description: KV cache block size (must match between ModelService and EPP)
+      type: string
+      default: "64"
+
+    - name: HASH_SEED
+      description: Python hash seed for consistent hashing (must match between ModelService and EPP)
+      type: string
+      default: "42"
+
+    - name: ZMQ_PORT
+      description: ZMQ port for KV-events communication
+      type: string
+      default: "5557"
+
+    - name: MS_IMAGE
+      description: ModelService container image
+      type: string
+      default: "ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"
+
+    # Storage & Authentication
+    - name: MODEL_PVC
+      description: PVC name for model storage
+      type: string
+      default: "models-storage"
+
+    - name: HF_TOKEN_SECRET
+      description: Secret name containing HuggingFace token
+      type: string
+      default: "huggingface-token"
+
+    # Advanced Configuration
+    - name: VLLM_ARGS
+      description: Additional vLLM arguments as newline-delimited string or array (from merge-configs)
+      type: string
+      default: ""
+
+    # Control Flags
+    - name: SKIP_IF_EXISTS
+      description: Skip deployment if release already exists
+      type: string
+      default: "true"
+
+  workspaces:
+    - name: source
+      description: Workspace containing cloned llm-d repository (at llm-d-repo/)
+
+  steps:
+    # Step 1: Patch Values with yq
+    - name: patch-values
+      image: ghcr.io/helmfile/helmfile:latest
+      workingDir: $(workspaces.source.path)/llm-d-repo/guides/precise-prefix-cache-aware
+      env:
+        - name: HOME
+          value: /tmp
+        - name: VLLM_ARGS_INPUT
+          value: $(params.VLLM_ARGS)
+      script: |
+        #!/bin/bash
+        set -e
+
+        echo "=== Step 1: Patching Values with yq ==="
+
+        # Validate gateway provider (standalone not supported)
+        if [ "$(params.GATEWAY_PROVIDER)" = "standalone" ]; then
+          echo "ERROR: standalone mode is not supported for precise-prefix-cache-aware guide"
+          echo "Please use inference-scheduling guide with standalone mode, or choose istio/kgateway/gke"
+          exit 1
+        fi
+
+        GUIDE_DIR="$(workspaces.source.path)/llm-d-repo/guides/precise-prefix-cache-aware"
+        if [ ! -d "$GUIDE_DIR" ]; then
+          echo "ERROR: llm-d precise-prefix-cache-aware guide not found at $GUIDE_DIR"
+          echo "Available guides:"
+          ls -la "$(workspaces.source.path)/llm-d-repo/guides/" || true
+          exit 1
+        fi
+
+        # Install yq (mikefarah/yq v4.x)
+        YQ_VERSION="v4.40.5"
+        if ! wget -qO /tmp/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"; then
+          echo "ERROR: Failed to download yq"
+          exit 1
+        fi
+        chmod +x /tmp/yq
+
+        MS_VALUES_FILE="ms-kv-events/values.yaml"
+        GAIE_VALUES_FILE="gaie-kv-events/values.yaml"
+
+        # Verify values files exist
+        if [ ! -f "$MS_VALUES_FILE" ]; then
+          echo "ERROR: ModelService values.yaml not found at $MS_VALUES_FILE"
+          exit 1
+        fi
+        if [ ! -f "$GAIE_VALUES_FILE" ]; then
+          echo "ERROR: GAIE values.yaml not found at $GAIE_VALUES_FILE"
+          exit 1
+        fi
+
+        # Sanitize model name for PVC path (replace / with -)
+        MODEL_NAME_SANITIZED=$(echo "$(params.MODEL_NAME)" | sed 's|/|-|g')
+
+        echo "Patching ModelService values ($MS_VALUES_FILE)..."
+
+        # 1. Get the default model name BEFORE making any changes
+        DEFAULT_MODEL=$(/tmp/yq '.modelArtifacts.name' $MS_VALUES_FILE | tr -d '"')
+        echo "  Default model in guide: $DEFAULT_MODEL"
+        echo "  Target model: $(params.MODEL_NAME)"
+
+        # 1b. Replace model name in kv-events topic and other places (NOT in vllm serve command)
+        # The vllm serve command needs the LOCAL path, not the HuggingFace ID
+        LOCAL_MODEL_PATH="/model-cache/models/$MODEL_NAME_SANITIZED"
+
+        if [ -n "$DEFAULT_MODEL" ]; then
+          # First, replace the model path in vllm serve command with local path
+          DEFAULT_MODEL_SANITIZED=$(echo "$DEFAULT_MODEL" | sed 's|/|-|g')
+          echo "  Replacing model path in vllm serve: '$DEFAULT_MODEL' -> '$LOCAL_MODEL_PATH'"
+          sed -i "s|vllm serve $DEFAULT_MODEL|vllm serve $LOCAL_MODEL_PATH|g" $MS_VALUES_FILE
+
+          # Replace model name in kv-events topic (needs the original format with /)
+          echo "  Replacing model name in kv-events topic: '$DEFAULT_MODEL' -> '$(params.MODEL_NAME)'"
+          sed -i "s|kv@\${POD_IP}@$DEFAULT_MODEL|kv@\${POD_IP}@$(params.MODEL_NAME)|g" $MS_VALUES_FILE
+        fi
+
+        # 1c. Update ZMQ port in kv-events config if different from default
+        ZMQ_PORT=$(params.ZMQ_PORT)
+        if [ "$ZMQ_PORT" != "5557" ]; then
+          echo "  Updating ZMQ port from 5557 to $ZMQ_PORT in kv-events config"
+          sed -i "s|:5557\"|:$ZMQ_PORT\"|g" $MS_VALUES_FILE
+        fi
+
+        # 1d. Model Artifacts Configuration (ensure correct values after global replace)
+        /tmp/yq -i '.modelArtifacts.name = "$(params.MODEL_NAME)"' $MS_VALUES_FILE
+        /tmp/yq -i '.modelArtifacts.uri = "pvc://$(params.MODEL_PVC)/models/'"$MODEL_NAME_SANITIZED"'"' $MS_VALUES_FILE
+        /tmp/yq -i '.modelArtifacts.authSecretName = "$(params.HF_TOKEN_SECRET)"' $MS_VALUES_FILE
+
+        # 2. Replicas
+        /tmp/yq -i '.decode.replicas = $(params.REPLICAS)' $MS_VALUES_FILE
+
+        # 3. Tensor Parallelism
+        TP=$(params.TP)
+        echo "  Configuring TP=$TP..."
+        /tmp/yq -i '.decode.parallelism.tensor = '"$TP" $MS_VALUES_FILE
+
+        # Set GPU resources based on TP (override hardcoded values in guide)
+        echo "  Setting GPU resources to $TP"
+        /tmp/yq -i '.decode.containers[0].resources.limits."nvidia.com/gpu" = "'"$TP"'"' $MS_VALUES_FILE
+        /tmp/yq -i '.decode.containers[0].resources.requests."nvidia.com/gpu" = "'"$TP"'"' $MS_VALUES_FILE
+
+        # Set CUDA_VISIBLE_DEVICES based on TP
+        if [ "$TP" -gt 1 ]; then
+          CUDA_DEVICES=$(seq -s, 0 $((TP-1)))
+        else
+          CUDA_DEVICES="0"
+        fi
+        echo "  Setting CUDA_VISIBLE_DEVICES=$CUDA_DEVICES"
+        /tmp/yq -i '(.decode.containers[0].env[] | select(.name == "CUDA_VISIBLE_DEVICES")).value = "'"$CUDA_DEVICES"'"' $MS_VALUES_FILE
+
+        # Inject --tensor-parallel-size into the vLLM shell script (args[0])
+        # The guide uses a shell script in args[0], so we need to inject TP inside it
+        echo "  Injecting --tensor-parallel-size $TP into vLLM command script"
+        sed -i "s|vllm serve |vllm serve --tensor-parallel-size $TP |g" $MS_VALUES_FILE
+
+        # 4. Override ModelService image
+        echo "  Setting ModelService image to $(params.MS_IMAGE)"
+        /tmp/yq -i '.decode.containers[0].image = "$(params.MS_IMAGE)"' $MS_VALUES_FILE
+
+        # 5. Set PYTHONHASHSEED for consistent hashing
+        echo "  Setting PYTHONHASHSEED=$(params.HASH_SEED)"
+        # Check if PYTHONHASHSEED already exists, if so update it, otherwise add it
+        if /tmp/yq -e '.decode.containers[0].env[] | select(.name == "PYTHONHASHSEED")' $MS_VALUES_FILE > /dev/null 2>&1; then
+          /tmp/yq -i '(.decode.containers[0].env[] | select(.name == "PYTHONHASHSEED")).value = "$(params.HASH_SEED)"' $MS_VALUES_FILE
+        else
+          /tmp/yq -i '.decode.containers[0].env += [{"name": "PYTHONHASHSEED", "value": "$(params.HASH_SEED)"}]' $MS_VALUES_FILE
+        fi
+
+        # 5b. Set HF_HUB_OFFLINE=1 to prevent downloading from HuggingFace
+        # The model should be fully available on the PVC
+        echo "  Setting HF_HUB_OFFLINE=1 to prevent HuggingFace downloads"
+        if /tmp/yq -e '.decode.containers[0].env[] | select(.name == "HF_HUB_OFFLINE")' $MS_VALUES_FILE > /dev/null 2>&1; then
+          /tmp/yq -i '(.decode.containers[0].env[] | select(.name == "HF_HUB_OFFLINE")).value = "1"' $MS_VALUES_FILE
+        else
+          /tmp/yq -i '.decode.containers[0].env += [{"name": "HF_HUB_OFFLINE", "value": "1"}]' $MS_VALUES_FILE
+        fi
+
+        # 6. Inject served model name into vLLM command script
+        # The guide uses a shell script in args[0], so we must use sed to inject args
+        echo "  Injecting --served-model-name into vLLM command script"
+        sed -i "s|vllm serve |vllm serve --served-model-name $(params.MODEL_NAME) |g" $MS_VALUES_FILE
+
+        # 7. Model Revision (if not main) - inject into shell script
+        if [ "$(params.MODEL_REVISION)" != "main" ]; then
+          echo "  Injecting --revision $(params.MODEL_REVISION) into vLLM command script"
+          sed -i "s|vllm serve |vllm serve --revision $(params.MODEL_REVISION) |g" $MS_VALUES_FILE
+        fi
+
+        # 8. Block size override (if different from guide's default of 64)
+        BLOCK_SIZE=$(params.BLOCK_SIZE)
+        if [ "$BLOCK_SIZE" != "64" ]; then
+          echo "  Overriding block-size from 64 to $BLOCK_SIZE"
+          sed -i "s|--block-size 64|--block-size $BLOCK_SIZE|g" $MS_VALUES_FILE
+        fi
+
+        # 8b. Ensure --prefix-caching-hash-algo sha256_cbor is present (required for precise prefix caching)
+        if ! grep -q "\-\-prefix-caching-hash-algo" $MS_VALUES_FILE; then
+          echo "  Injecting --prefix-caching-hash-algo sha256_cbor into vLLM command script"
+          sed -i "s|vllm serve |vllm serve --prefix-caching-hash-algo sha256_cbor |g" $MS_VALUES_FILE
+        fi
+
+        # 9. Additional vLLM Args from parameters - inject into shell script (parse from newline-delimited string)
+        if [ -n "$VLLM_ARGS_INPUT" ]; then
+          echo "  Adding vLLM arguments from configuration..."
+          while IFS= read -r arg; do
+            if [ -n "$arg" ]; then
+              echo "    - $arg"
+              sed -i "s|vllm serve |vllm serve $arg |g" $MS_VALUES_FILE
+            fi
+          done <<< "$VLLM_ARGS_INPUT"
+        fi
+
+        # Validate patched ModelService YAML
+        if ! /tmp/yq eval '.' $MS_VALUES_FILE > /dev/null; then
+          echo "ERROR: Patched $MS_VALUES_FILE is not valid YAML"
+          exit 1
+        fi
+
+        echo "ModelService values patched successfully"
+
+        echo ""
+        echo "Patching GAIE values ($GAIE_VALUES_FILE)..."
+
+        # 10. Set plugins config file for precise-prefix-cache (match guide's naming)
+        /tmp/yq -i '.inferenceExtension.pluginsConfigFile = "precise-prefix-cache-config.yaml"' $GAIE_VALUES_FILE
+
+        # 11. Add ZMQ ports for KV-events subscriber (only if not already present)
+        ZMQ_PORT=$(params.ZMQ_PORT)
+        if ! /tmp/yq -e '.inferenceExtension.extraContainerPorts[] | select(.name == "zmq")' $GAIE_VALUES_FILE > /dev/null 2>&1; then
+          echo "  Adding ZMQ port $ZMQ_PORT for KV-events subscriber..."
+          /tmp/yq -i '.inferenceExtension.extraContainerPorts += [{"name": "zmq", "containerPort": '"$ZMQ_PORT"', "protocol": "TCP"}]' $GAIE_VALUES_FILE
+          /tmp/yq -i '.inferenceExtension.extraServicePorts += [{"name": "zmq", "port": '"$ZMQ_PORT"', "targetPort": '"$ZMQ_PORT"', "protocol": "TCP"}]' $GAIE_VALUES_FILE
+        else
+          echo "  ZMQ port already configured, updating port value to $ZMQ_PORT..."
+          /tmp/yq -i '(.inferenceExtension.extraContainerPorts[] | select(.name == "zmq")).containerPort = '"$ZMQ_PORT" $GAIE_VALUES_FILE
+          /tmp/yq -i '(.inferenceExtension.extraServicePorts[] | select(.name == "zmq")).port = '"$ZMQ_PORT" $GAIE_VALUES_FILE
+          /tmp/yq -i '(.inferenceExtension.extraServicePorts[] | select(.name == "zmq")).targetPort = '"$ZMQ_PORT" $GAIE_VALUES_FILE
+        fi
+
+        # 12. Add HF_TOKEN env for tokenizer access (required for precise-prefix-cache-scorer)
+        if ! /tmp/yq -e '.inferenceExtension.env[] | select(.name == "HF_TOKEN")' $GAIE_VALUES_FILE > /dev/null 2>&1; then
+          echo "  Adding HF_TOKEN env for tokenizer access..."
+          /tmp/yq -i '.inferenceExtension.env += [{"name": "HF_TOKEN", "valueFrom": {"secretKeyRef": {"name": "$(params.HF_TOKEN_SECRET)", "key": "HF_TOKEN"}}}]' $GAIE_VALUES_FILE
+        fi
+
+        # 13. Inject EPP config for precise-prefix-cache-scorer (only if not already present)
+        BLOCK_SIZE=$(params.BLOCK_SIZE)
+        HASH_SEED=$(params.HASH_SEED)
+
+        # Check if precise-prefix-cache-config.yaml already exists
+        if /tmp/yq -e '.inferenceExtension.pluginsCustomConfig."precise-prefix-cache-config.yaml"' $GAIE_VALUES_FILE > /dev/null 2>&1; then
+          echo "  EPP config already exists, updating blockSize and hashSeed..."
+          # Update existing config inline
+          /tmp/yq -i '.inferenceExtension.pluginsCustomConfig."precise-prefix-cache-config.yaml" |= sub("blockSize: [0-9]+", "blockSize: '"$BLOCK_SIZE"'")' $GAIE_VALUES_FILE
+          /tmp/yq -i '.inferenceExtension.pluginsCustomConfig."precise-prefix-cache-config.yaml" |= sub("hashSeed: \"[^\"]+\"", "hashSeed: \"'"$HASH_SEED"'\"")' $GAIE_VALUES_FILE
+        else
+          echo "  Injecting precise-prefix-cache EPP configuration..."
+          # Create EPP config with tokenizersPoolConfig (matching the guide)
+          # Using printf to avoid heredoc indentation issues with YAML
+          printf '%s\n' \
+            "apiVersion: inference.networking.x-k8s.io/v1alpha1" \
+            "kind: EndpointPickerConfig" \
+            "plugins:" \
+            "  - type: single-profile-handler" \
+            "  - type: precise-prefix-cache-scorer" \
+            "    parameters:" \
+            "      indexerConfig:" \
+            "        tokenProcessorConfig:" \
+            "          blockSize: $BLOCK_SIZE" \
+            "          hashSeed: \"$HASH_SEED\"" \
+            "        tokenizersPoolConfig:" \
+            "          hf:" \
+            "            tokenizersCacheDir: \"/tmp/tokenizers\"" \
+            "  - type: kv-cache-utilization-scorer" \
+            "  - type: queue-scorer" \
+            "  - type: max-score-picker" \
+            "schedulingProfiles:" \
+            "  - name: default" \
+            "    plugins:" \
+            "      - pluginRef: precise-prefix-cache-scorer" \
+            "        weight: 3.0" \
+            "      - pluginRef: kv-cache-utilization-scorer" \
+            "        weight: 2.0" \
+            "      - pluginRef: queue-scorer" \
+            "        weight: 2.0" \
+            "      - pluginRef: max-score-picker" \
+            > /tmp/epp-config.yaml
+
+          /tmp/yq -i '.inferenceExtension.pluginsCustomConfig."precise-prefix-cache-config.yaml" = load_str("/tmp/epp-config.yaml")' $GAIE_VALUES_FILE
+        fi
+
+        # 14. EPP Verbosity (zap log level 10 = debug) - COMMENTED OUT - for reference only
+        # echo "  Setting EPP verbosity to level 10..."
+        # /tmp/yq -i '.inferenceExtension.flags.v = "10"' $GAIE_VALUES_FILE
+
+        # Validate patched GAIE YAML
+        if ! /tmp/yq eval '.' $GAIE_VALUES_FILE > /dev/null; then
+          echo "ERROR: Patched $GAIE_VALUES_FILE is not valid YAML"
+          exit 1
+        fi
+
+        echo "GAIE values patched successfully"
+
+        echo ""
+        echo "=== Configuration Summary ==="
+        echo "  Model: $(params.MODEL_NAME)"
+        echo "  Replicas: $(params.REPLICAS)"
+        echo "  Tensor Parallelism: $(params.TP)"
+        echo "  Block Size: $(params.BLOCK_SIZE)"
+        echo "  Hash Seed: $(params.HASH_SEED)"
+        echo "  ZMQ Port: $(params.ZMQ_PORT)"
+        echo "  EPP Config: precise-prefix-cache-config.yaml"
+        # echo "  EPP Verbosity: 10"  # COMMENTED OUT - for reference only
+        echo ""
+        echo "Values patched successfully"
+
+    # Step 2: Deploy with Helmfile
+    - name: deploy-llm-d-helmfile
+      image: ghcr.io/helmfile/helmfile:latest
+      workingDir: $(workspaces.source.path)/llm-d-repo/guides/precise-prefix-cache-aware
+      env:
+        - name: HOME
+          value: /tmp
+        - name: HELM_CACHE_HOME
+          value: /tmp/.cache/helm
+        - name: HELM_CONFIG_HOME
+          value: /tmp/.config/helm
+      script: |
+        #!/bin/bash
+        set -e
+
+        echo "=== Step 2: Deploying with Helmfile ==="
+
+        NAMESPACE=$(params.NAMESPACE)
+        RELEASE_NAME=$(params.RELEASE_NAME)
+        GATEWAY_PROVIDER=$(params.GATEWAY_PROVIDER)
+
+        # Check for existing releases (idempotency)
+        if [ "$(params.SKIP_IF_EXISTS)" = "true" ]; then
+          if helm list -n $NAMESPACE 2>/dev/null | grep -q "ms-.*$RELEASE_NAME"; then
+            echo "Release already exists - skipping deployment"
+            exit 0
+          fi
+        fi
+
+        # Check helm is accessible
+        if ! helm version > /dev/null 2>&1; then
+          echo "ERROR: helm command not available"
+          exit 1
+        fi
+
+        # Initialize helmfile plugins
+        if ! helmfile init --force > /dev/null 2>&1; then
+          echo "ERROR: Failed to initialize helmfile"
+          exit 1
+        fi
+
+        # Determine environment flag based on gateway provider
+        # Note: standalone is NOT supported for precise-prefix-cache
+        ENV_FLAG=""
+        case "$GATEWAY_PROVIDER" in
+          istio)
+            ENV_FLAG=""  # Default is istio
+            ;;
+          kgateway)
+            ENV_FLAG="-e kgateway"
+            ;;
+          gke)
+            ENV_FLAG="-e gke"
+            ;;
+          agentgateway)
+            ENV_FLAG="-e agentgateway"
+            ;;
+          *)
+            echo "WARNING: Unknown gateway provider: $GATEWAY_PROVIDER, using default (istio)"
+            ;;
+        esac
+
+        # Set release name postfix environment variable for helmfile
+        export RELEASE_NAME_POSTFIX="$RELEASE_NAME"
+
+        # Deploy with helmfile
+        set +e
+        helmfile apply $ENV_FLAG -n $NAMESPACE --skip-deps=false --suppress-secrets
+        HELMFILE_EXIT_CODE=$?
+        set -e
+
+        if [ $HELMFILE_EXIT_CODE -ne 0 ]; then
+          echo "ERROR: helmfile apply failed with exit code $HELMFILE_EXIT_CODE"
+          exit $HELMFILE_EXIT_CODE
+        fi
+
+        echo "Deployment complete!"
+
+    # Step 3: Create HTTPRoute
+    - name: create-httproute
+      image: ghcr.io/helmfile/helmfile:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        echo "=== Step 3: Creating HTTPRoute ==="
+
+        NAMESPACE=$(params.NAMESPACE)
+        RELEASE_NAME=$(params.RELEASE_NAME)
+
+        # Create HTTPRoute
+        cat <<EOF | kubectl apply -f - -n $NAMESPACE
+        apiVersion: gateway.networking.k8s.io/v1
+        kind: HTTPRoute
+        metadata:
+          name: llm-d-$RELEASE_NAME
+        spec:
+          parentRefs:
+          - group: gateway.networking.k8s.io
+            kind: Gateway
+            name: infra-$RELEASE_NAME-inference-gateway
+          rules:
+            - backendRefs:
+              - group: inference.networking.k8s.io
+                kind: InferencePool
+                name: gaie-$RELEASE_NAME
+                port: 8000
+                weight: 1
+              matches:
+              - path:
+                  type: PathPrefix
+                  value: /
+        EOF
+
+        echo "HTTPRoute created successfully"
+
+    # Step 4: Verify Deployment
+    - name: verify-deployment
+      image: ghcr.io/helmfile/helmfile:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        echo "=== Step 4: Verifying Deployment ==="
+
+        NAMESPACE=$(params.NAMESPACE)
+        RELEASE_NAME=$(params.RELEASE_NAME)
+        TIMEOUT=900  # 15 minutes
+        INTERVAL=10  # Check every 10 seconds
+
+        # Function to check pod status
+        check_pods() {
+          local label=$1
+          local component_name=$2
+
+          local ready_count=$(kubectl get pods -n $NAMESPACE -l "$label" -o jsonpath='{.items[*].status.containerStatuses[*].ready}' 2>/dev/null | grep -o "true" | wc -l || echo 0)
+          local total_count=$(kubectl get pods -n $NAMESPACE -l "$label" --no-headers 2>/dev/null | wc -l || echo 0)
+
+          echo "  $component_name: $ready_count/$total_count ready"
+
+          if [ "$total_count" -gt 0 ] && [ "$ready_count" -eq "$total_count" ]; then
+            return 0
+          fi
+          return 1
+        }
+
+        START_TIME=$(date +%s)
+        END_TIME=$((START_TIME + TIMEOUT))
+
+        echo "Waiting for pods to be ready (timeout: ${TIMEOUT}s)..."
+        echo ""
+
+        while true; do
+          CURRENT_TIME=$(date +%s)
+
+          if [ $CURRENT_TIME -ge $END_TIME ]; then
+            echo "ERROR: Timeout waiting for deployment to be ready"
+            echo ""
+            echo "=== Diagnostic Information ==="
+            echo ""
+            echo "Helm Releases:"
+            helm list -n $NAMESPACE || true
+            echo ""
+            echo "Pods:"
+            kubectl get pods -n $NAMESPACE || true
+            echo ""
+            echo "Pod Logs (EPP):"
+            kubectl logs -l inferencepool=gaie-$RELEASE_NAME-epp -n $NAMESPACE --tail=50 || true
+            echo ""
+            echo "Gateway Status:"
+            kubectl get gateway -n $NAMESPACE || echo "No gateway found"
+            echo ""
+            echo "InferencePool Status:"
+            kubectl get inferencepool -n $NAMESPACE || echo "No inferencepool found"
+            exit 1
+          fi
+
+          # Check EPP (External Processing Pod) - GAIE
+          EPP_READY=false
+          if check_pods "inferencepool=gaie-$RELEASE_NAME-epp" "EPP"; then
+            EPP_READY=true
+          fi
+
+          # Check Gateway
+          GATEWAY_READY=false
+          if kubectl get gateway -n $NAMESPACE infra-$RELEASE_NAME-inference-gateway &>/dev/null; then
+            GATEWAY_READY=true
+            echo "  Gateway: Found"
+          else
+            echo "  Gateway: Not found"
+          fi
+
+          # Check ModelService pods (try both label formats for backward compatibility)
+          MS_READY=false
+          if check_pods "llm-d.ai/inference-serving=true" "ModelService"; then
+            MS_READY=true
+          elif check_pods "llm-d.ai/inferenceServing=true" "ModelService (legacy label)"; then
+            MS_READY=true
+          fi
+
+          echo ""
+
+          # Check if all components are ready
+          if [ "$EPP_READY" = "true" ] && [ "$GATEWAY_READY" = "true" ] && [ "$MS_READY" = "true" ]; then
+            ELAPSED=$((CURRENT_TIME - START_TIME))
+            echo "All components ready! (${ELAPSED}s)"
+            echo ""
+            echo "=== Deployment Summary ==="
+            echo "Deployment Mode: Precise Prefix Cache (KV-Events)"
+            echo "Model: $(params.MODEL_NAME)"
+            echo "Replicas: $(params.REPLICAS)"
+            echo "Tensor Parallelism: $(params.TP)"
+            echo "Block Size: $(params.BLOCK_SIZE)"
+            echo "Hash Seed: $(params.HASH_SEED)"
+            echo "ZMQ Port: $(params.ZMQ_PORT)"
+            exit 0
+          fi
+
+          ELAPSED=$((CURRENT_TIME - START_TIME))
+          REMAINING=$((TIMEOUT - ELAPSED))
+          echo "Waiting for all components (${ELAPSED}s elapsed, ${REMAINING}s remaining)..."
+          sleep $INTERVAL
+        done

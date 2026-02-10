@@ -93,9 +93,9 @@ spec:
 
     # Advanced Configuration
     - name: VLLM_ARGS
-      description: Additional vLLM arguments as array
-      type: array
-      default: []
+      description: Additional vLLM arguments as newline-delimited string or array (from merge-configs)
+      type: string
+      default: ""
 
     # Networking Configuration
     - name: ENABLE_RDMA
@@ -173,8 +173,8 @@ spec:
       env:
         - name: HOME
           value: /tmp
-      args:
-        - $(params.VLLM_ARGS[*])
+        - name: VLLM_ARGS_INPUT
+          value: $(params.VLLM_ARGS)
       script: |
         #!/bin/bash
         set -e
@@ -232,6 +232,10 @@ spec:
         echo "    Setting prefill CUDA_VISIBLE_DEVICES=$PREFILL_CUDA"
         /tmp/yq -i '(.prefill.containers[0].env[] | select(.name == "CUDA_VISIBLE_DEVICES")).value = "'"$PREFILL_CUDA"'"' $MS_VALUES_FILE
 
+        # 2.5. Override prefill ModelService image
+        echo "  Setting prefill ModelService image to ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"
+        /tmp/yq -i '.prefill.containers[0].image = "ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"' $MS_VALUES_FILE
+
         # 3. Decode Worker Configuration
         echo "  Configuring decode workers: $(params.DECODE_REPLICAS) replicas, TP=$(params.DECODE_TP)..."
         /tmp/yq -i '.decode.replicas = $(params.DECODE_REPLICAS)' $MS_VALUES_FILE
@@ -247,6 +251,10 @@ spec:
         echo "    Setting decode CUDA_VISIBLE_DEVICES=$DECODE_CUDA"
         /tmp/yq -i '(.decode.containers[0].env[] | select(.name == "CUDA_VISIBLE_DEVICES")).value = "'"$DECODE_CUDA"'"' $MS_VALUES_FILE
 
+        # 3.5. Override decode ModelService image
+        echo "  Setting decode ModelService image to ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"
+        /tmp/yq -i '.decode.containers[0].image = "ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"' $MS_VALUES_FILE
+
         # 4. Served Model Name (apply to both prefill and decode)
         /tmp/yq -i '.prefill.containers[0].args += ["--served-model-name", "$(params.MODEL_NAME)"]' $MS_VALUES_FILE
         /tmp/yq -i '.decode.containers[0].args += ["--served-model-name", "$(params.MODEL_NAME)"]' $MS_VALUES_FILE
@@ -257,13 +265,17 @@ spec:
           /tmp/yq -i '.decode.containers[0].args += ["--revision", "$(params.MODEL_REVISION)"]' $MS_VALUES_FILE
         fi
 
-        # 6. Additional vLLM Args (apply to both prefill and decode)
-        for arg in "$@"; do
-          if [ -n "$arg" ]; then
-            /tmp/yq -i '.prefill.containers[0].args += ["'"$arg"'"]' $MS_VALUES_FILE
-            /tmp/yq -i '.decode.containers[0].args += ["'"$arg"'"]' $MS_VALUES_FILE
-          fi
-        done
+        # 6. Additional vLLM Args (apply to both prefill and decode, parse from newline-delimited string)
+        if [ -n "$VLLM_ARGS_INPUT" ]; then
+          echo "  Adding vLLM arguments from configuration..."
+          while IFS= read -r arg; do
+            if [ -n "$arg" ]; then
+              echo "    - $arg"
+              /tmp/yq -i '.prefill.containers[0].args += ["'"$arg"'"]' $MS_VALUES_FILE
+              /tmp/yq -i '.decode.containers[0].args += ["'"$arg"'"]' $MS_VALUES_FILE
+            fi
+          done <<< "$VLLM_ARGS_INPUT"
+        fi
 
         # 7. RDMA Configuration
         if [ "$(params.ENABLE_RDMA)" != "true" ]; then
@@ -294,6 +306,10 @@ spec:
 
         # Also update queue-scorer hashBlockSize
         /tmp/yq -i '.inferenceExtension.pluginsCustomConfig."pd-config.yaml" |= sub("(- type: queue-scorer.*?hashBlockSize:) [0-9]+", "${1} $(params.HASH_BLOCK_SIZE)")' $GAIE_VALUES_FILE
+
+        # 8. EPP Verbosity (zap log level 10 = debug) - COMMENTED OUT - for reference only
+        # echo "  Setting EPP verbosity to level 10..."
+        # /tmp/yq -i '.inferenceExtension.flags.v = "10"' $GAIE_VALUES_FILE
 
         # Validate patched GAIE YAML
         if ! /tmp/yq eval '.' $GAIE_VALUES_FILE > /dev/null; then
@@ -405,7 +421,7 @@ spec:
             name: infra-$RELEASE_NAME-inference-gateway
           rules:
             - backendRefs:
-              - group: inference.networking.x-k8s.io
+              - group: inference.networking.k8s.io
                 kind: InferencePool
                 name: gaie-$RELEASE_NAME
                 port: 8000
@@ -495,9 +511,11 @@ spec:
           fi
 
           # Check ModelService pods (both prefill and decode)
-          # Using generic label that should match all inference serving pods
+          # Using generic label that should match all inference serving pods (try both formats)
           MS_READY=false
-          if check_pods "llm-d.ai/inferenceServing=true" "ModelService (all workers)"; then
+          if check_pods "llm-d.ai/inference-serving=true" "ModelService (all workers)"; then
+            MS_READY=true
+          elif check_pods "llm-d.ai/inferenceServing=true" "ModelService (all workers, legacy label)"; then
             MS_READY=true
           fi
 
