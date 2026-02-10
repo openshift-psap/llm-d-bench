@@ -105,6 +105,7 @@ Images are automatically built via GitHub Actions when changes are merged to `ma
 
 - **MLflow** (`MLFLOW_ENABLED=true`): Centralized tracking with S3 storage → [Setup Guide](docs/MLFLOW.md)
 - **PVC** (`MLFLOW_ENABLED=false`): Local storage at `/benchmark-results/` (JSON, HTML, logs)
+- **Tekton Results** (cluster-wide): Long-term PipelineRun/TaskRun storage with queryable API → [Setup Guide](docs/TEKTON-RESULTS.md)
 
 ## Documentation
 
@@ -112,6 +113,7 @@ Images are automatically built via GitHub Actions when changes are merged to `ma
 - **[docs/STORAGE.md](docs/STORAGE.md)** - PVC configuration and access modes
 - **[docs/MLFLOW.md](docs/MLFLOW.md)** - MLflow integration and experiment tracking
 - **[docs/KUEUE.md](docs/KUEUE.md)** - GPU quota management with Kueue
+- **[docs/TEKTON-RESULTS.md](docs/TEKTON-RESULTS.md)** - Tekton Results installation and S3 log storage
 - **[docs/EXPERIMENTS.md](docs/EXPERIMENTS.md)** - CI/CD integration and GitHub Runners
 
 ## Pipelines Overview
