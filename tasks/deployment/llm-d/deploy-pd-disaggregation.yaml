@@ -307,6 +307,10 @@ spec:
         # Also update queue-scorer hashBlockSize
         /tmp/yq -i '.inferenceExtension.pluginsCustomConfig."pd-config.yaml" |= sub("(- type: queue-scorer.*?hashBlockSize:) [0-9]+", "${1} $(params.HASH_BLOCK_SIZE)")' $GAIE_VALUES_FILE
 
+        # 8. EPP Verbosity (zap log level 10 = debug) - COMMENTED OUT - for reference only
+        # echo "  Setting EPP verbosity to level 10..."
+        # /tmp/yq -i '.inferenceExtension.flags.v = "10"' $GAIE_VALUES_FILE
+
         # Validate patched GAIE YAML
         if ! /tmp/yq eval '.' $GAIE_VALUES_FILE > /dev/null; then
           echo "ERROR: Patched $GAIE_VALUES_FILE is not valid YAML"

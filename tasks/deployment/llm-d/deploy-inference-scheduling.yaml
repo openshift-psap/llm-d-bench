@@ -194,6 +194,27 @@ spec:
 
         echo "ModelService values patched successfully"
 
+        # 7. Patch GAIE values for EPP verbosity (COMMENTED OUT - for reference only)
+        # GAIE_VALUES_FILE="gaie-inference-scheduling/values.yaml"
+        # if [ -f "$GAIE_VALUES_FILE" ]; then
+        #   echo ""
+        #   echo "Patching GAIE values ($GAIE_VALUES_FILE)..."
+        #
+        #   # EPP Verbosity (zap log level 10 = debug)
+        #   echo "  Setting EPP verbosity to level 10..."
+        #   /tmp/yq -i '.inferenceExtension.flags.v = "10"' $GAIE_VALUES_FILE
+        #
+        #   # Validate patched GAIE YAML
+        #   if ! /tmp/yq eval '.' $GAIE_VALUES_FILE > /dev/null; then
+        #     echo "ERROR: Patched $GAIE_VALUES_FILE is not valid YAML"
+        #     exit 1
+        #   fi
+        #
+        #   echo "GAIE values patched successfully"
+        # else
+        #   echo "WARNING: GAIE values file not found at $GAIE_VALUES_FILE, skipping EPP verbosity configuration"
+        # fi
+
     # Step 2: Deploy with Helmfile
     - name: deploy-llm-d-helmfile
       image: ghcr.io/helmfile/helmfile:latest

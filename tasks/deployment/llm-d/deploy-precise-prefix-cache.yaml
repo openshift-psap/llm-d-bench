@@ -352,6 +352,10 @@ spec:
           /tmp/yq -i '.inferenceExtension.pluginsCustomConfig."precise-prefix-cache-config.yaml" = load_str("/tmp/epp-config.yaml")' $GAIE_VALUES_FILE
         fi
 
+        # 14. EPP Verbosity (zap log level 10 = debug) - COMMENTED OUT - for reference only
+        # echo "  Setting EPP verbosity to level 10..."
+        # /tmp/yq -i '.inferenceExtension.flags.v = "10"' $GAIE_VALUES_FILE
+
         # Validate patched GAIE YAML
         if ! /tmp/yq eval '.' $GAIE_VALUES_FILE > /dev/null; then
           echo "ERROR: Patched $GAIE_VALUES_FILE is not valid YAML"
@@ -369,6 +373,7 @@ spec:
         echo "  Hash Seed: $(params.HASH_SEED)"
         echo "  ZMQ Port: $(params.ZMQ_PORT)"
         echo "  EPP Config: precise-prefix-cache-config.yaml"
+        # echo "  EPP Verbosity: 10"  # COMMENTED OUT - for reference only
         echo ""
         echo "Values patched successfully"
 

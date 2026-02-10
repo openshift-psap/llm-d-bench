@@ -1,26 +1,16 @@
 ARG IMAGE_VERSION=v0.5.2
-FROM quay.io/fedora/python-313-minimal:latest
+FROM ghcr.io/vllm-project/guidellm:${IMAGE_VERSION}
 
 # XXX: Temporary fix to keep track of the GuideLLM version
-ENV GUIDELLM_VERSION=multiturn(e6c7e55)
+ENV GUIDELLM_VERSION=v0.5.2
 
 USER root
 
 RUN mkdir -p /tmp/.huggingface && chmod -R 777 /tmp/.huggingface
 
-RUN dnf install -y git \
-    && /usr/bin/python3 -m venv /tmp/pdm \
-    && /tmp/pdm/bin/pip install --no-cache-dir -U pdm \
-    && ln -s /tmp/pdm/bin/pdm /usr/local/bin/pdm
-
 COPY pyproject.toml .
 COPY src/ src/
 RUN pip install --no-warn-script-location .
-
-RUN git clone --branch feat/adv_prefix --single-branch https://github.com/vllm-project/guidellm.git /tmp/guidellm && cd /tmp/guidellm && pip install -e .
-
-# Pin compatible versions to prevent import errors
-RUN pip install --no-cache-dir 'transformers<5.0.0' 'aiologic==0.14.0'
 
 ENTRYPOINT ["python3", "-m", "benchmark.main"]
 

@@ -6,4 +6,5 @@ namespace: llm-d-bench
 resources:
   - concurrent-1k-1k.yaml
   - concurrent-8k-1k.yaml
+  - heavy-heterogeneous.yaml
   - multi-turn.yaml
