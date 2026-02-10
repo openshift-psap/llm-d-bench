@@ -1,0 +1,40 @@
+# A100 Cluster Profile: 2 NVIDIA A100 GPUs
+# Use this for development and testing with limited GPU resources
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ResourceFlavor
+metadata:
+  name: a100-flavor
+spec:
+  nodeLabels:
+    nvidia.com/gpu.product: NVIDIA-A100-SXM4-80GB
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: ClusterQueue
+metadata:
+  name: benchmark-cluster-queue
+spec:
+  namespaceSelector: {}
+  queueingStrategy: StrictFIFO
+  resourceGroups:
+  - coveredResources:
+    - nvidia.com/gpu
+    - cpu
+    - memory
+    flavors:
+    - name: a100-flavor
+      resources:
+      - name: nvidia.com/gpu
+        nominalQuota: 2
+      - name: cpu
+        nominalQuota: 100
+      - name: memory
+        nominalQuota: 500Gi
+---
+apiVersion: kueue.x-k8s.io/v1beta1
+kind: LocalQueue
+metadata:
+  name: psap-benchmark
+  namespace: llm-d-bench
+spec:
+  clusterQueue: benchmark-cluster-queue

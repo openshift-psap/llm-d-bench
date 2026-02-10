@@ -12,7 +12,7 @@ class Experiment:
     Based on model_furnace/validate_model/payload.py Experiment dataclass.
     """
     experiment_id: str
-    experiment_type: str  # "perf" or "eval"
+    experiment_type: str 
     model: str
     inference_server: str
     inference_server_version: str

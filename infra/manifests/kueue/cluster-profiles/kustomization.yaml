@@ -1,0 +1,11 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Select ONE profile by uncommenting the appropriate line:
+resources:
+# - A100-2gpu.yaml      # 2x NVIDIA A100 (dev/test)
+# - H200-8gpu.yaml      # 8x NVIDIA H200 (production)
+# - MI300x-8gpu.yaml    # 8x AMD MI300X (AMD benchmarks)
+
+# Default: A100-2gpu for development
+- A100-2gpu.yaml
