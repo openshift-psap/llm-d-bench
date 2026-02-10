@@ -227,13 +227,72 @@ def upload_to_mlflow(
             logger.info(f"Found existing MLflow run: {run_id}")
         else:
             logger.info("No existing run found, creating new one")
+
+            # Extract additional info from guidellm_output
+            args = guidellm_output.get("args", {})
+            benchmarks = guidellm_output.get("benchmarks", [])
+
+            # Get rates from benchmarks
+            rates = []
+            for b in benchmarks:
+                b_config = b.get("config") or b.get("args", {})
+                try:
+                    streams = b_config.get("strategy", {}).get("streams")
+                    if streams:
+                        rates.append(str(streams))
+                except (KeyError, TypeError):
+                    pass
+            rates_str = ",".join(rates) if rates else ""
+
+            # Parse prompt/output tokens from guidellm_data
+            prompt_tokens = ""
+            output_tokens = ""
+            if config.guidellm_data:
+                import re
+                tokens = dict(re.findall(r"(\w+)=([\d.]+)", config.guidellm_data))
+                prompt_tokens = tokens.get("prompt_tokens", "")
+                output_tokens = tokens.get("output_tokens", "")
+
             with mlflow.start_run(run_name=config.run_uuid) as run:
+                # Tags (same as original main.py)
                 mlflow.set_tag("run_uuid", config.run_uuid)
                 mlflow.set_tag("pipeline_run_uuid", config.run_uuid)
-                mlflow.log_param("model_name", config.model_name)
-                mlflow.log_param("accelerator", config.accelerator)
-                mlflow.log_param("version", config.version)
-                mlflow.log_param("tp", config.tp)
+                mlflow.set_tag("model", config.model_name)
+                mlflow.set_tag("rate_type", args.get("rate_type", "concurrent"))
+                if config.accelerator:
+                    mlflow.set_tag("accelerator", config.accelerator)
+                if config.version:
+                    mlflow.set_tag("version", config.version)
+
+                # Parameters (matching original main.py)
+                params = {
+                    "model": config.model_name,
+                    "tp": config.tp,
+                    "accelerator": config.accelerator,
+                    "version": config.version,
+                    "run_uuid": config.run_uuid,
+                }
+
+                # Add optional parameters if available
+                if rates_str:
+                    params["rates"] = rates_str
+                if prompt_tokens:
+                    params["prompt_tokens"] = prompt_tokens
+                if output_tokens:
+                    params["output_tokens"] = output_tokens
+                if args.get("backend_type"):
+                    params["backend_type"] = args.get("backend_type")
+                if args.get("rate_type"):
+                    params["rate_type"] = args.get("rate_type")
+                if args.get("target"):
+                    params["target"] = args.get("target")
+                if args.get("max_seconds"):
+                    params["max_seconds"] = args.get("max_seconds")
+                if args.get("processor"):
+                    params["processor"] = args.get("processor")
+
+                mlflow.log_params(params)
+
             run_id = run.info.run_id
             logger.info(f"Created new MLflow run: {run_id}")
 

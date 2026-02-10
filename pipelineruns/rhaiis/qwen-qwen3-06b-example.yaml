@@ -137,7 +137,7 @@ spec:
       # Comma-separated list of rates to test
       # For concurrent: number of concurrent requests
       # For synchronous: requests per second
-      value: "1,50"
+      value: "1,50,100,200"
 
     - name: GUIDELLM_DATA
       # DEFAULT: "prompt_tokens=1000,output_tokens=1000"
@@ -150,7 +150,7 @@ spec:
       # DEFAULT: "600"
       # Maximum duration per rate in seconds
       # Set lower for quick tests, higher for stable measurements
-      value: "60"
+      value: "120"
 
     - name: GUIDELLM_MAX_REQUESTS
       # DEFAULT: "" (unlimited)
