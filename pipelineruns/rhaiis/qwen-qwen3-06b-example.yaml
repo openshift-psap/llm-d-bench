@@ -114,10 +114,10 @@ spec:
     # Format: http://{sanitized-model-name}-predictor.{namespace}.svc.cluster.local:8080
 
     - name: IMAGE
-      # DEFAULT: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
+      # DEFAULT: "ghcr.io/openshift-psap/llm-d-bench/guidellm:latest"
       # GuideLLM benchmark container image
-      # Update namespace if built in different namespace
-      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
+      # Use ghcr.io/openshift-psap/llm-d-bench/mlperf:latest for MLPerf benchmarks
+      value: "ghcr.io/openshift-psap/llm-d-bench/guidellm:latest"
 
     - name: GUIDELLM_PROCESSOR
       # DEFAULT: "" (empty, uses MODEL_NAME)

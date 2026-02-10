@@ -24,7 +24,7 @@ spec:
     # Benchmark Configuration
     # ===========================================
     - name: IMAGE
-      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/mlperf-custom:latest"
+      value: "ghcr.io/openshift-psap/llm-d-bench/mlperf:latest"
     - name: TARGET
       value: "http://your-model-endpoint.namespace.svc.cluster.local:8000"  # Update with actual endpoint
     - name: MODEL
