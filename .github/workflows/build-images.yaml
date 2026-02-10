@@ -1,0 +1,73 @@
+name: Build and Push Container Images
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'build/**'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'build/**'
+
+env:
+  REGISTRY: ghcr.io
+  # github.repository format: openshift-psap/llm-d-bench
+  IMAGE_PREFIX: ${{ github.repository }}
+
+jobs:
+  build-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - guidellm
+          - mlperf
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install podman
+        run: |
+          sudo apt-get update
+          sudo apt-get -y install podman
+
+      - name: Log in to GitHub Container Registry
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ${{ env.REGISTRY }} -u ${{ github.actor }} --password-stdin
+
+      - name: Set image tags
+        id: tags
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            TAG="pr-${{ github.event.pull_request.number }}"
+          else
+            TAG="latest"
+          fi
+          IMAGE_URL="${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}/${{ matrix.image }}:${TAG}"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "image_url=${IMAGE_URL}" >> $GITHUB_OUTPUT
+
+      - name: Build image with podman
+        run: |
+          podman build \
+            -f build/${{ matrix.image }}/Containerfile \
+            -t ${{ steps.tags.outputs.image_url }} \
+            .
+
+      - name: Push image
+        run: |
+          podman push ${{ steps.tags.outputs.image_url }}
+
+      - name: Image summary
+        run: |
+          echo "## 🐳 Built: ${{ matrix.image }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Tag:** \`${{ steps.tags.outputs.tag }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** \`${{ steps.tags.outputs.image_url }}\`" >> $GITHUB_STEP_SUMMARY
