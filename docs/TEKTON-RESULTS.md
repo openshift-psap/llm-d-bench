@@ -41,6 +41,8 @@ All secrets are created in the `tekton-pipelines` namespace (where Tekton Result
 
 ## Installation
 
+All steps must be completed in order. Steps 1-3 create prerequisites **before** deploying Tekton Results. Step 4 is required on OpenShift and must run **immediately after** the install to prevent the PostgreSQL pod from entering a crash loop.
+
 ### 1. Create the PostgreSQL Password Secret
 
 Tekton Results ships with a bundled PostgreSQL instance. You must create a database password secret before installing:
@@ -95,7 +97,24 @@ rm -f cert.pem key.pem
 
 A template is also available at `config/cluster/secrets/tekton-results-tls.example.yaml` for reference.
 
-### 3. Install Tekton Results
+### 3. Prepare OpenShift Security (OpenShift Only)
+
+**This step must be completed before installing Tekton Results.** The upstream release deploys a Bitnami PostgreSQL StatefulSet using the `default` service account. On OpenShift, the PostgreSQL pod will fail to start because it requires `fsGroup: 1001` and `NET_BIND_SERVICE` capability, which are rejected by the default `restricted-v2` SCC.
+
+Create a dedicated service account and grant it the `privileged` SCC:
+
+```bash
+# Create the service account
+oc apply -f config/cluster/rbac/tekton-results-rbac.yaml
+
+# Grant the privileged SCC (same pattern used by install.sh for Tekton Pipelines controllers)
+oc adm policy add-scc-to-user privileged \
+  -z tekton-results-postgres-sa -n tekton-pipelines
+```
+
+The RBAC template is located at: [config/cluster/rbac/tekton-results-rbac.yaml](../config/cluster/rbac/tekton-results-rbac.yaml)
+
+### 4. Install Tekton Results
 
 Install the latest release:
 
@@ -110,18 +129,51 @@ export RESULTS_VERSION="v0.12.1"
 kubectl apply -f "https://storage.googleapis.com/tekton-releases/results/previous/${RESULTS_VERSION}/release.yaml"
 ```
 
-### 4. Verify Installation
+### 5. Patch PostgreSQL for OpenShift (OpenShift Only)
+
+**Run this immediately after the install.** Patch the PostgreSQL StatefulSet to use the dedicated service account created in Step 3:
+
+```bash
+kubectl patch statefulset tekton-results-postgres \
+  -n tekton-pipelines \
+  --type merge \
+  -p '{"spec":{"template":{"spec":{"serviceAccountName":"tekton-results-postgres-sa"}}}}'
+```
+
+**Note**: The StatefulSet is created by the upstream release manifest, so the patch must be applied after `kubectl apply`. If the PostgreSQL pod is stuck or the StatefulSet shows `0/1`, restart it:
+
+```bash
+kubectl rollout restart statefulset/tekton-results-postgres -n tekton-pipelines
+```
+
+Once PostgreSQL is running, restart the API server and watcher (they may be in CrashLoopBackOff from failing to connect to the database):
+
+```bash
+kubectl rollout restart deployment/tekton-results-api deployment/tekton-results-watcher -n tekton-pipelines
+```
+
+### 6. Verify Installation
 
 ```bash
 kubectl get pods -n tekton-pipelines | grep tekton-results
 ```
 
-You should see the API server and watcher pods running:
+You should see the PostgreSQL, API server, watcher, and retention agent pods all running:
 
 ```
-tekton-results-api-...       1/1     Running   0          1m
-tekton-results-watcher-...   1/1     Running   0          1m
+tekton-results-postgres-0                             1/1     Running   0          1m
+tekton-results-api-...                                1/1     Running   0          1m
+tekton-results-watcher-...                            1/1     Running   0          1m
+tekton-results-retention-policy-agent-...             1/1     Running   0          1m
 ```
+
+Verify the database is connected by checking the API server logs:
+
+```bash
+kubectl logs -n tekton-pipelines deployment/tekton-results-api --tail=5
+```
+
+You should see SQL queries being processed (not `connection refused` errors).
 
 ## Configuring S3 Log Storage
 
@@ -379,11 +431,58 @@ For full API documentation, see the [Tekton Results API reference](https://tekto
    kubectl get deployment -n tekton-pipelines | grep tekton-results
    ```
 
+### PostgreSQL Pod Not Starting (OpenShift)
+
+**Symptoms:**
+- `kubectl get statefulset tekton-results-postgres -n tekton-pipelines` shows `0/1` READY
+- No postgres pod exists (`kubectl get pods -n tekton-pipelines | grep postgres` returns nothing)
+- Events show: `unable to validate against any security context constraint`
+- API server and watcher are in CrashLoopBackOff with `connection refused`
+
+**Cause:**
+The Bitnami PostgreSQL container requires `fsGroup: 1001` and `NET_BIND_SERVICE` capability, which OpenShift's default `restricted-v2` SCC rejects. This happens when Step 3 (Prepare OpenShift Security) or Step 5 (Patch PostgreSQL) was skipped or the SCC was granted to the wrong service account.
+
+**Solution:**
+
+1. **Check if the service account exists and has the correct SCC:**
+   ```bash
+   oc get sa tekton-results-postgres-sa -n tekton-pipelines
+   oc get clusterrolebinding | grep tekton-results-postgres-sa
+   ```
+
+2. **If the SA is missing, create it and grant the SCC:**
+   ```bash
+   oc apply -f config/cluster/rbac/tekton-results-rbac.yaml
+   oc adm policy add-scc-to-user privileged \
+     -z tekton-results-postgres-sa -n tekton-pipelines
+   ```
+
+3. **Check the StatefulSet is using the correct service account:**
+   ```bash
+   kubectl get statefulset tekton-results-postgres -n tekton-pipelines \
+     -o jsonpath='{.spec.template.spec.serviceAccountName}'
+   # Should output: tekton-results-postgres-sa
+   ```
+
+4. **If the SA is wrong or empty, patch and restart:**
+   ```bash
+   kubectl patch statefulset tekton-results-postgres \
+     -n tekton-pipelines --type merge \
+     -p '{"spec":{"template":{"spec":{"serviceAccountName":"tekton-results-postgres-sa"}}}}'
+   kubectl rollout restart statefulset/tekton-results-postgres -n tekton-pipelines
+   ```
+
+5. **Once postgres is running, restart the API server and watcher:**
+   ```bash
+   kubectl rollout restart deployment/tekton-results-api deployment/tekton-results-watcher -n tekton-pipelines
+   ```
+
 ### Database Connection Errors
 
 **Symptoms:**
 - API server logs show `connection refused` to PostgreSQL
 - Watcher unable to store results
+- PostgreSQL pod is running but API server can't connect
 
 **Solutions:**
 
@@ -396,6 +495,11 @@ For full API documentation, see the [Tekton Results API reference](https://tekto
 2. **Verify database secret:**
    ```bash
    kubectl get secret tekton-results-postgres -n tekton-pipelines -o jsonpath='{.data.POSTGRES_USER}' | base64 -d
+   ```
+
+3. **Restart the API server** (it may have given up retrying):
+   ```bash
+   kubectl rollout restart deployment/tekton-results-api -n tekton-pipelines
    ```
 
 ### S3 Upload Failures
