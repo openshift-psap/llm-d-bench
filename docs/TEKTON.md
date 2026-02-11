@@ -20,6 +20,14 @@ Get the URL:
 oc get route tekton-dashboard -n tekton-pipelines -o jsonpath='{.spec.host}'
 ```
 
+**After you configure Tekton Results**, you need to patch the Dashboard to use the remote logs:
+```bash
+oc patch deployment tekton-dashboard -n tekton-pipelines --type=json -p='[
+  {"op": "replace", "path": "/spec/template/spec/containers/0/args/1", "value": "--external-logs=http://tekton-results-api-service.tekton-pipelines.svc.cluster.local:8080"}
+
+]'
+```
+
 ## Tekton Results
 
 Installing Tekton Results on OpenShift (Manual) with S3 Log Backend
