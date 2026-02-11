@@ -241,3 +241,60 @@ oc logs -n tekton-pipelines deployment/tekton-results-watcher | grep -iE "log|s3
 | S3 values empty in config | Used `secretKeyRef` env vars instead of `config` blob | Step 4 |
 | PostgreSQL pod stuck in `Pending`/`CreateContainerConfigError` | OpenShift SCC rejects fsGroup/capabilities | Steps 7-8 |
 | `LOGS_API=false` in config | Default value not overridden | Step 4 |
+
+## Tekton Logs Proxy (Dashboard Integration with S3)
+
+### Why It's Needed
+
+When Tekton Results is configured with `LOGS_TYPE=S3`, the Tekton Dashboard cannot directly fetch logs because the dashboard's `--external-logs` parameter expects a specific proxy API format (`/<namespace>/<pod>/<container>`) that Tekton Results with S3 storage doesn't provide. The dashboard shows **"Unable to fetch log"** even though logs are successfully stored in S3.
+
+The **[tekton-logs-proxy](https://github.com/albertoperdomo2/tekton-logs-proxy)** is a lightweight Node.js service that bridges the Tekton Dashboard and S3-stored logs by:
+- Querying the Kubernetes API to find TaskRuns by pod name
+- Fetching log files from S3
+- Filtering logs by individual step (parsing `[step-name]` prefixes)
+- Serving logs in the format the dashboard expects
+
+### Deployment
+
+```bash
+# 1. Create namespace and S3 secret
+oc create namespace tekton-logs-proxy
+oc create secret generic tekton-results-s3-creds \
+  -n tekton-logs-proxy \
+  --from-literal=S3_BUCKET_NAME=your-bucket \
+  --from-literal=S3_REGION=us-east-1 \
+  --from-literal=S3_ACCESS_KEY_ID=your-key \
+  --from-literal=S3_SECRET_ACCESS_KEY=your-secret
+
+# 2. Deploy the proxy
+oc apply -f https://raw.githubusercontent.com/albertoperdomo2/tekton-logs-proxy/main/k8s/deployment.yaml
+
+# 3. Grant RBAC permissions to read TaskRuns
+oc create clusterrole tekton-logs-proxy-reader \
+  --verb=get,list \
+  --resource=taskruns.tekton.dev
+
+oc create clusterrolebinding tekton-logs-proxy-reader-binding \
+  --clusterrole=tekton-logs-proxy-reader \
+  --serviceaccount=tekton-logs-proxy:tekton-logs-proxy
+
+# 4. Configure Tekton Dashboard to use the proxy
+oc patch deployment tekton-dashboard -n tekton-pipelines --type json -p '[{
+  "op": "add",
+  "path": "/spec/template/spec/containers/0/args/-",
+  "value": "--external-logs=http://tekton-logs-proxy.tekton-logs-proxy.svc.cluster.local:8080"
+}]'
+```
+
+### Verification
+
+Check that the proxy is running and the dashboard can fetch logs:
+
+```bash
+oc get pods -n tekton-logs-proxy
+oc logs -n tekton-logs-proxy deployment/tekton-logs-proxy
+```
+
+Open the Tekton Dashboard in your browser, navigate to a completed PipelineRun or TaskRun, and click on individual task steps. Each step should now display its own filtered logs from S3.
+
+**For troubleshooting, advanced configuration, and more details, see the [tekton-logs-proxy repository](https://github.com/albertoperdomo2/tekton-logs-proxy).**
