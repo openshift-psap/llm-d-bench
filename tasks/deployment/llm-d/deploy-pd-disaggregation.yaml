@@ -230,7 +230,11 @@ spec:
           PREFILL_CUDA="0"
         fi
         echo "    Setting prefill CUDA_VISIBLE_DEVICES=$PREFILL_CUDA"
-        /tmp/yq -i '(.prefill.containers[0].env[] | select(.name == "CUDA_VISIBLE_DEVICES")).value = "'"$PREFILL_CUDA"'"' $MS_VALUES_FILE
+
+        # Initialize env array if null/empty, remove existing CUDA_VISIBLE_DEVICES, then add new one
+        /tmp/yq -i '.prefill.containers[0].env |= . // []' $MS_VALUES_FILE
+        /tmp/yq -i '.prefill.containers[0].env = [.prefill.containers[0].env[] | select(.name != "CUDA_VISIBLE_DEVICES")]' $MS_VALUES_FILE
+        /tmp/yq -i '.prefill.containers[0].env += [{"name": "CUDA_VISIBLE_DEVICES", "value": "'"$PREFILL_CUDA"'"}]' $MS_VALUES_FILE
 
         # 2.5. Override prefill ModelService image
         echo "  Setting prefill ModelService image to ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"
@@ -249,33 +253,60 @@ spec:
           DECODE_CUDA="0"
         fi
         echo "    Setting decode CUDA_VISIBLE_DEVICES=$DECODE_CUDA"
-        /tmp/yq -i '(.decode.containers[0].env[] | select(.name == "CUDA_VISIBLE_DEVICES")).value = "'"$DECODE_CUDA"'"' $MS_VALUES_FILE
+
+        # Initialize env array if null/empty, remove existing CUDA_VISIBLE_DEVICES, then add new one
+        /tmp/yq -i '.decode.containers[0].env |= . // []' $MS_VALUES_FILE
+        /tmp/yq -i '.decode.containers[0].env = [.decode.containers[0].env[] | select(.name != "CUDA_VISIBLE_DEVICES")]' $MS_VALUES_FILE
+        /tmp/yq -i '.decode.containers[0].env += [{"name": "CUDA_VISIBLE_DEVICES", "value": "'"$DECODE_CUDA"'"}]' $MS_VALUES_FILE
 
         # 3.5. Override decode ModelService image
         echo "  Setting decode ModelService image to ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"
         /tmp/yq -i '.decode.containers[0].image = "ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"' $MS_VALUES_FILE
 
-        # 4. Served Model Name (apply to both prefill and decode)
-        /tmp/yq -i '.prefill.containers[0].args += ["--served-model-name", "$(params.MODEL_NAME)"]' $MS_VALUES_FILE
-        /tmp/yq -i '.decode.containers[0].args += ["--served-model-name", "$(params.MODEL_NAME)"]' $MS_VALUES_FILE
+        # 4. Build complete args arrays for both prefill and decode (prevents duplicates)
+        echo "  Building vLLM arguments arrays..."
 
-        # 5. Model Revision (if not main)
+        # Build prefill args
+        PREFILL_ARGS_ARRAY='[]'
+        PREFILL_ARGS_ARRAY=$(echo "$PREFILL_ARGS_ARRAY" | jq --arg tp "$(params.PREFILL_TP)" '. += ["--tensor-parallel-size", $tp]')
+        PREFILL_ARGS_ARRAY=$(echo "$PREFILL_ARGS_ARRAY" | jq --arg model "$(params.MODEL_NAME)" '. += ["--served-model-name", $model]')
         if [ "$(params.MODEL_REVISION)" != "main" ]; then
-          /tmp/yq -i '.prefill.containers[0].args += ["--revision", "$(params.MODEL_REVISION)"]' $MS_VALUES_FILE
-          /tmp/yq -i '.decode.containers[0].args += ["--revision", "$(params.MODEL_REVISION)"]' $MS_VALUES_FILE
+          PREFILL_ARGS_ARRAY=$(echo "$PREFILL_ARGS_ARRAY" | jq --arg rev "$(params.MODEL_REVISION)" '. += ["--revision", $rev]')
         fi
 
-        # 6. Additional vLLM Args (apply to both prefill and decode, parse from newline-delimited string)
+        # Build decode args
+        DECODE_ARGS_ARRAY='[]'
+        DECODE_ARGS_ARRAY=$(echo "$DECODE_ARGS_ARRAY" | jq --arg tp "$(params.DECODE_TP)" '. += ["--tensor-parallel-size", $tp]')
+        DECODE_ARGS_ARRAY=$(echo "$DECODE_ARGS_ARRAY" | jq --arg model "$(params.MODEL_NAME)" '. += ["--served-model-name", $model]')
+        if [ "$(params.MODEL_REVISION)" != "main" ]; then
+          DECODE_ARGS_ARRAY=$(echo "$DECODE_ARGS_ARRAY" | jq --arg rev "$(params.MODEL_REVISION)" '. += ["--revision", $rev]')
+        fi
+
+        # Add user VLLM_ARGS to both prefill and decode
         if [ -n "$VLLM_ARGS_INPUT" ]; then
           echo "  Adding vLLM arguments from configuration..."
           while IFS= read -r arg; do
             if [ -n "$arg" ]; then
               echo "    - $arg"
-              /tmp/yq -i '.prefill.containers[0].args += ["'"$arg"'"]' $MS_VALUES_FILE
-              /tmp/yq -i '.decode.containers[0].args += ["'"$arg"'"]' $MS_VALUES_FILE
+              PREFILL_ARGS_ARRAY=$(echo "$PREFILL_ARGS_ARRAY" | jq --arg a "$arg" '. += [$a]')
+              DECODE_ARGS_ARRAY=$(echo "$DECODE_ARGS_ARRAY" | jq --arg a "$arg" '. += [$a]')
             fi
           done <<< "$VLLM_ARGS_INPUT"
         fi
+
+        # Set complete args arrays (replaces any chart defaults)
+        echo "  Setting vLLM args arrays..."
+        # Write JSON arrays to temp files and use yq to read them
+        echo "$PREFILL_ARGS_ARRAY" > /tmp/prefill_args.json
+        echo "$DECODE_ARGS_ARRAY" > /tmp/decode_args.json
+        /tmp/yq -i ".prefill.containers[0].args = $(cat /tmp/prefill_args.json)" $MS_VALUES_FILE
+        /tmp/yq -i ".decode.containers[0].args = $(cat /tmp/decode_args.json)" $MS_VALUES_FILE
+
+        # Verify args were set correctly
+        echo "  Configured prefill vLLM args:"
+        /tmp/yq '.prefill.containers[0].args' $MS_VALUES_FILE
+        echo "  Configured decode vLLM args:"
+        /tmp/yq '.decode.containers[0].args' $MS_VALUES_FILE
 
         # 7. RDMA Configuration
         if [ "$(params.ENABLE_RDMA)" != "true" ]; then

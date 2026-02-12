@@ -93,6 +93,11 @@ spec:
       type: string
       default: ""
 
+    - name: LLM_D_REPO_REF
+      description: llm-d repository branch/tag/commit (overrides ConfigMap)
+      type: string
+      default: "main"
+
   results:
     - name: merged-config
       description: JSON object with merged configuration
@@ -126,6 +131,8 @@ spec:
       description: Number of decode replicas (PD mode only)
     - name: guidellm-image
       description: GuideLLM benchmark image
+    - name: llm-d-repo-ref
+      description: llm-d repository branch/tag/commit to use for git-clone
 
   steps:
     - name: merge
@@ -167,6 +174,10 @@ spec:
 
         if [ -n "$(params.MLFLOW_EXPERIMENT_NAME)" ]; then
           MERGED=$(echo "$MERGED" | jq --arg val "$(params.MLFLOW_EXPERIMENT_NAME)" '. + {MLFLOW_EXPERIMENT_NAME: $val}')
+        fi
+
+        if [ -n "$(params.LLM_D_REPO_REF)" ]; then
+          MERGED=$(echo "$MERGED" | jq --arg val "$(params.LLM_D_REPO_REF)" '. + {LLM_D_REPO_REF: $val}')
         fi
 
         # Merge vLLM config
@@ -247,6 +258,10 @@ spec:
         # Deployment mode
         DEPLOYMENT_MODE=$(echo "$MERGED" | jq -r '.DEPLOYMENT_MODE // "inference-scheduling"')
         echo -n "$DEPLOYMENT_MODE" > $(results.deployment-mode.path)
+
+        # llm-d repository reference (branch/tag/commit for git-clone)
+        LLM_D_REPO_REF=$(echo "$MERGED" | jq -r '.LLM_D_REPO_REF // "main"')
+        echo -n "$LLM_D_REPO_REF" > $(results.llm-d-repo-ref.path)
 
         # GuideLLM benchmark parameters
         # Use profile IMAGE if available, otherwise fall back to pipeline param
