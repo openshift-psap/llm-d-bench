@@ -95,6 +95,11 @@ class BenchmarkProcessor:
         output_html: Optional[str] = None,
         aws_profile: Optional[str] = None,
         replicas: int = 1,
+        prompt_tokens: Optional[int] = None,
+        output_tokens: Optional[int] = None,
+        turns: Optional[int] = None,
+        prefix_tokens: Optional[int] = None,
+        prefix_count: Optional[int] = None,
     ):
         """
         Initialize the benchmark processor.
@@ -113,6 +118,11 @@ class BenchmarkProcessor:
             output_html: Output HTML report filename (optional)
             aws_profile: AWS profile name (optional)
             replicas: Number of replicas (default: 1)
+            prompt_tokens: Prompt tokens for data profile (optional)
+            output_tokens: Output tokens for data profile (optional)
+            turns: Number of turns for multi-turn benchmarks (optional)
+            prefix_tokens: Prefix tokens for prefix caching benchmarks (optional)
+            prefix_count: Prefix count for prefix caching benchmarks (optional)
         """
         self.json_path = json_path
         self.config_path = config_path
@@ -125,6 +135,13 @@ class BenchmarkProcessor:
         self.runtime_args = runtime_args
         self.replicas = replicas
         self.output_html = output_html or "benchmark_report.html"
+
+        # Data profile parameters
+        self.prompt_tokens = prompt_tokens
+        self.output_tokens = output_tokens
+        self.turns = turns
+        self.prefix_tokens = prefix_tokens
+        self.prefix_count = prefix_count
 
         # Versions to comare (always include the current version)
         if compare_versions is None:
@@ -262,19 +279,33 @@ class BenchmarkProcessor:
             benchmark_run, "request_loader", "data"
         ) or _get_nested(benchmark_run, "config", "requests", "data")
 
-        token_info = _parse_request_data(requests_data)
-        config_prompt_tokens = token_info["prompt_tokens"]
-        config_output_tokens = token_info["output_tokens"]
-
-        profile_args = _get_nested(benchmark_run, "config", "profile") or _get_nested(
-            benchmark_run, "args", "profile", default={}
-        )
-        streams = profile_args.get("streams", [])
-
-        if benchmark_index < len(streams):
-            intended_concurrency = streams[benchmark_index]
+        # Use provided data profile parameters if available, otherwise parse from JSON
+        if self.prompt_tokens is not None and self.output_tokens is not None:
+            config_prompt_tokens = self.prompt_tokens
+            config_output_tokens = self.output_tokens
         else:
-            intended_concurrency = streams[0] if streams else None
+            token_info = _parse_request_data(requests_data)
+            config_prompt_tokens = token_info["prompt_tokens"]
+            config_output_tokens = token_info["output_tokens"]
+
+        # Try multiple locations for concurrency/streams info
+        # 1. New format: scheduler.strategy.streams (single value for multiturn mode)
+        streams_value = _get_nested(benchmark_run, "scheduler", "strategy", "streams")
+
+        if streams_value is not None:
+            # Single value (multiturn mode - each file has one benchmark at one concurrency)
+            intended_concurrency = streams_value
+        else:
+            # 2. Old format: config.profile.streams or args.profile.streams (array)
+            profile_args = _get_nested(
+                benchmark_run, "config", "profile"
+            ) or _get_nested(benchmark_run, "args", "profile", default={})
+            streams = profile_args.get("streams", [])
+
+            if benchmark_index < len(streams):
+                intended_concurrency = streams[benchmark_index]
+            else:
+                intended_concurrency = streams[0] if streams else None
 
         metrics = benchmark_run.get("metrics", {})
         successful_metrics = lambda *keys: _get_nested(
@@ -470,20 +501,31 @@ class BenchmarkProcessor:
         """
         logger.info("Auto-generating configuration from command-line arguments")
 
-        with open(self.json_path) as f:
-            data = json.load(f)
+        # Use provided data profile parameters if available
+        prompt_toks = self.prompt_tokens
+        output_toks = self.output_tokens
 
-        prompt_toks = 1000  # default
-        output_toks = 1000  # default
+        # If not provided, try to extract from JSON
+        if prompt_toks is None or output_toks is None:
+            with open(self.json_path) as f:
+                data = json.load(f)
 
-        if data.get("benchmarks"):
-            benchmark = data["benchmarks"][0]
-            requests_data = _get_nested(
-                benchmark, "request_loader", "data"
-            ) or _get_nested(benchmark, "config", "requests", "data")
-            token_info = _parse_request_data(requests_data)
-            prompt_toks = token_info["prompt_tokens"] or prompt_toks
-            output_toks = token_info["output_tokens"] or output_toks
+            # Use 1000 as absolute fallback
+            if prompt_toks is None:
+                prompt_toks = 1000
+            if output_toks is None:
+                output_toks = 1000
+
+            if data.get("benchmarks"):
+                benchmark = data["benchmarks"][0]
+                requests_data = _get_nested(
+                    benchmark, "request_loader", "data"
+                ) or _get_nested(benchmark, "config", "requests", "data")
+                token_info = _parse_request_data(requests_data)
+                if self.prompt_tokens is None:
+                    prompt_toks = token_info["prompt_tokens"] or prompt_toks
+                if self.output_tokens is None:
+                    output_toks = token_info["output_tokens"] or output_toks
 
         config = {
             "models": [
@@ -818,14 +860,32 @@ class BenchmarkProcessor:
         model_short_name = model_configs[0]["model"].split("/")[-1]
         versions_str = ", ".join(self.compare_versions)
 
+        # Build data profile subtitle dynamically
+        data_profile_parts = []
+        if self.prompt_tokens is not None:
+            data_profile_parts.append(f"prompt_tokens: {self.prompt_tokens}")
+        if self.output_tokens is not None:
+            data_profile_parts.append(f"output_tokens: {self.output_tokens}")
+        if self.turns is not None:
+            data_profile_parts.append(f"turns: {self.turns}")
+        if self.prefix_tokens is not None:
+            data_profile_parts.append(f"prefix_tokens: {self.prefix_tokens}")
+        if self.prefix_count is not None:
+            data_profile_parts.append(f"prefix_count: {self.prefix_count}")
+
+        data_profile_str = (
+            " | ".join(data_profile_parts)
+            if data_profile_parts
+            else f"Input Tokens: {model_configs[0]['prompt_toks']} | Output Tokens: {model_configs[0]['output_toks']}"
+        )
+
         fig.update_layout(
             title={
                 "text": (
                     f"<b>{model_short_name} Performance Report</b><br>"
                     f"<sub>Comparing versions: {versions_str} | "
                     f"Accelerator: {self.accelerator} | TP: {self.tp_size}</sub><br>"
-                    f"<sub>Input Tokens: {model_configs[0]['prompt_toks']} | "
-                    f"Output Tokens: {model_configs[0]['output_toks']}</sub>"
+                    f"<sub>{data_profile_str}</sub>"
                 ),
                 "x": 0.5,
                 "xanchor": "center",

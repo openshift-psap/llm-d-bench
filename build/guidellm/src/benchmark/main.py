@@ -815,6 +815,8 @@ def fetch_mlflow_runs(run_ids: list, mlflow_tracking_uri: str = None) -> list:
 
     Returns:
         List of dictionaries containing run metadata and benchmark data
+        Each dict includes a 'composed_version' field that appends the 'epp' tag
+        to the base version if present (e.g., llm-d-0.4-precise-prefix-caching)
     """
     if mlflow_tracking_uri:
         mlflow.set_tracking_uri(mlflow_tracking_uri)
@@ -827,6 +829,20 @@ def fetch_mlflow_runs(run_ids: list, mlflow_tracking_uri: str = None) -> list:
             run = mlflow.get_run(run_id)
 
             params = run.data.params
+            tags = run.data.tags
+
+            # Compose version with epp tag if present
+            base_version = params.get("version", "unknown")
+            epp_tag = tags.get("epp")
+
+            if epp_tag:
+                composed_version = f"{base_version}-{epp_tag}"
+                logger.info(
+                    f"Composed version: {base_version} + epp={epp_tag} -> {composed_version}"
+                )
+            else:
+                composed_version = base_version
+                logger.info(f"No epp tag found, using base version: {composed_version}")
 
             # Check if cached version exists
             cache_dir = f"/tmp/mlflow/{run_id}/results"
@@ -836,39 +852,74 @@ def fetch_mlflow_runs(run_ids: list, mlflow_tracking_uri: str = None) -> list:
                 else []
             )
 
+            artifact_paths = []
             if cached_files:
-                logger.info(f"Using cached artifact for run {run_id}")
-                artifact_path = str(
-                    cached_files[0]
-                )  # XXX: Only one JSON file per MLFlow run
+                logger.info(
+                    f"Using {len(cached_files)} cached artifact(s) for run {run_id}"
+                )
+                artifact_paths = [str(f) for f in sorted(cached_files)]
             else:
-                # Download from MLflow - search for any benchmark*.json file
+                # Download ALL benchmark*.json files from MLflow
                 client = mlflow.tracking.MlflowClient()
                 artifacts = client.list_artifacts(run_id, "results")
-                benchmark_file = next(
+                benchmark_files = [
                     a.path
                     for a in artifacts
                     if a.path.startswith("results/benchmark")
                     and a.path.endswith(".json")
+                ]
+
+                if not benchmark_files:
+                    raise ValueError(f"No benchmark JSON files found for run {run_id}")
+
+                logger.info(
+                    f"Downloading {len(benchmark_files)} benchmark file(s) for run {run_id}"
                 )
-                downloaded_path = client.download_artifacts(run_id, benchmark_file)
 
-                # Create cache directory and copy to cache location
-                cached_path = Path(cache_dir) / Path(benchmark_file).name
-                cached_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy(downloaded_path, cached_path)
-                artifact_path = str(cached_path)
-                logger.info(f"Downloaded and cached artifact for run {run_id}")
+                # Download and cache all files
+                for benchmark_file in benchmark_files:
+                    downloaded_path = client.download_artifacts(run_id, benchmark_file)
+                    cached_path = Path(cache_dir) / Path(benchmark_file).name
+                    cached_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy(downloaded_path, cached_path)
+                    artifact_paths.append(str(cached_path))
 
-            with open(artifact_path, "r") as f:
-                benchmark_data = json.load(f)
+                logger.info(
+                    f"Downloaded and cached {len(artifact_paths)} artifact(s) for run {run_id}"
+                )
+
+            # Load all benchmark data files
+            all_benchmarks = []
+            for artifact_path in artifact_paths:
+                with open(artifact_path, "r") as f:
+                    data = json.load(f)
+                    # Extract benchmarks from this file
+                    if "benchmarks" in data:
+                        all_benchmarks.extend(data["benchmarks"])
+
+            # Combine all benchmarks into a single structure
+            benchmark_data = (
+                {"benchmarks": all_benchmarks} if all_benchmarks else {"benchmarks": []}
+            )
+
+            # Save combined benchmark data to a temporary file for processor
+            combined_json_path = f"{cache_dir}/combined_benchmarks.json"
+            Path(cache_dir).mkdir(parents=True, exist_ok=True)
+            with open(combined_json_path, "w") as f:
+                json.dump(benchmark_data, f)
+
+            logger.info(
+                f"Combined {len(all_benchmarks)} benchmark(s) from {len(artifact_paths)} file(s)"
+            )
 
             runs_data.append(
                 {
                     "run_id": run_id,
                     "params": params,
+                    "tags": tags,
+                    "composed_version": composed_version,
                     "benchmark_data": benchmark_data,
-                    "artifact_path": artifact_path,
+                    "artifact_path": combined_json_path,
                 }
             )
 
@@ -897,12 +948,23 @@ def validate_runs_compatibility(runs_data: list) -> tuple:
     if not runs_data:
         raise ValueError("No runs provided for validation")
 
-    # Extract model, rate, and data from first run
+    # Extract model, rate, and data profile from first run
     first_run = runs_data[0]
     model = first_run["params"].get("model")
     rate = first_run["params"].get("rates")
-    prompt_tokens = first_run["params"].get("prompt_tokens")
-    output_tokens = first_run["params"].get("output_tokens")
+
+    # Data profile parameters (may or may not be present)
+    data_profile_params = [
+        "prompt_tokens",
+        "output_tokens",
+        "turns",
+        "prefix_tokens",
+        "prefix_count",
+    ]
+
+    first_profile = {
+        param: first_run["params"].get(param) for param in data_profile_params
+    }
 
     # Validate all runs have same configuration
     for run_data in runs_data[1:]:
@@ -920,23 +982,22 @@ def validate_runs_compatibility(runs_data: list) -> tuple:
                 f"All runs must use the same rate configuration."
             )
 
-        if params.get("prompt_tokens") != prompt_tokens:
-            raise ValueError(
-                f"Prompt tokens mismatch: {params.get('prompt_tokens')} != {prompt_tokens}. "
-                f"All runs must use the same data profile."
-            )
+        # Check each data profile parameter
+        for param in data_profile_params:
+            if params.get(param) != first_profile[param]:
+                raise ValueError(
+                    f"Data profile mismatch: {param}={params.get(param)} != {first_profile[param]}. "
+                    f"All runs must use the same data profile."
+                )
 
-        if params.get("output_tokens") != output_tokens:
-            raise ValueError(
-                f"Output tokens mismatch: {params.get('output_tokens')} != {output_tokens}. "
-                f"All runs must use the same data profile."
-            )
+    # Build data profile string from present parameters only
+    profile_parts = []
+    for param in data_profile_params:
+        value = first_profile[param]
+        if value is not None:
+            profile_parts.append(f"{param}={value}")
 
-    data_profile = (
-        f"prompt_tokens={prompt_tokens},output_tokens={output_tokens}"
-        if prompt_tokens and output_tokens
-        else None
-    )
+    data_profile = ",".join(profile_parts) if profile_parts else None
 
     logger.info(f"All runs validated successfully:")
     logger.info(f"  Model: {model}")
@@ -951,6 +1012,7 @@ def generate_plot_only_report(
     versions: list = None,
     mlflow_tracking_uri: str = None,
     additional_csv_files: list = None,
+    versions_override: dict = None,
 ) -> str:
     """
     Generate HTML report from existing MLflow runs without running benchmarks.
@@ -960,6 +1022,7 @@ def generate_plot_only_report(
         versions: List of versions to filter/compare (optional)
         mlflow_tracking_uri: MLflow tracking URI (optional)
         additional_csv_files: List of additional CSV file paths to include (optional)
+        versions_override: Dictionary mapping old version names to new names (optional)
 
     Returns:
         Path to generated HTML report
@@ -968,24 +1031,50 @@ def generate_plot_only_report(
         logger.error("BenchmarkProcessor not available - cannot generate report")
         return None
 
+    # Handle default case for versions_override
+    if versions_override is None:
+        versions_override = {}
+
     # Validate runs compatibility
     model, rate, data_profile = validate_runs_compatibility(runs_data)
 
-    # Filter runs by version if specified
+    # Extract data profile parameters from first run
+    first_run_params = runs_data[0]["params"]
+    data_profile_params = {
+        "prompt_tokens": first_run_params.get("prompt_tokens"),
+        "output_tokens": first_run_params.get("output_tokens"),
+        "turns": first_run_params.get("turns"),
+        "prefix_tokens": first_run_params.get("prefix_tokens"),
+        "prefix_count": first_run_params.get("prefix_count"),
+    }
+    # Convert string values to int if present
+    for key, value in data_profile_params.items():
+        if value is not None:
+            try:
+                data_profile_params[key] = int(value)
+            except (ValueError, TypeError):
+                pass  # Keep as is if conversion fails
+
+    # Filter runs by version if specified (using prefix match for MLflow runs)
     if versions:
-        logger.info(f"Filtering runs by versions: {versions}")
+        logger.info(f"Filtering runs by base versions: {versions}")
         filtered_runs = []
         for run_data in runs_data:
-            run_version = run_data["params"].get("version")
-            if run_version in versions:
+            composed_version = run_data["composed_version"]
+            # Check if any base version matches as a prefix
+            matches = any(composed_version.startswith(base_v) for base_v in versions)
+            if matches:
                 filtered_runs.append(run_data)
+                logger.info(
+                    f"Including run {run_data['run_id']} with composed version {composed_version}"
+                )
             else:
                 logger.info(
-                    f"Skipping run {run_data['run_id']} with version {run_version}"
+                    f"Skipping run {run_data['run_id']} with composed version {composed_version}"
                 )
 
         if not filtered_runs:
-            raise ValueError(f"No runs found matching versions: {versions}")
+            raise ValueError(f"No runs found matching base versions: {versions}")
 
         runs_data = filtered_runs
         logger.info(f"Using {len(runs_data)} runs after version filtering")
@@ -1017,14 +1106,22 @@ def generate_plot_only_report(
         tp_size=1,
         runtime_args="",
         replicas=1,  # dummy value
+        **data_profile_params,  # Pass data profile parameters
     )
     consolidated_df = temp_processor.download_s3_csv()
     logger.info(f"Downloaded consolidated CSV with {len(consolidated_df)} rows")
+
+    # Mark CSV data with source column for filtering logic
+    if not consolidated_df.empty:
+        consolidated_df["_data_source"] = "csv"
 
     # Load and merge additional CSV files using processor method
     if additional_csv_files:
         temp_processor.consolidated_df = consolidated_df
         consolidated_df = temp_processor.load_additional_csvs(additional_csv_files)
+        # Mark additional CSV data as well
+        if not consolidated_df.empty and "_data_source" not in consolidated_df.columns:
+            consolidated_df["_data_source"] = "csv"
 
     # Process each run to get its CSV data
     all_run_dataframes = []
@@ -1033,9 +1130,9 @@ def generate_plot_only_report(
         run_id = run_data["run_id"]
         params = run_data["params"]
         artifact_path = run_data["artifact_path"]
+        composed_version = run_data["composed_version"]
 
         accelerator = params.get("accelerator", "unknown")
-        version = params.get("version", "unknown")
         tp_size = int(params.get("tp", 1))
 
         # Extract replicas from MLflow params
@@ -1047,24 +1144,28 @@ def generate_plot_only_report(
             replicas_int = 1
 
         logger.info(
-            f"Processing run {run_id} (version={version}, TP={tp_size}, replicas={replicas_int})"
+            f"Processing run {run_id} (composed_version={composed_version}, TP={tp_size}, replicas={replicas_int})"
         )
 
-        # Create processor for this run
+        # Create processor for this run using composed version
         processor = BenchmarkProcessor(
             json_path=artifact_path,
             s3_bucket=s3_bucket,
             s3_key=s3_key,
             accelerator=accelerator,
             model_name=model,
-            version=version,
+            version=composed_version,  # Use composed version with epp tag
             tp_size=tp_size,
             runtime_args="",
             replicas=replicas_int,
+            **data_profile_params,  # Pass data profile parameters
         )
 
         # Parse this run's JSON to DataFrame (replicas will be included via processor)
         run_df = processor.parse_guidellm_json()
+
+        # Mark MLflow data with source column for filtering logic
+        run_df["_data_source"] = "mlflow"
 
         logger.info(f"Extracted {len(run_df)} rows from run {run_id}")
 
@@ -1082,15 +1183,59 @@ def generate_plot_only_report(
     final_df = temp_processor.merge_data()
     logger.info(f"Final merged DataFrame has {len(final_df)} rows")
 
-    # Filter by versions if specified
+    # Re-add _data_source column after merge (it gets dropped by merge_data fieldnames filter)
+    # Identify which rows came from MLflow vs CSV by checking if version exists in our MLflow runs
+    mlflow_versions = set(run_data["composed_version"] for run_data in runs_data)
+    final_df["_data_source"] = final_df["version"].apply(
+        lambda v: "mlflow" if v in mlflow_versions else "csv"
+    )
+    logger.info(
+        f"Restored _data_source column: "
+        f"{(final_df['_data_source'] == 'mlflow').sum()} MLflow rows, "
+        f"{(final_df['_data_source'] == 'csv').sum()} CSV rows"
+    )
+
+    # Filter by versions if specified (different logic for CSV vs MLflow data)
     if versions:
         logger.info(f"Filtering combined data by versions: {versions}")
         initial_rows = len(final_df)
-        # Filter to only keep rows where 'version' column matches one of the specified versions
-        final_df = final_df[final_df["version"].isin(versions)]
+
+        # Apply different filtering logic based on data source
+        def should_keep_row(row):
+            data_source = row.get("_data_source", "csv")
+            version = row["version"]
+
+            if data_source == "csv":
+                # CSV data: exact match only
+                return version in versions
+            else:  # mlflow
+                # MLflow data: prefix match (base version matches)
+                return any(version.startswith(base_v) for base_v in versions)
+
+        mask = final_df.apply(should_keep_row, axis=1)
+        final_df = final_df[mask]
+
         logger.info(
             f"After version filtering: {len(final_df)} rows (removed {initial_rows - len(final_df)} rows)"
         )
+        logger.info(f"  CSV data filtered with exact match")
+        logger.info(f"  MLflow data filtered with prefix match")
+
+    # Apply version overrides after filtering, before plotting
+    if versions_override:
+        logger.info(f"Applying {len(versions_override)} version override(s)")
+        for old_ver, new_ver in versions_override.items():
+            matching_rows = final_df["version"] == old_ver
+            count = matching_rows.sum()
+            if count > 0:
+                final_df.loc[matching_rows, "version"] = new_ver
+                logger.info(f"  Renamed {count} rows: {old_ver} → {new_ver}")
+            else:
+                logger.warning(f"  No rows found with version '{old_ver}' to rename")
+
+    # Remove the temporary source column before generating report
+    if "_data_source" in final_df.columns:
+        final_df = final_df.drop(columns=["_data_source"])
 
     # Determine compare_versions from the data
     compare_versions = sorted(final_df["version"].unique().tolist())
@@ -1118,6 +1263,7 @@ def generate_plot_only_report(
         runtime_args="",
         compare_versions=compare_versions,
         output_html=html_path,
+        **data_profile_params,  # Pass data profile parameters
     )
 
     # Override with our merged and filtered data
@@ -1215,6 +1361,12 @@ def main():
         help="Comma-separated list of versions to compare (filters runs and sets compare_versions)",
     )
     parser.add_argument(
+        "--versions-override",
+        action="append",
+        dest="versions_override",
+        help="Version rename mappings (old_name=new_name). Renames version labels after filtering but before plotting. Can be specified multiple times. Only applies to --plot-only mode.",
+    )
+    parser.add_argument(
         "--additional-csv",
         action="append",
         dest="additional_csv_files",
@@ -1241,10 +1393,27 @@ def main():
                     parser.error(f"Additional CSV file not found: {csv_file}")
 
         # Parse run IDs and versions
-        run_ids = [rid.strip() for rid in args.mlflow_run_ids.split(",")]
+        run_ids = [rid.strip() for rid in args.mlflow_run_ids.split(",") if rid.strip()]
         versions = (
-            [v.strip() for v in args.versions.split(",")] if args.versions else None
+            [v.strip() for v in args.versions.split(",") if v.strip()]
+            if args.versions
+            else None
         )
+
+        # Parse version override mappings
+        versions_override = {}
+        if args.versions_override:
+            logger.info(f"Parsing {len(args.versions_override)} version override(s)")
+            for mapping in args.versions_override:
+                if "=" not in mapping:
+                    parser.error(
+                        f"Invalid version override format: {mapping}. Expected format: old_name=new_name"
+                    )
+                old_version, new_version = mapping.split("=", 1)
+                old_version = old_version.strip()
+                new_version = new_version.strip()
+                versions_override[old_version] = new_version
+                logger.info(f"  Will rename: {old_version} → {new_version}")
 
         logger.info(f"Fetching {len(run_ids)} MLflow runs...")
 
@@ -1262,6 +1431,7 @@ def main():
                 versions=versions,
                 mlflow_tracking_uri=args.mlflow_tracking_uri,
                 additional_csv_files=args.additional_csv_files,
+                versions_override=versions_override,
             )
 
             if html_report:
