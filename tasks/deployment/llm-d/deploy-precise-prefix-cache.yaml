@@ -209,12 +209,11 @@ spec:
           CUDA_DEVICES="0"
         fi
         echo "  Setting CUDA_VISIBLE_DEVICES=$CUDA_DEVICES"
-        /tmp/yq -i '(.decode.containers[0].env[] | select(.name == "CUDA_VISIBLE_DEVICES")).value = "'"$CUDA_DEVICES"'"' $MS_VALUES_FILE
 
-        # Inject --tensor-parallel-size into the vLLM shell script (args[0])
-        # The guide uses a shell script in args[0], so we need to inject TP inside it
-        echo "  Injecting --tensor-parallel-size $TP into vLLM command script"
-        sed -i "s|vllm serve |vllm serve --tensor-parallel-size $TP |g" $MS_VALUES_FILE
+        # Initialize env array if null/empty, remove existing CUDA_VISIBLE_DEVICES, then add new one
+        /tmp/yq -i '.decode.containers[0].env |= . // []' $MS_VALUES_FILE
+        /tmp/yq -i '.decode.containers[0].env = [.decode.containers[0].env[] | select(.name != "CUDA_VISIBLE_DEVICES")]' $MS_VALUES_FILE
+        /tmp/yq -i '.decode.containers[0].env += [{"name": "CUDA_VISIBLE_DEVICES", "value": "'"$CUDA_DEVICES"'"}]' $MS_VALUES_FILE
 
         # 4. Override ModelService image
         echo "  Setting ModelService image to $(params.MS_IMAGE)"
@@ -222,56 +221,79 @@ spec:
 
         # 5. Set PYTHONHASHSEED for consistent hashing
         echo "  Setting PYTHONHASHSEED=$(params.HASH_SEED)"
-        # Check if PYTHONHASHSEED already exists, if so update it, otherwise add it
-        if /tmp/yq -e '.decode.containers[0].env[] | select(.name == "PYTHONHASHSEED")' $MS_VALUES_FILE > /dev/null 2>&1; then
-          /tmp/yq -i '(.decode.containers[0].env[] | select(.name == "PYTHONHASHSEED")).value = "$(params.HASH_SEED)"' $MS_VALUES_FILE
-        else
-          /tmp/yq -i '.decode.containers[0].env += [{"name": "PYTHONHASHSEED", "value": "$(params.HASH_SEED)"}]' $MS_VALUES_FILE
-        fi
+        # Remove existing PYTHONHASHSEED and add new one
+        /tmp/yq -i '.decode.containers[0].env = [.decode.containers[0].env[] | select(.name != "PYTHONHASHSEED")]' $MS_VALUES_FILE
+        /tmp/yq -i '.decode.containers[0].env += [{"name": "PYTHONHASHSEED", "value": "$(params.HASH_SEED)"}]' $MS_VALUES_FILE
 
         # 5b. Set HF_HUB_OFFLINE=1 to prevent downloading from HuggingFace
-        # The model should be fully available on the PVC
         echo "  Setting HF_HUB_OFFLINE=1 to prevent HuggingFace downloads"
-        if /tmp/yq -e '.decode.containers[0].env[] | select(.name == "HF_HUB_OFFLINE")' $MS_VALUES_FILE > /dev/null 2>&1; then
-          /tmp/yq -i '(.decode.containers[0].env[] | select(.name == "HF_HUB_OFFLINE")).value = "1"' $MS_VALUES_FILE
-        else
-          /tmp/yq -i '.decode.containers[0].env += [{"name": "HF_HUB_OFFLINE", "value": "1"}]' $MS_VALUES_FILE
-        fi
+        /tmp/yq -i '.decode.containers[0].env = [.decode.containers[0].env[] | select(.name != "HF_HUB_OFFLINE")]' $MS_VALUES_FILE
+        /tmp/yq -i '.decode.containers[0].env += [{"name": "HF_HUB_OFFLINE", "value": "1"}]' $MS_VALUES_FILE
 
-        # 6. Inject served model name into vLLM command script
-        # The guide uses a shell script in args[0], so we must use sed to inject args
-        echo "  Injecting --served-model-name into vLLM command script"
-        sed -i "s|vllm serve |vllm serve --served-model-name $(params.MODEL_NAME) |g" $MS_VALUES_FILE
+        # 6-9. Build complete vLLM command (replaces all sed-based injections)
+        # This prevents duplicate flags from overlapping sed replacements
+        echo "  Building vLLM command with all flags..."
 
-        # 7. Model Revision (if not main) - inject into shell script
+        # Get existing shell script wrapper from guide (everything except the vllm command)
+        EXISTING_SCRIPT=$(/tmp/yq '.decode.containers[0].args[0]' $MS_VALUES_FILE)
+
+        # Build complete vllm command flags
+        VLLM_FLAGS="--tensor-parallel-size $TP"
+        VLLM_FLAGS="$VLLM_FLAGS --served-model-name $(params.MODEL_NAME)"
+
+        # Add revision if not main
         if [ "$(params.MODEL_REVISION)" != "main" ]; then
-          echo "  Injecting --revision $(params.MODEL_REVISION) into vLLM command script"
-          sed -i "s|vllm serve |vllm serve --revision $(params.MODEL_REVISION) |g" $MS_VALUES_FILE
+          VLLM_FLAGS="$VLLM_FLAGS --revision $(params.MODEL_REVISION)"
         fi
 
-        # 8. Block size override (if different from guide's default of 64)
+        # Block size (get from guide or use parameter)
         BLOCK_SIZE=$(params.BLOCK_SIZE)
         if [ "$BLOCK_SIZE" != "64" ]; then
-          echo "  Overriding block-size from 64 to $BLOCK_SIZE"
-          sed -i "s|--block-size 64|--block-size $BLOCK_SIZE|g" $MS_VALUES_FILE
+          echo "  Using block-size $BLOCK_SIZE"
+          VLLM_FLAGS="$VLLM_FLAGS --block-size $BLOCK_SIZE"
+        else
+          # Keep guide default
+          VLLM_FLAGS="$VLLM_FLAGS --block-size 64"
         fi
 
-        # 8b. Ensure --prefix-caching-hash-algo sha256_cbor is present (required for precise prefix caching)
-        if ! grep -q "\-\-prefix-caching-hash-algo" $MS_VALUES_FILE; then
-          echo "  Injecting --prefix-caching-hash-algo sha256_cbor into vLLM command script"
-          sed -i "s|vllm serve |vllm serve --prefix-caching-hash-algo sha256_cbor |g" $MS_VALUES_FILE
+        # Precise prefix cache required flag
+        VLLM_FLAGS="$VLLM_FLAGS --prefix-caching-hash-algo sha256_cbor"
+
+        # Get kv-transfer-config from guide (preserve existing value)
+        KV_TRANSFER_CONFIG=$(/tmp/yq '.decode.containers[0].args' $MS_VALUES_FILE | grep -A1 "kv-transfer-config" | tail -1 | xargs || echo '{"kv_connector":"NixlConnector", "kv_role":"kv_both"}')
+        VLLM_FLAGS="$VLLM_FLAGS --kv-transfer-config '$KV_TRANSFER_CONFIG'"
+
+        # Get kv-events-config from guide (should already have correct topic after earlier sed)
+        KV_EVENTS_CONFIG=$(/tmp/yq '.decode.containers[0].args' $MS_VALUES_FILE | grep -A1 "kv-events-config" | tail -1 | xargs || echo '{"enable_kv_cache_events":true,"publisher":"zmq","endpoint":"tcp://gaie-${GAIE_RELEASE_NAME_POSTFIX}-epp.${NAMESPACE}.svc.cluster.local:'$ZMQ_PORT'","topic":"kv@${POD_IP}@$(params.MODEL_NAME)"}')
+        VLLM_FLAGS="$VLLM_FLAGS --kv-events-config '$KV_EVENTS_CONFIG'"
+
+        # Add any guide-default flags (like --disable-uvicorn-access-log if present)
+        if echo "$EXISTING_SCRIPT" | grep -q "\-\-disable-uvicorn-access-log"; then
+          VLLM_FLAGS="$VLLM_FLAGS --disable-uvicorn-access-log"
         fi
 
-        # 9. Additional vLLM Args from parameters - inject into shell script (parse from newline-delimited string)
+        # Add user-specified VLLM_ARGS from ConfigMap (takes precedence)
         if [ -n "$VLLM_ARGS_INPUT" ]; then
           echo "  Adding vLLM arguments from configuration..."
           while IFS= read -r arg; do
             if [ -n "$arg" ]; then
               echo "    - $arg"
-              sed -i "s|vllm serve |vllm serve $arg |g" $MS_VALUES_FILE
+              VLLM_FLAGS="$VLLM_FLAGS $arg"
             fi
           done <<< "$VLLM_ARGS_INPUT"
         fi
+
+        # Reconstruct complete shell script with new vllm command
+        # Extract shell wrapper parts (before and after vllm serve)
+        SCRIPT_BEFORE=$(echo "$EXISTING_SCRIPT" | sed -n '1,/vllm serve/p' | sed 's/vllm serve.*//')
+        SCRIPT_AFTER=$(echo "$EXISTING_SCRIPT" | sed -n '/vllm serve/,$p' | sed '1s/.*vllm serve[^&]*//')
+
+        # Build new complete script
+        NEW_SCRIPT="${SCRIPT_BEFORE}vllm serve $LOCAL_MODEL_PATH $VLLM_FLAGS${SCRIPT_AFTER}"
+
+        # Set complete args[0] with new script (single operation, no sed!)
+        echo "  Setting complete vLLM command..."
+        /tmp/yq -i '.decode.containers[0].args[0] = "'"$NEW_SCRIPT"'"' $MS_VALUES_FILE
 
         # Validate patched ModelService YAML
         if ! /tmp/yq eval '.' $MS_VALUES_FILE > /dev/null; then

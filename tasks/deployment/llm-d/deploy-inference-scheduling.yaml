@@ -146,12 +146,12 @@ spec:
         /tmp/yq -i '.decode.replicas = $(params.REPLICAS)' $VALUES_FILE
 
         # 3. Tensor Parallelism
-        # The chart automatically computes GPU resources from .decode.parallelism.tensor
-        # See: llm-d-modelservice/templates/_helpers.tpl lines 170-193
+        # Set parallelism.tensor so chart calculates GPU resources correctly
+        # With modelCommand: custom, this won't trigger auto-arg generation
         TP=$(params.TP)
         echo "  Configuring TP=$TP..."
 
-        # Set parallelism.tensor - chart will automatically set GPU resources
+        # Set parallelism.tensor - chart will use this to calculate GPU resources
         /tmp/yq -i '.decode.parallelism.tensor = '"$TP" $VALUES_FILE
 
         # Set CUDA_VISIBLE_DEVICES based on TP
@@ -161,30 +161,65 @@ spec:
           CUDA_DEVICES="0"
         fi
         echo "  Setting CUDA_VISIBLE_DEVICES=$CUDA_DEVICES"
-        /tmp/yq -i '(.decode.containers[0].env[] | select(.name == "CUDA_VISIBLE_DEVICES")).value = "'"$CUDA_DEVICES"'"' $VALUES_FILE
+
+        # Initialize env array if null/empty, remove existing CUDA_VISIBLE_DEVICES, then add new one
+        /tmp/yq -i '.decode.containers[0].env |= . // []' $VALUES_FILE
+        /tmp/yq -i '.decode.containers[0].env = [.decode.containers[0].env[] | select(.name != "CUDA_VISIBLE_DEVICES")]' $VALUES_FILE
+        /tmp/yq -i '.decode.containers[0].env += [{"name": "CUDA_VISIBLE_DEVICES", "value": "'"$CUDA_DEVICES"'"}]' $VALUES_FILE
 
         # 3.5. Override ModelService image
         echo "  Setting ModelService image to ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"
         /tmp/yq -i '.decode.containers[0].image = "ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"' $VALUES_FILE
 
-        # 4. Served Model Name
-        /tmp/yq -i '.decode.containers[0].args += ["--served-model-name", "$(params.MODEL_NAME)"]' $VALUES_FILE
+        # 3.6. Set modelCommand to custom and provide our own command/args
+        # This prevents the chart from auto-generating args from modelArtifacts.name and parallelism.tensor
+        /tmp/yq -i '.decode.containers[0].modelCommand = "custom"' $VALUES_FILE
+        /tmp/yq -i '.decode.containers[0].command = ["vllm", "serve"]' $VALUES_FILE
 
-        # 5. Model Revision (if not main)
+        # 4. Build complete args array (prevents duplicates and ensures user precedence)
+        echo "  Building vLLM arguments array..."
+
+        # Initialize empty args array (will replace any chart defaults)
+        VLLM_ARGS_ARRAY='[]'
+
+        # Add model path as first arg (required positional argument for vllm serve)
+        MODEL_PATH="/model-cache/models/$MODEL_NAME_SANITIZED"
+        VLLM_ARGS_ARRAY=$(echo "$VLLM_ARGS_ARRAY" | jq --arg path "$MODEL_PATH" '. += [$path]')
+
+        # Add port (8200 is routing.proxy.targetPort from guide template)
+        VLLM_ARGS_ARRAY=$(echo "$VLLM_ARGS_ARRAY" | jq '. += ["--port", "8200"]')
+
+        # Add tensor-parallel-size (mapped from TP parameter)
+        VLLM_ARGS_ARRAY=$(echo "$VLLM_ARGS_ARRAY" | jq --arg tp "$TP" '. += ["--tensor-parallel-size", $tp]')
+
+        # Add served-model-name
+        VLLM_ARGS_ARRAY=$(echo "$VLLM_ARGS_ARRAY" | jq --arg model "$(params.MODEL_NAME)" '. += ["--served-model-name", $model]')
+
+        # Add revision (if not main)
         if [ "$(params.MODEL_REVISION)" != "main" ]; then
-          /tmp/yq -i '.decode.containers[0].args += ["--revision", "$(params.MODEL_REVISION)"]' $VALUES_FILE
+          VLLM_ARGS_ARRAY=$(echo "$VLLM_ARGS_ARRAY" | jq --arg rev "$(params.MODEL_REVISION)" '. += ["--revision", $rev]')
         fi
 
-        # 6. Additional vLLM Args (parse from newline-delimited string)
+        # Add user VLLM_ARGS from ConfigMap (takes precedence over defaults)
         if [ -n "$VLLM_ARGS_INPUT" ]; then
           echo "  Adding vLLM arguments from configuration..."
           while IFS= read -r arg; do
             if [ -n "$arg" ]; then
               echo "    - $arg"
-              /tmp/yq -i '.decode.containers[0].args += ["'"$arg"'"]' $VALUES_FILE
+              VLLM_ARGS_ARRAY=$(echo "$VLLM_ARGS_ARRAY" | jq --arg a "$arg" '. += [$a]')
             fi
           done <<< "$VLLM_ARGS_INPUT"
         fi
+
+        # Set complete args array (replaces any chart defaults)
+        echo "  Setting vLLM args array..."
+        # Write JSON array to temp file and use yq to read it
+        echo "$VLLM_ARGS_ARRAY" > /tmp/vllm_args.json
+        /tmp/yq -i ".decode.containers[0].args = $(cat /tmp/vllm_args.json)" $VALUES_FILE
+
+        # Verify args were set correctly
+        echo "  Configured vLLM args:"
+        /tmp/yq '.decode.containers[0].args' $VALUES_FILE
 
         # Validate patched ModelService YAML
         if ! /tmp/yq eval '.' $VALUES_FILE > /dev/null; then
@@ -317,7 +352,7 @@ spec:
             name: infra-$RELEASE_NAME-inference-gateway
           rules:
             - backendRefs:
-              - group: inference.networking.k8s.io
+              - group: inference.networking.x-k8s.io
                 kind: InferencePool
                 name: gaie-$RELEASE_NAME
                 port: 8000

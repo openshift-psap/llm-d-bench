@@ -346,6 +346,8 @@ spec:
           value: $(params.TARGET)
         - name: IMAGE
           value: $(params.IMAGE)
+        - name: LLM_D_REPO_REF
+          value: $(params.LLM_D_REPO_REF)
 
     # Stage 1: Download Model
     - name: download-model
@@ -382,7 +384,7 @@ spec:
         - name: URL
           value: $(params.LLM_D_REPO_URL)
         - name: REVISION
-          value: $(params.LLM_D_REPO_REF)
+          value: $(tasks.merge-configs.results.llm-d-repo-ref)
         - name: SUBDIRECTORY
           value: "llm-d-repo"
       workspaces:
