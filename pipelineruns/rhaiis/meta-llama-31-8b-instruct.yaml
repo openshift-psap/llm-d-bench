@@ -150,7 +150,7 @@ spec:
       # DEFAULT: "600"
       # Maximum duration per rate in seconds
       # Set lower for quick tests, higher for stable measurements
-      value: "180"
+      value: "100"
 
     - name: GUIDELLM_MAX_REQUESTS
       # DEFAULT: "" (unlimited)

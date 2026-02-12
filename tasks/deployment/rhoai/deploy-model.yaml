@@ -53,6 +53,16 @@ spec:
       type: string
       default: "/models"
 
+    - name: KUEUE_QUEUE_NAME
+      description: Kueue LocalQueue name for GPU scheduling (optional)
+      type: string
+      default: ""
+
+    - name: RUN_UUID
+      description: Pipeline run UUID for tracking/correlation
+      type: string
+      default: ""
+
   workspaces:
     - name: models-storage
       description: PVC containing downloaded models
@@ -103,6 +113,24 @@ spec:
           fi
         done
 
+        # Build optional labels (only add if parameter is set)
+        EXTRA_LABELS=""
+        POD_EXTRA_LABELS=""
+
+        if [ -n "$(params.KUEUE_QUEUE_NAME)" ]; then
+          EXTRA_LABELS="${EXTRA_LABELS}
+            kueue.x-k8s.io/queue-name: $(params.KUEUE_QUEUE_NAME)"
+          POD_EXTRA_LABELS="${POD_EXTRA_LABELS}
+                kueue.x-k8s.io/queue-name: $(params.KUEUE_QUEUE_NAME)"
+        fi
+
+        if [ -n "$(params.RUN_UUID)" ]; then
+          EXTRA_LABELS="${EXTRA_LABELS}
+            deployment_uuid: $(params.RUN_UUID)"
+          POD_EXTRA_LABELS="${POD_EXTRA_LABELS}
+                deployment_uuid: $(params.RUN_UUID)"
+        fi
+
         # Generate LLMInferenceService YAML
         cat > /tmp/llm-inference-service.yaml <<EOF
         apiVersion: serving.kserve.io/v1alpha1
@@ -110,6 +138,10 @@ spec:
         metadata:
           name: $DEPLOYMENT_NAME
           namespace: $(params.NAMESPACE)
+          labels:
+            app: vllm-inference
+            model: $DEPLOYMENT_NAME
+            deployment-mode: rhoai${EXTRA_LABELS}
           annotations:
             security.opendatahub.io/enable-auth: "$(params.ENABLE_AUTH)"
         spec:
@@ -122,6 +154,10 @@ spec:
             gateway: {}
             scheduler: {}
           template:
+            metadata:
+              labels:
+                app: vllm-inference
+                model: $DEPLOYMENT_NAME${POD_EXTRA_LABELS}
             containers:
             - name: main
               command: ["python3", "-m", "vllm.entrypoints.openai.api_server"]
