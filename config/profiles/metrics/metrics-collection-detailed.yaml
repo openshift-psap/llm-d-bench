@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: metrics-collection-detailed
+  namespace: llm-d-bench
+  annotations:
+    description: "Detailed metrics collection profile - comprehensive system and vLLM metrics"
+  labels:
+    config-type: metrics
+data:
+  # Collection settings
+  QUERY_STEP: "5s"
+  QUERY_TIMEOUT: "60s"
+  COLLECTION_MODE: "detailed"
+  
+  # GPU Metrics - All DCGM metrics
+  GPU_UTILIZATION: "DCGM_FI_DEV_GPU_UTIL"
+  GPU_MEMORY_USED: "DCGM_FI_DEV_FB_USED"
+  GPU_MEMORY_FREE: "DCGM_FI_DEV_FB_FREE"
+  GPU_MEMORY_COPY_UTIL: "DCGM_FI_DEV_MEM_COPY_UTIL"
+  GPU_POWER: "DCGM_FI_DEV_POWER_USAGE"
+  GPU_TEMPERATURE: "DCGM_FI_DEV_GPU_TEMP"
+  GPU_CLOCKS: "DCGM_FI_DEV_GPU_CLOCK"
+  GPU_PCIE_TX_BYTES: "DCGM_FI_DEV_PCIE_TX_BYTES"
+  GPU_PCIE_RX_BYTES: "DCGM_FI_DEV_PCIE_RX_BYTES"
+  
+  # CPU/Memory Metrics
+  CPU_USAGE: "container_cpu_usage_seconds_total"
+  CPU_THROTTLE: "container_cpu_cfs_throttled_seconds_total"
+  MEMORY_WORKING_SET: "container_memory_working_set_bytes"
+  MEMORY_USAGE: "container_memory_usage_bytes"
+  MEMORY_RSS: "container_memory_rss"
+  MEMORY_CACHE: "container_memory_cache"
+  
+  # Network Metrics
+  NETWORK_RECEIVE_BYTES: "container_network_receive_bytes_total"
+  NETWORK_TRANSMIT_BYTES: "container_network_transmit_bytes_total"
+  NETWORK_RECEIVE_PACKETS: "container_network_receive_packets_total"
+  NETWORK_TRANSMIT_PACKETS: "container_network_transmit_packets_total"
+  NETWORK_RECEIVE_ERRORS: "container_network_receive_errors_total"
+  NETWORK_TRANSMIT_ERRORS: "container_network_transmit_errors_total"
+  
+  # Pod Status & Scheduling
+  POD_RESTARTS: "kube_pod_container_status_restarts_total"
+  POD_PHASE: "kube_pod_status_phase"
+  POD_SCHEDULE_TIME: "kube_pod_scheduling_duration_seconds"
+  
+  # vLLM Metrics (if available)
+  VLLM_ENABLED: "true"
+  VLLM_PROMPT_TOKENS: "vllm:prompt_tokens_total"
+  VLLM_GENERATION_TOKENS: "vllm:generation_tokens_total"
+  VLLM_REQUEST_LATENCY: "vllm:request_latency_seconds"
+  VLLM_REQUEST_QUEUE_TIME: "vllm:request_queue_time_seconds"
+  VLLM_CACHE_HIT_RATE: "vllm:cache_hit_rate"
+  VLLM_GPU_CACHE_USAGE: "vllm:gpu_cache_usage_perc"
+  VLLM_NUM_REQUESTS_RUNNING: "vllm:num_requests_running"
+  VLLM_NUM_REQUESTS_WAITING: "vllm:num_requests_waiting"
+  VLLM_PREFILL_TOKENS: "vllm:prefill_tokens_total"
+  VLLM_DECODE_TOKENS: "vllm:decode_tokens_total"
+  
+  # Scheduler Metrics
+  SCHEDULER_QUEUE_DEPTH: "vllm:scheduler_queue_depth"
+  SCHEDULER_RUNNING_REQS: "vllm:scheduler_running_requests"
+  SCHEDULER_WAITING_REQS: "vllm:scheduler_waiting_requests"
+  
+  # EPP/GAIE Metrics (if available)
+  EPP_ENABLED: "true"
+  EPP_REQUESTS_TOTAL: "gaie:requests_total"
+  EPP_REQUEST_DURATION: "gaie:request_duration_seconds"
+  EPP_ACTIVE_CONNECTIONS: "gaie:active_connections"

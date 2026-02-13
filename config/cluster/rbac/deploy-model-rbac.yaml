@@ -192,6 +192,24 @@ rules:
       - update
       - patch
       - delete
+
+  # Pod logs access for artifact collection
+  - apiGroups:
+      - ""
+    resources:
+      - pods/log
+    verbs:
+      - get
+      - list
+
+  # ConfigMap export for artifact collection
+  - apiGroups:
+      - ""
+    resources:
+      - configmaps
+    verbs:
+      - get
+      - list
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -430,6 +448,51 @@ rules:
       - update
       - patch
       - delete
+
+  # Prometheus CRD access for querying metrics
+  - apiGroups:
+      - monitoring.coreos.com
+    resources:
+      - prometheuses
+      - prometheuses/api
+    verbs:
+      - get
+      - create
+
+  # Prometheus/Thanos API access for metrics collection
+  - nonResourceURLs:
+      - /api/v1/query
+      - /api/v1/query_range
+    verbs:
+      - get
+
+  # Pod logs access across namespaces for artifact collection
+  - apiGroups:
+      - ""
+    resources:
+      - pods/log
+    verbs:
+      - get
+      - list
+
+  # Metrics API access
+  - apiGroups:
+      - metrics.k8s.io
+    resources:
+      - nodes
+      - pods
+    verbs:
+      - get
+      - list
+
+  # Custom metrics API access
+  - apiGroups:
+      - custom.metrics.k8s.io
+    resources:
+      - "*"
+    verbs:
+      - get
+      - list
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
