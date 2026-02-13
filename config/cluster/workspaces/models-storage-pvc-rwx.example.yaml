@@ -8,6 +8,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteMany  # For RHOAI/llm-d multi-pod deployments
+  storageClassName: <storage-class-name>
   resources:
     requests:
       storage: 1Ti

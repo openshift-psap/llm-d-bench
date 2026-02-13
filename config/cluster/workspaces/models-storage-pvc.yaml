@@ -7,13 +7,14 @@ metadata:
     type: workspace
 spec:
   accessModes:
-    - ReadWriteOnce  # For RHAIIS single-pod deployments
+    - ReadWriteMany  # For RHOAI/llm-d multi-pod deployments
+  storageClassName: lvms-vg1
   resources:
     requests:
       storage: 1Ti
 ---
-# This PVC is used for RHAIIS deployments which use ReadWriteOnce (RWO)
-# RWO allows the volume to be mounted by a single node only
+# This PVC is used for RHOAI and llm-d deployments which need ReadWriteMany (RWX)
+# RWX allows the volume to be mounted by multiple nodes simultaneously
 #
 # Models will be stored in subdirectories by name.
 # The huggingface-cli automatically sanitizes model names (replaces '/' with '-')

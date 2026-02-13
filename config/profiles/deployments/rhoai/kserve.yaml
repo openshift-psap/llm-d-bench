@@ -10,7 +10,7 @@ metadata:
 data:
   DEPLOYMENT_TYPE: "rhoai"
   DEPLOYMENT_MODE: "kserve"
-  VERSION: "RHOAI-3.0"
+  VERSION: "RHOAI-3.3"
   MLFLOW_ENABLED: "true"
   MLFLOW_TAGS: |
     deployment=rhoai
