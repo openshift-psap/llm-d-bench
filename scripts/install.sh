@@ -148,12 +148,14 @@ if [ -d "$PROJECT_ROOT/config/profiles" ]; then
     DEPLOY_COUNT=$(oc get cm $NS_FLAG -l config-type=deployment -o name 2>/dev/null | wc -l || echo "0")
     BENCH_COUNT=$(oc get cm $NS_FLAG -l config-type=benchmark -o name 2>/dev/null | wc -l || echo "0")
     SCHED_COUNT=$(oc get cm $NS_FLAG -l config-type=scheduler -o name 2>/dev/null | wc -l || echo "0")
+    METRICS_COUNT=$(oc get cm $NS_FLAG -l config-type=metrics -o name 2>/dev/null | wc -l || echo "0")
 
     echo "  Installed profiles:"
     echo "    vLLM: $VLLM_COUNT profiles"
     echo "    Deployments: $DEPLOY_COUNT profiles"
     echo "    Benchmarks: $BENCH_COUNT profiles"
     echo "    Schedulers: $SCHED_COUNT profiles"
+    echo "    Metrics: $METRICS_COUNT profiles"
 else
     echo "  Warning: config/profiles/ directory not found. Skipping profile installation."
 fi

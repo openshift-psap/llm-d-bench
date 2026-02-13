@@ -550,8 +550,13 @@ def run_benchmark_with_mlflow(
     multiturn_mode = os.environ.get("MULTITURN", "false").lower() == "true"
 
     # Run name for the whole sweep
-    mode_suffix = "multiturn" if multiturn_mode else "sweep"
-    run_name = f"{model.split('/')[-1]}_{mode_suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    # Use PipelineRun name if provided (Tekton integration), otherwise generate one
+    pipeline_run_name = os.environ.get("PIPELINE_RUN_NAME", "")
+    if pipeline_run_name:
+        run_name = pipeline_run_name
+    else:
+        mode_suffix = "multiturn" if multiturn_mode else "sweep"
+        run_name = f"{model.split('/')[-1]}_{mode_suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
     logger.info(f"Starting benchmark sweep: rates={rate}")
     if multiturn_mode:
@@ -608,6 +613,8 @@ def run_benchmark_with_mlflow(
                 "vllm": vllm_version,
                 "guidellm": guidellm_version,
             }
+            if pipeline_run_name:
+                default_tags["pipeline_run"] = pipeline_run_name
             if accelerator:
                 default_tags["accelerator"] = accelerator
             if tags:
