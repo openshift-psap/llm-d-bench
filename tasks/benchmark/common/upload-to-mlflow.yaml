@@ -1,0 +1,185 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: upload-to-mlflow
+  labels:
+    app.kubernetes.io/version: "0.3"
+  annotations:
+    tekton.dev/displayName: "Upload to MLflow"
+spec:
+  description: >-
+    Upload collected artifacts (logs, manifests) to MLflow and generate
+    and set the Grafana dashboard URL as a tag. System metrics are viewed
+    live in Grafana rather than exported to MLflow.
+
+  params:
+    - name: MLFLOW_RUN_ID
+      type: string
+    - name: NAMESPACE
+      type: string
+    - name: RELEASE_NAME
+      type: string
+    - name: BENCHMARK_START_TIME
+      type: string
+    - name: BENCHMARK_END_TIME
+      type: string
+    - name: GRAFANA_URL
+      type: string
+      default: "https://grafana-grafana.apps.psap-llmd-h200.ibm-rh-ai.rhperfscale.org"
+    - name: ARTIFACTS_PATH
+      type: string
+      default: "/workspace/artifacts"
+
+  workspaces:
+    - name: artifacts
+      description: Workspace containing collected artifacts (logs, manifests)
+
+  steps:
+    - name: upload
+      image: image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest
+      env:
+        - name: MLFLOW_RUN_ID
+          value: $(params.MLFLOW_RUN_ID)
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: RELEASE_NAME
+          value: $(params.RELEASE_NAME)
+        - name: BENCHMARK_START_TIME
+          value: $(params.BENCHMARK_START_TIME)
+        - name: BENCHMARK_END_TIME
+          value: $(params.BENCHMARK_END_TIME)
+        - name: GRAFANA_URL
+          value: $(params.GRAFANA_URL)
+        - name: MLFLOW_TRACKING_URI
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: tracking-uri
+              optional: true
+        - name: MLFLOW_TRACKING_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: username
+              optional: true
+        - name: MLFLOW_TRACKING_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: password
+              optional: true
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: access-key
+              optional: true
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: secret-key
+              optional: true
+        - name: AWS_DEFAULT_REGION
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: region
+              optional: true
+        - name: MLFLOW_TRACKING_INSECURE_TLS
+          value: "true"
+      script: |
+        #!/usr/bin/env python3
+        import os
+        import sys
+        from pathlib import Path
+        from datetime import datetime
+
+        run_id = os.environ.get('MLFLOW_RUN_ID', '')
+        tracking_uri = os.environ.get('MLFLOW_TRACKING_URI', '')
+        namespace = os.environ.get('NAMESPACE', '')
+        release_name = os.environ.get('RELEASE_NAME', '')
+        start_time = os.environ.get('BENCHMARK_START_TIME', '')
+        end_time = os.environ.get('BENCHMARK_END_TIME', '')
+        grafana_base_url = os.environ.get('GRAFANA_URL', '')
+        artifacts_path = "$(workspaces.artifacts.path)"
+
+        print(f"Configuration:")
+        print(f"  Run ID: {run_id}")
+        print(f"  Tracking URI: {tracking_uri}")
+        print(f"  Namespace: {namespace}")
+        print(f"  Release: {release_name}")
+        print(f"  Time range: {start_time} to {end_time}")
+        print(f"  Grafana Base URL: {grafana_base_url}")
+        print(f"  Artifacts path: {artifacts_path}")
+        print()
+
+        # Generate Grafana URL with time range
+        grafana_url = ""
+        if grafana_base_url and start_time and end_time:
+            try:
+                # Parse times and convert to milliseconds
+                start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                end_dt = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+                start_ms = int(start_dt.timestamp() * 1000)
+                end_ms = int(end_dt.timestamp() * 1000)
+
+                grafana_url = f"{grafana_base_url}/d/llm-d-bench"
+                grafana_url += f"?var-namespace={namespace}"
+                grafana_url += f"&var-release={release_name}"
+                grafana_url += f"&from={start_ms}"
+                grafana_url += f"&to={end_ms}"
+
+                print(f"Generated Grafana URL: {grafana_url}")
+            except Exception as e:
+                print(f"Failed to generate Grafana URL: {e}")
+        else:
+            print("Skipping Grafana URL generation (missing required params)")
+
+        if not run_id or not tracking_uri:
+            print("MLflow not configured, skipping upload")
+            sys.exit(0)
+
+        import mlflow
+        mlflow.set_tracking_uri(tracking_uri)
+
+        if os.environ.get('MLFLOW_TRACKING_INSECURE_TLS', '').lower() == 'true':
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+        client = mlflow.tracking.MlflowClient()
+
+        # Set Grafana URL tag
+        print("\nSetting MLflow tags...")
+        try:
+            if grafana_url:
+                client.set_tag(run_id, "grafana_url", grafana_url)
+                print(f"  grafana_url = {grafana_url}")
+            print("  Tags set")
+        except Exception as e:
+            print(f"  Failed to set tags: {e}")
+
+        print()
+
+        # Upload artifacts (logs, manifests)
+        artifacts_dir = Path(artifacts_path)
+        if artifacts_dir.exists():
+            files = [f for f in artifacts_dir.rglob("*") if f.is_file()]
+            print(f"Found {len(files)} files in artifacts directory")
+            if files:
+                print("Uploading artifacts...")
+                for f in files:
+                    try:
+                        rel = f.relative_to(artifacts_path)
+                        artifact_path = str(rel.parent) if str(rel.parent) != "." else None
+                        client.log_artifact(run_id, str(f), artifact_path=artifact_path)
+                        print(f"  {rel}")
+                    except Exception as e:
+                        print(f"  FAILED {f.name}: {e}")
+            else:
+                print("  No files found in artifacts directory")
+        else:
+            print(f"Artifacts directory does not exist: {artifacts_path}")
+
+        print()
+        print("Upload complete")

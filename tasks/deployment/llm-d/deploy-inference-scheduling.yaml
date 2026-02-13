@@ -84,9 +84,17 @@ spec:
       type: string
       default: "true"
 
+    - name: PIPELINE_RUN_NAME
+      description: PipelineRun name for pod labeling
+      type: string
+      default: ""
+
   workspaces:
     - name: source
       description: Workspace containing cloned llm-d repository (at llm-d-repo/)
+    - name: manifests-storage
+      description: Workspace for storing rendered manifests
+      optional: true
 
   steps:
     # Step 1: Patch Values with yq
@@ -250,7 +258,60 @@ spec:
         #   echo "WARNING: GAIE values file not found at $GAIE_VALUES_FILE, skipping EPP verbosity configuration"
         # fi
 
-    # Step 2: Deploy with Helmfile
+    # Step 2: Capture Rendered Manifests
+    - name: capture-manifests
+      image: ghcr.io/helmfile/helmfile:latest
+      workingDir: $(workspaces.source.path)/llm-d-repo/guides/inference-scheduling
+      env:
+        - name: HOME
+          value: /tmp
+      script: |
+        #!/bin/bash
+        set -e
+
+        echo "=== Step 2: Capturing Rendered Manifests ==="
+
+        # Check if manifests-storage workspace is bound
+        if [ ! -d "$(workspaces.manifests-storage.path)" ]; then
+          echo "Manifests storage workspace not bound - skipping manifest capture"
+          exit 0
+        fi
+
+        mkdir -p $(workspaces.manifests-storage.path)/rendered
+
+        # Determine environment flag based on gateway provider
+        ENV_FLAG=""
+        case "$(params.GATEWAY_PROVIDER)" in
+          istio)
+            ENV_FLAG=""
+            ;;
+          kgateway)
+            ENV_FLAG="-e kgateway"
+            ;;
+          standalone)
+            ENV_FLAG="-e standalone"
+            ;;
+          gke)
+            ENV_FLAG="-e gke"
+            ;;
+        esac
+
+        NAMESPACE=$(params.NAMESPACE)
+
+        echo "Rendering manifests with helmfile template..."
+        helmfile template $ENV_FLAG -n $NAMESPACE > $(workspaces.manifests-storage.path)/rendered/manifests.yaml 2>/dev/null || {
+          echo "WARNING: helmfile template failed - manifests will not be captured"
+          exit 0
+        }
+
+        # Copy the patched values file
+        cp ms-inference-scheduling/values.yaml $(workspaces.manifests-storage.path)/rendered/values.yaml || true
+
+        echo "✓ Manifests captured successfully"
+        echo "  - Rendered manifests: $(workspaces.manifests-storage.path)/rendered/manifests.yaml"
+        echo "  - Values file: $(workspaces.manifests-storage.path)/rendered/values.yaml"
+
+    # Step 4: Deploy with Helmfile
     - name: deploy-llm-d-helmfile
       image: ghcr.io/helmfile/helmfile:latest
       workingDir: $(workspaces.source.path)/llm-d-repo/guides/inference-scheduling
@@ -314,6 +375,24 @@ spec:
         # Set release name postfix environment variable for helmfile
         export RELEASE_NAME_POSTFIX="$RELEASE_NAME"
 
+        # Add PipelineRun labels to pod template for artifact collection
+        # Labels are added to decode.template.metadata.labels (pod template level)
+        if [ -n "$(params.PIPELINE_RUN_NAME)" ]; then
+          echo "Adding PipelineRun labels to pod template..."
+          
+          # Install yq if not already available
+          if [ ! -f /tmp/yq ]; then
+            YQ_VERSION="v4.40.5"
+            wget -qO /tmp/yq "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+            chmod +x /tmp/yq
+          fi
+          
+          /tmp/yq -i '.decode.template.metadata.labels."tekton.dev/pipelineRun" = "$(params.PIPELINE_RUN_NAME)"' ms-inference-scheduling/values.yaml
+          /tmp/yq -i '.decode.template.metadata.labels."llm-d-bench/managed-by" = "pipeline"' ms-inference-scheduling/values.yaml
+          /tmp/yq -i '.decode.template.metadata.labels."llm-d-bench/release" = "$RELEASE_NAME"' ms-inference-scheduling/values.yaml
+          echo "  Labels added to decode.template.metadata.labels"
+        fi
+
         # Deploy with helmfile
         set +e
         helmfile apply $ENV_FLAG -n $NAMESPACE --skip-deps=false --suppress-secrets
@@ -327,7 +406,7 @@ spec:
 
         echo "Deployment complete!"
 
-    # Step 3: Create HTTPRoute
+    # Step 5: Create HTTPRoute
     - name: create-httproute
       image: ghcr.io/helmfile/helmfile:latest
       script: |
@@ -365,7 +444,7 @@ spec:
 
         echo "HTTPRoute created successfully"
 
-    # Step 4: Verify Deployment
+    # Step 6: Verify Deployment
     - name: verify-deployment
       image: ghcr.io/helmfile/helmfile:latest
       script: |

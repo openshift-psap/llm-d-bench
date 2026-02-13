@@ -116,10 +116,23 @@ spec:
       type: array
       default: []
 
+    - name: PIPELINE_RUN_NAME
+      description: PipelineRun name for MLflow run naming and traceability
+      type: string
+      default: ""
+
   workspaces:
     - name: results
       description: Workspace for storing benchmark results (only used if MLFLOW_ENABLED=false)
       optional: true
+
+  results:
+    - name: mlflow-run-id
+      description: MLflow run ID for metrics correlation
+    - name: benchmark-start-time
+      description: Benchmark start timestamp (ISO8601)
+    - name: benchmark-end-time
+      description: Benchmark end timestamp (ISO8601)
 
   steps:
     - name: run-guidellm-benchmark
@@ -187,6 +200,8 @@ spec:
           value: $(params.LOG_LEVEL)
         - name: HF_HOME
           value: /tmp/.huggingface
+        - name: PIPELINE_RUN_NAME
+          value: $(params.PIPELINE_RUN_NAME)
       args:
         - $(params.BENCHMARK_ENV_VARS[*])
         - "---SEPARATOR---"
@@ -252,9 +267,56 @@ spec:
           fi
         done
 
+        # Record benchmark start time
+        START_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        echo "benchmark-start-time:$START_TIME" > /tmp/benchmark_metadata.txt
+        echo "Starting benchmark at: $START_TIME"
         echo "Starting benchmark with args: ${ARGS[@]}"
 
-        exec python3 -m benchmark.main "${ARGS[@]}"
+        # Run benchmark and capture output
+        set +e
+        python3 -m benchmark.main "${ARGS[@]}" 2>&1 | tee /tmp/benchmark_output.log
+        BENCHMARK_EXIT_CODE=${PIPESTATUS[0]}
+        set -e
+
+        # Record benchmark end time
+        END_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        echo "benchmark-end-time:$END_TIME" >> /tmp/benchmark_metadata.txt
+        echo "Benchmark completed at: $END_TIME"
+
+        # Extract MLflow run ID from output if MLflow is enabled
+        # TODO: Currently assumes benchmark succeeds. If benchmark fails, results won't be
+        # emitted and collection tasks in finally block won't have access to run_id or timestamps.
+        # Need to implement fallback mechanism (e.g., generate run_id before benchmark starts
+        # and emit it even on failure, or query MLflow API to find the run by experiment + tags).
+        if [ "$(params.MLFLOW_ENABLED)" = "true" ]; then
+          # Try multiple patterns for MLflow run ID extraction
+          MLFLOW_RUN_ID=$(
+            grep -oP 'Run completed: \K[a-f0-9]{32}' /tmp/benchmark_output.log | tail -1 ||
+            grep -oP 'run_id["\s:]+([a-f0-9]{32})' /tmp/benchmark_output.log | grep -oP '[a-f0-9]{32}' | tail -1 ||
+            grep -oP 'run\s+([a-f0-9]{32})' /tmp/benchmark_output.log | grep -oP '[a-f0-9]{32}' | tail -1 ||
+            grep -oP '[a-f0-9]{32}' /tmp/benchmark_output.log | tail -1 ||
+            echo ""
+          )
+          
+          # Validate run ID format (should be 32 hex characters)
+          if [ -n "$MLFLOW_RUN_ID" ] && echo "$MLFLOW_RUN_ID" | grep -qE '^[a-f0-9]{32}$'; then
+            echo "MLflow Run ID: $MLFLOW_RUN_ID"
+            echo -n "$MLFLOW_RUN_ID" > $(results.mlflow-run-id.path)
+          else
+            echo "⚠ Could not extract valid MLflow run ID from output"
+            echo -n "" > $(results.mlflow-run-id.path)
+          fi
+        else
+          echo -n "" > $(results.mlflow-run-id.path)
+        fi
+
+        # Write timestamps to results
+        echo -n "$START_TIME" > $(results.benchmark-start-time.path)
+        echo -n "$END_TIME" > $(results.benchmark-end-time.path)
+
+        # Exit with benchmark exit code
+        exit $BENCHMARK_EXIT_CODE
 
       volumeMounts:
         - name: results-volume
