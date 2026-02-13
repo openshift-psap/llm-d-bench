@@ -14,6 +14,12 @@ spec:
     and cleanup deployment. Each stage can be optionally skipped via parameters.
 
   params:
+    # Pipeline identification
+    - name: PIPELINE_RUN_NAME
+      description: PipelineRun name for pod labeling
+      type: string
+      default: ""
+
     # Profile References
     - name: VLLM_CONFIG
       description: vLLM profile ConfigMap name (e.g., vllm-default, vllm-fp8-cache)
@@ -299,6 +305,22 @@ spec:
       type: string
       default: "false"
 
+    # Metrics Collection Configuration
+    - name: METRICS_ENABLED
+      description: Enable system metrics collection
+      type: string
+      default: "true"
+
+    - name: METRICS_CONFIG
+      description: Metrics collection profile ConfigMap name
+      type: string
+      default: "metrics-collection-default"
+
+    - name: GRAFANA_URL
+      description: Grafana URL for dashboard links
+      type: string
+      default: ""
+
   workspaces:
     - name: models-storage
       description: PVC for model storage (required for download stage)
@@ -307,7 +329,10 @@ spec:
       description: Workspace for cloning llm-d repository (required for deploy stage)
 
     - name: results
-      description: PVC for benchmark results (optional, only for non-MLflow mode)
+      description: PVC for benchmark results and collection data
+
+    - name: manifests-storage
+      description: Workspace for rendered manifests and ConfigMaps
       optional: true
 
   tasks:
@@ -348,6 +373,29 @@ spec:
           value: $(params.IMAGE)
         - name: LLM_D_REPO_REF
           value: $(params.LLM_D_REPO_REF)
+
+    # Stage 0b: Export ConfigMaps
+    - name: export-configmaps
+      runAfter:
+        - merge-configs
+      taskRef:
+        name: export-configmaps
+      params:
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: VLLM_CONFIG
+          value: $(params.VLLM_CONFIG)
+        - name: DEPLOYMENT_CONFIG
+          value: $(params.DEPLOYMENT_CONFIG)
+        - name: BENCHMARK_CONFIG
+          value: $(params.BENCHMARK_CONFIG)
+        - name: EPP_CONFIG
+          value: $(params.EPP_CONFIG)
+        - name: METRICS_CONFIG
+          value: $(params.METRICS_CONFIG)
+      workspaces:
+        - name: manifests-storage
+          workspace: manifests-storage
 
     # Stage 1: Download Model
     - name: download-model
@@ -425,9 +473,13 @@ spec:
           value: $(tasks.merge-configs.results.vllm-args)
         - name: SKIP_IF_EXISTS
           value: "true"
+        - name: PIPELINE_RUN_NAME
+          value: "$(context.pipelineRun.name)"
       workspaces:
         - name: source
           workspace: source
+        - name: manifests-storage
+          workspace: manifests-storage
 
     # Stage 2c: Deploy with Helmfile - PD Disaggregation Mode
     - name: deploy-llm-d-pd-disaggregation
@@ -473,9 +525,13 @@ spec:
           value: $(tasks.merge-configs.results.vllm-args)
         - name: SKIP_IF_EXISTS
           value: "true"
+        - name: PIPELINE_RUN_NAME
+          value: "$(context.pipelineRun.name)"
       workspaces:
         - name: source
           workspace: source
+        - name: manifests-storage
+          workspace: manifests-storage
 
     # Stage 2d: Deploy with Helmfile - Precise Prefix Cache Mode
     - name: deploy-llm-d-precise-prefix-cache
@@ -519,6 +575,8 @@ spec:
           value: $(tasks.merge-configs.results.vllm-args)
         - name: SKIP_IF_EXISTS
           value: "true"
+        - name: PIPELINE_RUN_NAME
+          value: "$(context.pipelineRun.name)"
       workspaces:
         - name: source
           workspace: source
@@ -616,6 +674,8 @@ spec:
           value: $(tasks.merge-configs.results.decode-replicas)
         - name: BENCHMARK_ENV_VARS
           value: $(params.BENCHMARK_ENV_VARS[*])
+        - name: PIPELINE_RUN_NAME
+          value: "$(context.pipelineRun.name)"
       workspaces:
         - name: results
           workspace: results
@@ -675,11 +735,66 @@ spec:
         - name: results
           workspace: results
 
-    # Stage 5: Cleanup Deployment
-    - name: cleanup-deployment
+    # Stage 5: Collect Artifacts (must run BEFORE cleanup while pods still exist)
+    - name: collect-artifacts
       runAfter:
         - run-guidellm-benchmark
         - run-mlperf-benchmark
+      when:
+        - input: "$(params.METRICS_ENABLED)"
+          operator: in
+          values: ["true"]
+      onError: continue
+      taskRef:
+        name: collect-artifacts
+      params:
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: RELEASE_NAME
+          value: $(params.RELEASE_NAME)
+        - name: PIPELINE_RUN_NAME
+          value: "$(context.pipelineRun.name)"
+        - name: LOG_TAIL_LINES
+          value: "all"
+      workspaces:
+        - name: artifacts
+          workspace: results
+          subPath: artifacts
+
+    # Stage 6: Upload artifacts to MLflow and set Grafana URL tag
+    - name: upload-to-mlflow
+      runAfter:
+        - collect-artifacts
+      when:
+        - input: "$(params.METRICS_ENABLED)"
+          operator: in
+          values: ["true"]
+      onError: continue
+      taskRef:
+        name: upload-to-mlflow
+      params:
+        - name: MLFLOW_RUN_ID
+          value: "$(tasks.run-guidellm-benchmark.results.mlflow-run-id)"
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: RELEASE_NAME
+          value: $(params.RELEASE_NAME)
+        - name: BENCHMARK_START_TIME
+          value: "$(tasks.run-guidellm-benchmark.results.benchmark-start-time)"
+        - name: BENCHMARK_END_TIME
+          value: "$(tasks.run-guidellm-benchmark.results.benchmark-end-time)"
+        - name: GRAFANA_URL
+          value: $(params.GRAFANA_URL)
+      workspaces:
+        - name: artifacts
+          workspace: results
+          subPath: artifacts
+
+    # Stage 7: Cleanup Deployment (runs AFTER collection while pods still exist)
+    - name: cleanup-deployment
+      runAfter:
+        - collect-artifacts
+        - upload-to-mlflow
       when:
         - input: "$(params.SKIP_CLEANUP)"
           operator: in
