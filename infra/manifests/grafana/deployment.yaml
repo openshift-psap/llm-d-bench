@@ -93,7 +93,7 @@ spec:
             sources:
               - serviceAccountToken:
                   path: token
-                  expirationSeconds: 3600
+                  expirationSeconds: 86400
       initContainers:
         - name: fix-datasources
           image: bitnami/kubectl:latest
