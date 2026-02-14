@@ -317,7 +317,7 @@ spec:
       default: "metrics-collection-default"
 
     - name: GRAFANA_URL
-      description: Grafana URL for dashboard links
+      description: Grafana URL for dashboard links (leave empty to auto-detect from cluster)
       type: string
       default: ""
 
