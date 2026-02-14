@@ -3,14 +3,15 @@ kind: Task
 metadata:
   name: collect-artifacts
   labels:
-    app.kubernetes.io/version: "0.4"
+    app.kubernetes.io/version: "0.6"
   annotations:
     tekton.dev/displayName: "Collect Artifacts"
     tekton.dev/tags: artifacts, logs
 spec:
   description: >-
     Collect pod logs and Kubernetes manifests to workspace.
-    Simple task - just collects and saves, no external uploads.
+    Collects from PipelineRun pods (Tekton task pods) and
+    all other workload pods (model serving, GAIE, infrastructure) in the namespace.
 
   params:
     - name: NAMESPACE
@@ -20,9 +21,6 @@ spec:
     - name: PIPELINE_RUN_NAME
       type: string
       default: ""
-    - name: LOG_TAIL_LINES
-      type: string
-      default: "all"
 
   workspaces:
     - name: artifacts
@@ -36,57 +34,149 @@ spec:
         set -e
 
         echo "=== Collecting Artifacts ==="
-        WORKDIR="$(workspaces.artifacts.path)"
-        mkdir -p "$WORKDIR/logs" "$WORKDIR/manifests" "$WORKDIR/state"
+        echo "  Namespace: $(params.NAMESPACE)"
+        echo "  Release: $(params.RELEASE_NAME)"
+        echo "  PipelineRun: $(params.PIPELINE_RUN_NAME)"
 
-        # Collect logs from pods with PipelineRun label first
-        echo "Collecting pod logs for PipelineRun: $(params.PIPELINE_RUN_NAME)..."
-        PODS=$(kubectl get pods -n "$(params.NAMESPACE)" -l "tekton.dev/pipelineRun=$(params.PIPELINE_RUN_NAME)" -o name 2>/dev/null || true)
-        
-        # If no pods found with PipelineRun label, fallback to release label
-        if [ -z "$PODS" ]; then
-          echo "  ⚠ No pods with PipelineRun label, trying release label..."
-          PODS=$(kubectl get pods -n "$(params.NAMESPACE)" -l "app.kubernetes.io/instance=ms-$(params.RELEASE_NAME)" -o name 2>/dev/null || true)
-        fi
-        
-        # If still no pods, try alternative release label
-        if [ -z "$PODS" ]; then
-          echo "  Trying alternative label: llm-d-bench/release=$(params.RELEASE_NAME)"
-          PODS=$(kubectl get pods -n "$(params.NAMESPACE)" -l "llm-d-bench/release=$(params.RELEASE_NAME)" -o name 2>/dev/null || true)
-        fi
-        
-        if [ -z "$PODS" ]; then
-          echo "  ⚠ No labeled pods found, collecting all pods in namespace"
-          PODS=$(kubectl get pods -n "$(params.NAMESPACE)" -o name 2>/dev/null || true)
-        fi
-        
-        POD_COUNT=0
-        for POD in $PODS; do
-          POD_NAME=$(echo "$POD" | sed 's|pod/||')
-          echo "  Processing pod: $POD_NAME"
-          CONTAINERS=$(kubectl get pod "$POD_NAME" -n "$(params.NAMESPACE)" -o jsonpath='{.spec.containers[*].name}' 2>/dev/null || true)
+        WORKDIR="$(workspaces.artifacts.path)"
+        mkdir -p "$WORKDIR/logs/pipeline" "$WORKDIR/logs/model" "$WORKDIR/logs/gaie" "$WORKDIR/manifests"
+
+        collect_pod_logs() {
+          local POD_NAME="$1"
+          local LOG_DIR="$2"
+          local POD_TYPE="$3"
           
-          if [ -n "$CONTAINERS" ]; then
-            for CONTAINER in $CONTAINERS; do
-              LOG_FILE="$WORKDIR/logs/${POD_NAME}_${CONTAINER}.log"
-              kubectl logs "$POD_NAME" -c "$CONTAINER" -n "$(params.NAMESPACE)" > "$LOG_FILE" 2>/dev/null || true
+          # Get all containers in the pod
+          CONTAINERS=$(kubectl get pod "$POD_NAME" -n "$(params.NAMESPACE)" \
+            -o jsonpath='{.spec.containers[*].name}' 2>/dev/null || true)
+          
+          if [ -z "$CONTAINERS" ]; then
+            return
+          fi
+          
+          local HAS_LOGS=false
+          for CONTAINER in $CONTAINERS; do
+            LOG_FILE="$LOG_DIR/${POD_NAME}_${CONTAINER}.log"
+            if kubectl logs "$POD_NAME" -c "$CONTAINER" -n "$(params.NAMESPACE)" \
+              > "$LOG_FILE" 2>/dev/null; then
               if [ -s "$LOG_FILE" ]; then
-                echo "    ✓ Collected: ${POD_NAME}_${CONTAINER}.log"
-                POD_COUNT=$((POD_COUNT + 1))
+                echo "    + [$POD_TYPE] ${POD_NAME}/${CONTAINER}"
+                HAS_LOGS=true
+              else
+                rm -f "$LOG_FILE"
               fi
-            done
+            else
+              rm -f "$LOG_FILE"
+            fi
+          done
+          
+          if [ "$HAS_LOGS" = true ]; then
+            return 0
+          else
+            return 1
+          fi
+        }
+
+        # --- Collect PipelineRun pod logs (Tekton task pods) ---
+        PIPELINE_COUNT=0
+        if [ -n "$(params.PIPELINE_RUN_NAME)" ]; then
+          echo ""
+          echo "--- Pipeline pods (tekton.dev/pipelineRun=$(params.PIPELINE_RUN_NAME)) ---"
+          PIPELINE_PODS=$(kubectl get pods -n "$(params.NAMESPACE)" \
+            -l "tekton.dev/pipelineRun=$(params.PIPELINE_RUN_NAME)" \
+            -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+          for POD in $PIPELINE_PODS; do
+            if collect_pod_logs "$POD" "$WORKDIR/logs/pipeline" "pipeline"; then
+              PIPELINE_COUNT=$((PIPELINE_COUNT + 1))
+            fi
+          done
+          echo "  Collected from $PIPELINE_COUNT pipeline pods"
+        fi
+
+        # --- Collect ALL workload pods (excluding Tekton task pods) ---
+        echo ""
+        echo "--- Workload pods (GAIE, model service, infrastructure) ---"
+        MODEL_COUNT=0
+        GAIE_COUNT=0
+        INFRA_COUNT=0
+
+        # Get all pods in namespace
+        ALL_PODS=$(kubectl get pods -n "$(params.NAMESPACE)" \
+          -o jsonpath='{range .items[*]}{.metadata.name}{"\n"}{end}' 2>/dev/null || true)
+
+        for POD in $ALL_PODS; do
+          # Skip Tekton task pods (they end with -pod and have tekton labels)
+          if echo "$POD" | grep -qE -- '-pod$'; then
+            continue
+          fi
+          
+          # Skip pods already collected as pipeline pods
+          if echo "$PIPELINE_PODS" | grep -qw "$POD"; then
+            continue
+          fi
+          
+          # Get pod labels to determine type
+          POD_LABELS=$(kubectl get pod "$POD" -n "$(params.NAMESPACE)" \
+            -o jsonpath='{.metadata.labels}' 2>/dev/null || echo '{}')
+          
+          # Determine pod type and select appropriate directory
+          if echo "$POD" | grep -qiE "(gaie|scheduler|epp)"; then
+            LOG_DIR="$WORKDIR/logs/gaie"
+            POD_TYPE="gaie"
+          elif echo "$POD" | grep -qiE "(^ms-|model-service|inference|decode|prefill)"; then
+            LOG_DIR="$WORKDIR/logs/model"
+            POD_TYPE="model"
+          else
+            LOG_DIR="$WORKDIR/logs/infra"
+            POD_TYPE="infra"
+          fi
+          
+          if collect_pod_logs "$POD" "$LOG_DIR" "$POD_TYPE"; then
+            case "$POD_TYPE" in
+              model)
+                MODEL_COUNT=$((MODEL_COUNT + 1))
+                ;;
+              gaie)
+                GAIE_COUNT=$((GAIE_COUNT + 1))
+                ;;
+              infra)
+                INFRA_COUNT=$((INFRA_COUNT + 1))
+                ;;
+            esac
           fi
         done
         
-        echo "  Collected logs from $POD_COUNT containers"
+        echo "  Collected from $MODEL_COUNT model pods"
+        echo "  Collected from $GAIE_COUNT GAIE/scheduler pods"
+        echo "  Collected from $INFRA_COUNT infrastructure pods"
 
-        # Collect manifests
-        echo "Collecting manifests..."
-        kubectl get deployments -n "$(params.NAMESPACE)" -o yaml > "$WORKDIR/state/deployments.yaml" 2>/dev/null || true
-        kubectl get pods -n "$(params.NAMESPACE)" -o yaml > "$WORKDIR/state/pods.yaml" 2>/dev/null || true
-        kubectl get services -n "$(params.NAMESPACE)" -o yaml > "$WORKDIR/state/services.yaml" 2>/dev/null || true
+        # --- Collect manifests ---
+        echo ""
+        echo "--- Manifests ---"
+        kubectl get deployments -n "$(params.NAMESPACE)" -o yaml \
+          > "$WORKDIR/manifests/deployments.yaml" 2>/dev/null || true
+        kubectl get pods -n "$(params.NAMESPACE)" -o yaml \
+          > "$WORKDIR/manifests/pods.yaml" 2>/dev/null || true
+        kubectl get services -n "$(params.NAMESPACE)" -o yaml \
+          > "$WORKDIR/manifests/services.yaml" 2>/dev/null || true
+        kubectl get configmaps -n "$(params.NAMESPACE)" -o yaml \
+          > "$WORKDIR/manifests/configmaps.yaml" 2>/dev/null || true
+        echo "  Saved deployments, pods, services, configmaps"
 
-        # Save metadata
-        echo "{\"namespace\":\"$(params.NAMESPACE)\",\"release\":\"$(params.RELEASE_NAME)\",\"timestamp\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > "$WORKDIR/metadata.json"
+        # --- Metadata ---
+        cat > "$WORKDIR/metadata.json" <<EOF
+        {
+          "namespace": "$(params.NAMESPACE)",
+          "release": "$(params.RELEASE_NAME)",
+          "pipeline_run": "$(params.PIPELINE_RUN_NAME)",
+          "pipeline_pods": $PIPELINE_COUNT,
+          "model_pods": $MODEL_COUNT,
+          "gaie_pods": $GAIE_COUNT,
+          "infra_pods": $INFRA_COUNT,
+          "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        }
+        EOF
 
-        echo "✓ Artifacts saved to $WORKDIR"
+        TOTAL_FILES=$(find "$WORKDIR" -type f | wc -l)
+        echo ""
+        echo "=== Done: $TOTAL_FILES files collected ==="
