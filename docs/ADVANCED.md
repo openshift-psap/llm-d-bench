@@ -287,7 +287,7 @@ params:
 
 Pre-built benchmark images are automatically available from GitHub Container Registry:
 
-- **GuideLLM**: `ghcr.io/openshift-psap/llm-d-bench/guidellm:latest`
+- **GuideLLM**: `ghcr.io/openshift-psap/llm-d-bench/guidellm:pr-18`
 - **MLPerf**: `ghcr.io/openshift-psap/llm-d-bench/mlperf:latest`
 - **PR builds**: `ghcr.io/openshift-psap/llm-d-bench/<tool>:pr-<number>`
 
