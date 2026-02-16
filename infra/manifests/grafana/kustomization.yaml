@@ -7,6 +7,7 @@ resources:
   - namespace.yaml
   - pvc.yaml
   - rbac.yaml
+  - grafana-admin-credentials.yaml
   - datasources.yaml
   - deployment.yaml
   - service.yaml

@@ -168,7 +168,7 @@ spec:
                     f"&var-release={release_name}"
                     f"&from={start_ms}"
                     f"&to={end_ms}"
-                    f"&var-mlflow_run_id={run_id}"
+                    f"&var-run_id={run_id}"
                 )
                 print(f"Generated Grafana URL: {grafana_url}")
             except Exception as e:
