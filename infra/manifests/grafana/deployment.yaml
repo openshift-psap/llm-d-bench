@@ -89,11 +89,11 @@ spec:
             name: llm-d-bench-dashboards
             optional: true
         - name: service-account-token
-          projected:
-            sources:
-              - serviceAccountToken:
-                  path: token
-                  expirationSeconds: 86400
+          secret:
+            secretName: grafana-sa-token
+            items:
+              - key: token
+                path: token
       initContainers:
         - name: fix-datasources
           image: bitnami/kubectl:latest

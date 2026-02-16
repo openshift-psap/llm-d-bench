@@ -150,18 +150,36 @@ spec:
         echo "  Collected from $GAIE_COUNT GAIE/scheduler pods"
         echo "  Collected from $INFRA_COUNT infrastructure pods"
 
-        # --- Collect manifests ---
+        # --- Collect manifests (per-resource files) ---
         echo ""
         echo "--- Manifests ---"
-        kubectl get deployments -n "$(params.NAMESPACE)" -o yaml \
-          > "$WORKDIR/manifests/deployments.yaml" 2>/dev/null || true
-        kubectl get pods -n "$(params.NAMESPACE)" -o yaml \
-          > "$WORKDIR/manifests/pods.yaml" 2>/dev/null || true
-        kubectl get services -n "$(params.NAMESPACE)" -o yaml \
-          > "$WORKDIR/manifests/services.yaml" 2>/dev/null || true
-        kubectl get configmaps -n "$(params.NAMESPACE)" -o yaml \
-          > "$WORKDIR/manifests/configmaps.yaml" 2>/dev/null || true
-        echo "  Saved deployments, pods, services, configmaps"
+        NS="$(params.NAMESPACE)"
+        MANIFEST_COUNT=0
+
+        for RESOURCE_TYPE in deployments pods services configmaps gateways inferencepool httproutes; do
+          # Check if resource type exists in the cluster
+          if ! kubectl api-resources --no-headers 2>/dev/null | grep -qw "$RESOURCE_TYPE"; then
+            continue
+          fi
+
+          NAMES=$(kubectl get "$RESOURCE_TYPE" -n "$NS" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
+          if [ -z "$NAMES" ]; then
+            continue
+          fi
+
+          mkdir -p "$WORKDIR/manifests/$RESOURCE_TYPE"
+          for NAME in $NAMES; do
+            kubectl get "$RESOURCE_TYPE" "$NAME" -n "$NS" -o yaml \
+              > "$WORKDIR/manifests/$RESOURCE_TYPE/${NAME}.yaml" 2>/dev/null || true
+            if [ -s "$WORKDIR/manifests/$RESOURCE_TYPE/${NAME}.yaml" ]; then
+              MANIFEST_COUNT=$((MANIFEST_COUNT + 1))
+            else
+              rm -f "$WORKDIR/manifests/$RESOURCE_TYPE/${NAME}.yaml"
+            fi
+          done
+          echo "  $RESOURCE_TYPE: $(echo $NAMES | wc -w) resources"
+        done
+        echo "  Total: $MANIFEST_COUNT manifest files saved"
 
         # --- Metadata ---
         cat > "$WORKDIR/metadata.json" <<EOF

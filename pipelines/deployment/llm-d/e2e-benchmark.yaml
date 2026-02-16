@@ -447,9 +447,9 @@ spec:
         - input: "$(params.SKIP_DEPLOY)"
           operator: in
           values: ["false"]
-        - input: "$(params.DEPLOYMENT_MODE)"
+        - input: "$(params.DEPLOYMENT_CONFIG)"
           operator: in
-          values: ["inference-scheduling"]
+          values: ["deployment-llm-d-inference-scheduling"]
       taskRef:
         name: deploy-llm-d-inference-scheduling
       params:
@@ -489,9 +489,9 @@ spec:
         - input: "$(params.SKIP_DEPLOY)"
           operator: in
           values: ["false"]
-        - input: "$(params.DEPLOYMENT_MODE)"
+        - input: "$(params.DEPLOYMENT_CONFIG)"
           operator: in
-          values: ["pd-disaggregation"]
+          values: ["deployment-llm-d-pd-disaggregation"]
       taskRef:
         name: deploy-llm-d-pd-disaggregation
       params:
@@ -541,9 +541,9 @@ spec:
         - input: "$(params.SKIP_DEPLOY)"
           operator: in
           values: ["false"]
-        - input: "$(params.DEPLOYMENT_MODE)"
+        - input: "$(params.DEPLOYMENT_CONFIG)"
           operator: in
-          values: ["precise-prefix-cache"]
+          values: ["deployment-llm-d-precise-prefix-cache"]
       taskRef:
         name: deploy-llm-d-precise-prefix-cache
       params:
@@ -580,6 +580,8 @@ spec:
       workspaces:
         - name: source
           workspace: source
+        - name: manifests-storage
+          workspace: manifests-storage
 
     # Stage 3: Wait for Endpoint
     - name: wait-for-endpoint
@@ -754,8 +756,6 @@ spec:
           value: $(params.RELEASE_NAME)
         - name: PIPELINE_RUN_NAME
           value: "$(context.pipelineRun.name)"
-        - name: LOG_TAIL_LINES
-          value: "all"
       workspaces:
         - name: artifacts
           workspace: results

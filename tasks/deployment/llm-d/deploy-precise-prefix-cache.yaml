@@ -238,70 +238,46 @@ spec:
         /tmp/yq -i '.decode.containers[0].env = [.decode.containers[0].env[] | select(.name != "HF_HUB_OFFLINE")]' $MS_VALUES_FILE
         /tmp/yq -i '.decode.containers[0].env += [{"name": "HF_HUB_OFFLINE", "value": "1"}]' $MS_VALUES_FILE
 
-        # 6-9. Build complete vLLM command (replaces all sed-based injections)
-        # This prevents duplicate flags from overlapping sed replacements
-        echo "  Building vLLM command with all flags..."
+        # 6-9. Build complete vLLM command merging guide defaults + user config
+        echo "  Building vLLM command..."
 
-        # Get existing shell script wrapper from guide (everything except the vllm command)
-        EXISTING_SCRIPT=$(/tmp/yq '.decode.containers[0].args[0]' $MS_VALUES_FILE)
+        # Start with guide's base args (from precise-prefix-cache-aware guide)
+        VLLM_CMD="vllm serve $LOCAL_MODEL_PATH \\"$'\n'
+        VLLM_CMD="${VLLM_CMD}--host 0.0.0.0 \\"$'\n'
+        VLLM_CMD="${VLLM_CMD}--port 8000 \\"$'\n'
+        VLLM_CMD="${VLLM_CMD}--block-size $(params.BLOCK_SIZE) \\"$'\n'
+        VLLM_CMD="${VLLM_CMD}--prefix-caching-hash-algo sha256_cbor \\"$'\n'
+        VLLM_CMD="${VLLM_CMD}--kv-events-config \"{\\\"enable_kv_cache_events\\\":true,\\\"publisher\\\":\\\"zmq\\\",\\\"endpoint\\\":\\\"tcp://gaie-\${GAIE_RELEASE_NAME_POSTFIX}-epp.\${NAMESPACE}.svc.cluster.local:$(params.ZMQ_PORT)\\\",\\\"topic\\\":\\\"kv@\${POD_IP}@$(params.MODEL_NAME)\\\"}\" \\"$'\n'
 
-        # Build complete vllm command flags
-        VLLM_FLAGS="--tensor-parallel-size $TP"
-        VLLM_FLAGS="$VLLM_FLAGS --served-model-name $(params.MODEL_NAME)"
+        # Add our customizations
+        VLLM_CMD="${VLLM_CMD}--tensor-parallel-size $TP \\"$'\n'
+        VLLM_CMD="${VLLM_CMD}--served-model-name $(params.MODEL_NAME)"
 
         # Add revision if not main
         if [ "$(params.MODEL_REVISION)" != "main" ]; then
-          VLLM_FLAGS="$VLLM_FLAGS --revision $(params.MODEL_REVISION)"
+          VLLM_CMD="${VLLM_CMD} \\"$'\n'"--revision $(params.MODEL_REVISION)"
         fi
 
-        # Block size (get from guide or use parameter)
-        BLOCK_SIZE=$(params.BLOCK_SIZE)
-        if [ "$BLOCK_SIZE" != "64" ]; then
-          echo "  Using block-size $BLOCK_SIZE"
-          VLLM_FLAGS="$VLLM_FLAGS --block-size $BLOCK_SIZE"
-        else
-          # Keep guide default
-          VLLM_FLAGS="$VLLM_FLAGS --block-size 64"
-        fi
-
-        # Precise prefix cache required flag
-        VLLM_FLAGS="$VLLM_FLAGS --prefix-caching-hash-algo sha256_cbor"
-
-        # Get kv-transfer-config from guide (preserve existing value)
-        KV_TRANSFER_CONFIG=$(/tmp/yq '.decode.containers[0].args' $MS_VALUES_FILE | grep -A1 "kv-transfer-config" | tail -1 | xargs || echo '{"kv_connector":"NixlConnector", "kv_role":"kv_both"}')
-        VLLM_FLAGS="$VLLM_FLAGS --kv-transfer-config '$KV_TRANSFER_CONFIG'"
-
-        # Get kv-events-config from guide (should already have correct topic after earlier sed)
-        KV_EVENTS_CONFIG=$(/tmp/yq '.decode.containers[0].args' $MS_VALUES_FILE | grep -A1 "kv-events-config" | tail -1 | xargs || echo '{"enable_kv_cache_events":true,"publisher":"zmq","endpoint":"tcp://gaie-${GAIE_RELEASE_NAME_POSTFIX}-epp.${NAMESPACE}.svc.cluster.local:'$ZMQ_PORT'","topic":"kv@${POD_IP}@$(params.MODEL_NAME)"}')
-        VLLM_FLAGS="$VLLM_FLAGS --kv-events-config '$KV_EVENTS_CONFIG'"
-
-        # Add any guide-default flags (like --disable-uvicorn-access-log if present)
-        if echo "$EXISTING_SCRIPT" | grep -q "\-\-disable-uvicorn-access-log"; then
-          VLLM_FLAGS="$VLLM_FLAGS --disable-uvicorn-access-log"
-        fi
-
-        # Add user-specified VLLM_ARGS from ConfigMap (takes precedence)
+        # Merge user-specified VLLM_ARGS from ConfigMap, removing duplicates
         if [ -n "$VLLM_ARGS_INPUT" ]; then
-          echo "  Adding vLLM arguments from configuration..."
+          # List of args already set that should be skipped if in VLLM_ARGS
+          SKIP_ARGS="--host|--port|--block-size|--prefix-caching-hash-algo|--kv-events-config|--tensor-parallel-size|--served-model-name|--enable-prefix-caching"
+
           while IFS= read -r arg; do
             if [ -n "$arg" ]; then
-              echo "    - $arg"
-              VLLM_FLAGS="$VLLM_FLAGS $arg"
+              # Extract arg name (first word)
+              ARG_NAME=$(echo "$arg" | awk '{print $1}')
+              # Check if this arg should be skipped (already set or duplicate)
+              if ! echo "$ARG_NAME" | grep -E "^($SKIP_ARGS)" > /dev/null; then
+                VLLM_CMD="${VLLM_CMD} \\"$'\n'"$arg"
+              fi
             fi
           done <<< "$VLLM_ARGS_INPUT"
         fi
 
-        # Reconstruct complete shell script with new vllm command
-        # Extract shell wrapper parts (before and after vllm serve)
-        SCRIPT_BEFORE=$(echo "$EXISTING_SCRIPT" | sed -n '1,/vllm serve/p' | sed 's/vllm serve.*//')
-        SCRIPT_AFTER=$(echo "$EXISTING_SCRIPT" | sed -n '/vllm serve/,$p' | sed '1s/.*vllm serve[^&]*//')
-
-        # Build new complete script
-        NEW_SCRIPT="${SCRIPT_BEFORE}vllm serve $LOCAL_MODEL_PATH $VLLM_FLAGS${SCRIPT_AFTER}"
-
-        # Set complete args[0] with new script (single operation, no sed!)
-        echo "  Setting complete vLLM command..."
-        /tmp/yq -i '.decode.containers[0].args[0] = "'"$NEW_SCRIPT"'"' $MS_VALUES_FILE
+        # Set the vllm command
+        echo "$VLLM_CMD" > /tmp/vllm-cmd.txt
+        /tmp/yq -i '.decode.containers[0].args[0] = load_str("/tmp/vllm-cmd.txt")' $MS_VALUES_FILE
 
         # Validate patched ModelService YAML
         if ! /tmp/yq eval '.' $MS_VALUES_FILE > /dev/null; then
@@ -382,9 +358,9 @@ spec:
           /tmp/yq -i '.inferenceExtension.pluginsCustomConfig."precise-prefix-cache-config.yaml" = load_str("/tmp/epp-config.yaml")' $GAIE_VALUES_FILE
         fi
 
-        # 14. EPP Verbosity (zap log level 10 = debug) - COMMENTED OUT - for reference only
-        # echo "  Setting EPP verbosity to level 10..."
-        # /tmp/yq -i '.inferenceExtension.flags.v = "10"' $GAIE_VALUES_FILE
+        # 14. EPP Verbosity (zap log level 10 = debug)
+        echo "  Setting EPP verbosity to level 10..."
+        /tmp/yq -i '.inferenceExtension.flags.v = 10' $GAIE_VALUES_FILE
 
         # Validate patched GAIE YAML
         if ! /tmp/yq eval '.' $GAIE_VALUES_FILE > /dev/null; then
