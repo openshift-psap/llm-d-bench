@@ -22,7 +22,7 @@ spec:
     - name: IMAGE_TAG
       description: Tag for the built image
       type: string
-      default: "latest"
+      default: "0.5.3"
 
     - name: REGISTRY
       description: Container registry URL
@@ -47,7 +47,7 @@ spec:
     - name: GUIDELLM_VERSION
       description: GuideLLM base image version
       type: string
-      default: "v0.3.1"
+      default: "v0.5.3"
 
     - name: TLSVERIFY
       description: Verify TLS certificates when pushing

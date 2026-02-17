@@ -23,17 +23,17 @@ spec:
     - name: GIT_URL
       value: "https://github.com/openshift-psap/llm-d-bench.git"
     - name: GIT_REVISION
-      value: "mehulm-rhaiis"
+      value: "main"
     - name: IMAGE_NAME
       value: "guidellm-custom"
     - name: IMAGE_TAG
-      value: "latest"
+      value: "v0.5.3"
     - name: REGISTRY
       value: "image-registry.openshift-image-registry.svc:5000"
     - name: NAMESPACE
       value: "llm-d-bench"
     - name: GUIDELLM_VERSION
-      value: "v0.3.1"
+      value: "v0.5.3"
 
   timeouts:
     pipeline: "2h"

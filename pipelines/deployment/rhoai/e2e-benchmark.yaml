@@ -44,6 +44,26 @@ spec:
       type: string
       default: "1"
 
+    # Routing Configuration (EPP)
+    - name: ROUTING_MODE
+      description: |
+        Routing mode for the LLMInferenceService:
+        - direct: KServe SVC only, no EPP (default)
+        - prefix-estimation: EPP with kv-cache-utilization-scorer
+        - prefix-precise: EPP with prefix-aware-scorer
+      type: string
+      default: "direct"
+
+    - name: GATEWAY_NAME
+      description: Name of the Gateway for EPP routing (required for prefix-* modes)
+      type: string
+      default: "openshift-ai-inference"
+
+    - name: GATEWAY_NAMESPACE
+      description: Namespace of the Gateway for EPP routing
+      type: string
+      default: "openshift-ingress"
+
     # Benchmark Configuration
     - name: IMAGE
       description: |
@@ -245,6 +265,12 @@ spec:
           value: $(params.ENABLE_AUTH)
         - name: REPLICAS
           value: $(params.REPLICAS)
+        - name: ROUTING_MODE
+          value: $(params.ROUTING_MODE)
+        - name: GATEWAY_NAME
+          value: $(params.GATEWAY_NAME)
+        - name: GATEWAY_NAMESPACE
+          value: $(params.GATEWAY_NAMESPACE)
       workspaces:
         - name: models-storage
           workspace: models-storage

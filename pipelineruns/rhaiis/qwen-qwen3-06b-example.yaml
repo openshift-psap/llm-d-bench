@@ -111,7 +111,7 @@ spec:
       # DEFAULT: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
       # GuideLLM benchmark container image
       # Update namespace if built in different namespace
-      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
+      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:v0.5.3"
 
     - name: GUIDELLM_PROCESSOR
       # DEFAULT: "" (empty, uses MODEL_NAME)

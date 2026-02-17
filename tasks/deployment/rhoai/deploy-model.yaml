@@ -14,6 +14,11 @@ spec:
     This task generates and applies the LLMInferenceService YAML manifest.
     Requires the deploy-model-sa service account to have permissions for LLMInferenceService resources.
 
+    Supports 3 routing modes:
+    - direct: KServe SVC only (no EPP, direct service access)
+    - prefix-estimation: EPP with kv-cache-utilization-scorer (estimates prefix cache from vLLM metrics)
+    - prefix-precise: EPP with prefix-cache-scorer (hash-based precise prefix matching)
+
   params:
     - name: MODEL_NAME
       description: HuggingFace model identifier
@@ -63,6 +68,25 @@ spec:
       type: string
       default: ""
 
+    - name: ROUTING_MODE
+      description: |
+        Routing mode for the LLMInferenceService:
+        - direct: KServe SVC only, no EPP (default)
+        - prefix-estimation: EPP with kv-cache-utilization-scorer (estimates prefix cache from metrics)
+        - prefix-precise: EPP with prefix-cache-scorer (hash-based precise prefix matching)
+      type: string
+      default: "direct"
+
+    - name: GATEWAY_NAME
+      description: Name of the Gateway for EPP routing (required for prefix-* modes)
+      type: string
+      default: "openshift-ai-inference"
+
+    - name: GATEWAY_NAMESPACE
+      description: Namespace of the Gateway for EPP routing
+      type: string
+      default: "openshift-ingress"
+
   workspaces:
     - name: models-storage
       description: PVC containing downloaded models
@@ -102,6 +126,10 @@ spec:
         echo "  Model URI: $MODEL_URI"
         echo "  TP (Tensor Parallel / GPU Count): $(params.TP)"
         echo "  Replicas: $(params.REPLICAS)"
+        echo "  Routing Mode: $(params.ROUTING_MODE)"
+        if [ "$(params.ROUTING_MODE)" != "direct" ]; then
+          echo "  Gateway: $(params.GATEWAY_NAME).$(params.GATEWAY_NAMESPACE)"
+        fi
         echo ""
 
         # Format VLLM_ARGS array as YAML list from positional parameters
@@ -131,6 +159,119 @@ spec:
                 deployment_uuid: $(params.RUN_UUID)"
         fi
 
+        # Generate router configuration based on ROUTING_MODE
+        ROUTING_MODE="$(params.ROUTING_MODE)"
+        echo "Routing Mode: $ROUTING_MODE"
+
+        case "$ROUTING_MODE" in
+          "direct")
+            # KServe SVC only, no EPP
+            ROUTER_CONFIG="router:
+            route: {}
+            gateway: {}
+            scheduler: {}"
+            ;;
+          "prefix-estimation")
+            # EPP with kv-cache-utilization-scorer (estimates from vLLM metrics)
+            ROUTER_CONFIG="router:
+            scheduler:
+              template:
+                containers:
+                  - name: main
+                    args:
+                      - '-v=4'
+                      - '--cert-path'
+                      - /var/run/kserve/tls
+                      - '--pool-group'
+                      - inference.networking.x-k8s.io
+                      - '--pool-name'
+                      - '{{ ChildName .ObjectMeta.Name \`-inference-pool\` }}'
+                      - '--pool-namespace'
+                      - '{{ .ObjectMeta.Namespace }}'
+                      - '--zap-encoder'
+                      - json
+                      - '--grpc-port'
+                      - '9002'
+                      - '--grpc-health-port'
+                      - '9003'
+                      - '--secure-serving'
+                      - '--model-server-metrics-scheme'
+                      - https
+                      - '--config-text'
+                      - |
+                        apiVersion: inference.networking.x-k8s.io/v1alpha1
+                        kind: EndpointPickerConfig
+                        plugins:
+                        - type: single-profile-handler
+                        - type: queue-scorer
+                        - type: kv-cache-utilization-scorer
+                        schedulingProfiles:
+                        - name: default
+                          plugins:
+                          - pluginRef: queue-scorer
+                            weight: 1
+                          - pluginRef: kv-cache-utilization-scorer
+                            weight: 2
+            route: {}
+            gateway:
+              gatewayRef:
+                name: $(params.GATEWAY_NAME)
+                namespace: $(params.GATEWAY_NAMESPACE)"
+            ;;
+          "prefix-precise")
+            # EPP with prefix-cache-scorer (hash-based precise prefix matching)
+            ROUTER_CONFIG="router:
+            scheduler:
+              template:
+                containers:
+                  - name: main
+                    args:
+                      - '-v=4'
+                      - '--cert-path'
+                      - /var/run/kserve/tls
+                      - '--pool-group'
+                      - inference.networking.x-k8s.io
+                      - '--pool-name'
+                      - '{{ ChildName .ObjectMeta.Name \`-inference-pool\` }}'
+                      - '--pool-namespace'
+                      - '{{ .ObjectMeta.Namespace }}'
+                      - '--zap-encoder'
+                      - json
+                      - '--grpc-port'
+                      - '9002'
+                      - '--grpc-health-port'
+                      - '9003'
+                      - '--secure-serving'
+                      - '--model-server-metrics-scheme'
+                      - https
+                      - '--config-text'
+                      - |
+                        apiVersion: inference.networking.x-k8s.io/v1alpha1
+                        kind: EndpointPickerConfig
+                        plugins:
+                        - type: single-profile-handler
+                        - type: queue-scorer
+                        - type: prefix-cache-scorer
+                        schedulingProfiles:
+                        - name: default
+                          plugins:
+                          - pluginRef: queue-scorer
+                            weight: 1
+                          - pluginRef: prefix-cache-scorer
+                            weight: 3
+            route: {}
+            gateway:
+              gatewayRef:
+                name: $(params.GATEWAY_NAME)
+                namespace: $(params.GATEWAY_NAMESPACE)"
+            ;;
+          *)
+            echo "ERROR: Unknown ROUTING_MODE: $ROUTING_MODE"
+            echo "Valid options: direct, prefix-estimation, prefix-precise"
+            exit 1
+            ;;
+        esac
+
         # Generate LLMInferenceService YAML
         cat > /tmp/llm-inference-service.yaml <<EOF
         apiVersion: serving.kserve.io/v1alpha1
@@ -144,15 +285,13 @@ spec:
             deployment-mode: rhoai${EXTRA_LABELS}
           annotations:
             security.opendatahub.io/enable-auth: "$(params.ENABLE_AUTH)"
+            llm-d-bench/routing-mode: "$ROUTING_MODE"
         spec:
           model:
             name: $(params.MODEL_NAME)
             uri: ${MODEL_URI}
           replicas: $(params.REPLICAS)
-          router:
-            route: {}
-            gateway: {}
-            scheduler: {}
+          ${ROUTER_CONFIG}
           template:
             metadata:
               labels:
@@ -202,5 +341,14 @@ spec:
         echo "✓ Deployment created successfully!"
         echo "  Service: $DEPLOYMENT_NAME"
         echo "  Namespace: $(params.NAMESPACE)"
+        echo "  Routing Mode: $ROUTING_MODE"
+        echo ""
+        if [ "$ROUTING_MODE" = "direct" ]; then
+          echo "Endpoint (direct SVC):"
+          echo "  https://${DEPLOYMENT_NAME}-kserve-workload-svc.$(params.NAMESPACE).svc.cluster.local/v1/chat/completions"
+        else
+          echo "Endpoint (via EPP Gateway):"
+          echo "  http://$(params.GATEWAY_NAME).$(params.GATEWAY_NAMESPACE).svc.cluster.local/$(params.NAMESPACE)/${DEPLOYMENT_NAME}/v1/chat/completions"
+        fi
         echo ""
         echo "Use 'oc get llminferenceservice $DEPLOYMENT_NAME -n $(params.NAMESPACE)' to check status"

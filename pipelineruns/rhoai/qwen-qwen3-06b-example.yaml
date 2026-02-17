@@ -94,13 +94,34 @@ spec:
         - "--gpu-memory-utilization=0.95"
 
     # ===========================================
+    # Routing Configuration (EPP)
+    # ===========================================
+    - name: ROUTING_MODE
+      # DEFAULT: "direct"
+      # Options:
+      #   - direct: KServe SVC only, no EPP (default)
+      #   - prefix-estimation: EPP with kv-cache-utilization-scorer
+      #   - prefix-precise: EPP with prefix-aware-scorer
+      value: "direct"
+
+    - name: GATEWAY_NAME
+      # DEFAULT: "openshift-ai-inference"
+      # Name of the Gateway for EPP routing (required for prefix-* modes)
+      value: "openshift-ai-inference"
+
+    - name: GATEWAY_NAMESPACE
+      # DEFAULT: "openshift-ingress"
+      # Namespace of the Gateway for EPP routing
+      value: "openshift-ingress"
+
+    # ===========================================
     # Benchmark Configuration - GuideLLM
     # ===========================================
     - name: IMAGE
       # DEFAULT: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
       # GuideLLM benchmark container image
       # Update namespace if built in different namespace
-      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
+      value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:v0.5.3"
 
     - name: TARGET
       # REQUIRED - Inference endpoint URL
@@ -134,7 +155,7 @@ spec:
       # Comma-separated list of rates to test
       # For concurrent: number of concurrent requests
       # For synchronous: requests per second
-      value: "1"
+      value: "1,50,100"
 
     - name: GUIDELLM_DATA
       # DEFAULT: "prompt_tokens=1000,output_tokens=1000"
@@ -147,7 +168,7 @@ spec:
       # DEFAULT: "600"
       # Maximum duration per rate in seconds
       # Set lower for quick tests, higher for stable measurements
-      value: "60"
+      value: 100"
 
     - name: GUIDELLM_MAX_REQUESTS
       # DEFAULT: "" (unlimited)
