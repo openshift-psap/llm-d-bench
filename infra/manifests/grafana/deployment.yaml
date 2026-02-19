@@ -96,7 +96,7 @@ spec:
                 path: token
       initContainers:
         - name: fix-datasources
-          image: bitnami/kubectl:latest
+          image: docker.io/bitnami/kubectl:latest
           command:
             - /bin/sh
             - -c

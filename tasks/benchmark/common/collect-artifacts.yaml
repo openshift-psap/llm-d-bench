@@ -28,7 +28,7 @@ spec:
 
   steps:
     - name: collect
-      image: bitnami/kubectl:latest
+      image: docker.io/bitnami/kubectl:latest
       script: |
         #!/bin/bash
         set -e
@@ -39,7 +39,7 @@ spec:
         echo "  PipelineRun: $(params.PIPELINE_RUN_NAME)"
 
         WORKDIR="$(workspaces.artifacts.path)"
-        mkdir -p "$WORKDIR/logs/pipeline" "$WORKDIR/logs/model" "$WORKDIR/logs/gaie" "$WORKDIR/manifests"
+        mkdir -p "$WORKDIR/logs/pipeline" "$WORKDIR/logs/model" "$WORKDIR/logs/gaie" "$WORKDIR/logs/infra" "$WORKDIR/manifests"
 
         collect_pod_logs() {
           local POD_NAME="$1"
@@ -120,10 +120,10 @@ spec:
             -o jsonpath='{.metadata.labels}' 2>/dev/null || echo '{}')
           
           # Determine pod type and select appropriate directory
-          if echo "$POD" | grep -qiE "(gaie|scheduler|epp)"; then
+          if echo "$POD" | grep -qiE "(gaie|scheduler|epp|kserve-router)"; then
             LOG_DIR="$WORKDIR/logs/gaie"
             POD_TYPE="gaie"
-          elif echo "$POD" | grep -qiE "(^ms-|model-service|inference|decode|prefill)"; then
+          elif echo "$POD" | grep -qiE "(^ms-|model-service|inference|decode|prefill|predictor|kserve-)"; then
             LOG_DIR="$WORKDIR/logs/model"
             POD_TYPE="model"
           else

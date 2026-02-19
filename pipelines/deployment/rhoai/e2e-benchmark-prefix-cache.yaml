@@ -1,25 +1,19 @@
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
-  name: llm-d-end-to-end-benchmark
+  name: rhoai-end-to-end-benchmark-prefix-cache
   labels:
-    app.kubernetes.io/version: "0.2"
+    app.kubernetes.io/version: "0.1"
   annotations:
-    tekton.dev/displayName: "llm-d End-to-End Benchmark"
-    tekton.dev/tags: benchmark, llm, lifecycle, llm-d, helmfile
+    tekton.dev/displayName: "RHOAI End-to-End Benchmark with Precise Prefix Caching"
+    tekton.dev/tags: benchmark, llm, lifecycle, rhoai, prefix-cache, kv-events
 spec:
   description: >-
-    Complete llm-d model lifecycle pipeline: download model from HuggingFace,
-    deploy using Helmfile (llm-d infrastructure + GAIE + model service), run benchmark,
-    and cleanup deployment. Each stage can be optionally skipped via parameters.
+    Complete model lifecycle pipeline: download model from HuggingFace, deploy
+    as LLMInferenceService, run benchmark, and cleanup deployment. Each stage
+    can be optionally skipped via parameters.
 
   params:
-    # Pipeline identification
-    - name: PIPELINE_RUN_NAME
-      description: PipelineRun name for pod labeling
-      type: string
-      default: ""
-
     # Profile References
     - name: VLLM_CONFIG
       description: vLLM profile ConfigMap name (e.g., vllm-default, vllm-fp8-cache)
@@ -27,17 +21,12 @@ spec:
       default: ""
 
     - name: DEPLOYMENT_CONFIG
-      description: Deployment profile ConfigMap name (e.g., deployment-llm-d-inference-scheduling)
+      description: Deployment profile ConfigMap name (e.g., deployment-rhoai-kserve)
       type: string
       default: ""
 
     - name: BENCHMARK_CONFIG
       description: Benchmark profile ConfigMap name (e.g., concurrent-1k-1k, concurrent-8k-1k)
-      type: string
-      default: ""
-
-    - name: EPP_CONFIG
-      description: EPP/GAIE scheduler ConfigMap name (e.g., scheduler-precise-prefix-cache, scheduler-cache-aware)
       type: string
       default: ""
 
@@ -52,114 +41,66 @@ spec:
       default: "main"
 
     # Deployment Configuration
-    - name: DEPLOYMENT_MODE
-      description: "Deployment mode: inference-scheduling (default), pd-disaggregation, or precise-prefix-cache"
-      type: string
-      default: "inference-scheduling"
-
-    - name: RELEASE_NAME
-      description: Unique release name for this deployment
-      type: string
-
     - name: NAMESPACE
       description: Namespace for deployment
       type: string
       default: "llm-d-bench"
 
-    - name: GATEWAY_PROVIDER
-      description: "Gateway provider: istio (default), kgateway, standalone, gke"
+    - name: ENABLE_AUTH
+      description: Enable authentication on the service
       type: string
-      default: "istio"
+      default: "false"
 
-    # Inference-Scheduling Mode Parameters (only used when DEPLOYMENT_MODE=inference-scheduling)
     - name: REPLICAS
-      description: Number of model replicas (inference-scheduling mode only)
+      description: Number of replicas
       type: string
       default: "1"
 
-    - name: TP
-      description: Tensor parallelism size (inference-scheduling mode and benchmark)
-      type: string
-      default: "1"
-
-    # PD Disaggregation Mode Parameters (only used when DEPLOYMENT_MODE=pd-disaggregation)
     - name: PREFILL_REPLICAS
-      description: Number of prefill worker replicas (pd-disaggregation mode only)
+      description: Number of prefill worker replicas for P/D disaggregation
       type: string
-      default: "4"
-
-    - name: PREFILL_TP
-      description: Tensor parallelism for prefill workers (pd-disaggregation mode only)
-      type: string
-      default: "1"
+      default: ""
 
     - name: DECODE_REPLICAS
-      description: Number of decode worker replicas (pd-disaggregation mode only)
+      description: Number of decode worker replicas for P/D disaggregation
       type: string
-      default: "1"
+      default: ""
 
-    - name: DECODE_TP
-      description: Tensor parallelism for decode workers (pd-disaggregation mode only)
-      type: string
-      default: "4"
-
-    - name: PD_THRESHOLD
-      description: Selective PD threshold (pd-disaggregation mode only, 0 = always disaggregate)
-      type: string
-      default: "0"
-
-    - name: HASH_BLOCK_SIZE
-      description: Hash block size for PD profiling in GAIE (pd-disaggregation mode only)
-      type: string
-      default: "5"
-
-    - name: ENABLE_RDMA
-      description: Enable RDMA/InfiniBand networking (pd-disaggregation mode only, requires rdma/ib resources)
-      type: string
-      default: "true"
-
-    # Precise Prefix Cache Mode Parameters (only used when DEPLOYMENT_MODE=precise-prefix-cache)
+    # Precise Prefix Cache Configuration
     - name: BLOCK_SIZE
-      description: KV cache block size for precise prefix caching (must match between ModelService and EPP)
+      description: KV cache block size (must match between vLLM and scheduler)
       type: string
       default: "64"
 
     - name: HASH_SEED
-      description: Python hash seed for consistent hashing (must match between ModelService and EPP)
+      description: Python hash seed for consistent hashing
       type: string
       default: "42"
 
     - name: ZMQ_PORT
-      description: ZMQ port for KV-events communication (precise-prefix-cache mode only)
+      description: ZMQ port for KV-events communication
       type: string
       default: "5557"
 
-    - name: MS_IMAGE
-      description: ModelService container image (precise-prefix-cache mode only)
+    - name: SCHEDULER_VERBOSITY
+      description: Scheduler logging verbosity level (0-10)
       type: string
-      default: "ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"
+      default: "4"
 
-    # Common Parameters
-    - name: HF_TOKEN_SECRET
-      description: Secret name containing HuggingFace token
+    - name: ENABLE_CACHE_METRICS
+      description: Enable KV cache metrics logging
       type: string
-      default: "huggingface-token"
+      default: "true"
 
-    - name: VLLM_ARGS
-      description: Additional vLLM arguments as array
-      type: array
-      default: []
-
-    # llm-d Repository Configuration
-    - name: LLM_D_REPO_URL
-      description: llm-d repository URL (for testing forks)
+    - name: CACHE_SCORER_WEIGHT
+      description: Weight for precise-prefix-cache-scorer in scheduling
       type: string
-      default: "https://github.com/llm-d/llm-d.git"
+      default: "2.0"
 
-    - name: LLM_D_REPO_REF
-      description: llm-d repository branch/tag/commit
+    - name: LOAD_SCORER_WEIGHT
+      description: Weight for load-aware-scorer in scheduling
       type: string
-      default: "main"
+      default: "1.0"
 
     # Benchmark Configuration
     - name: IMAGE
@@ -172,7 +113,7 @@ spec:
       default: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
 
     - name: TARGET
-      description: Target inference endpoint URL (auto-computed if empty based on GATEWAY_PROVIDER and RELEASE_NAME)
+      description: Target inference endpoint URL (auto-computed based on MODEL_NAME if empty)
       type: string
       default: ""
 
@@ -220,7 +161,7 @@ spec:
     - name: MLFLOW_EXPERIMENT_NAME
       description: MLflow experiment name
       type: string
-      default: "guidellm-benchmarks-llm-d"
+      default: "guidellm-benchmarks"
 
     - name: MLFLOW_ENABLED
       description: Enable MLflow tracking
@@ -236,6 +177,11 @@ spec:
       description: Version identifier for visualization reports
       type: string
       default: ""
+
+    - name: TP
+      description: Tensor parallelism size (number of GPUs for deployment and benchmark)
+      type: string
+      default: "1"
 
     - name: BENCHMARK_ENV_VARS
       description: Additional environment variables for the benchmark container as array of name=value pairs
@@ -284,6 +230,22 @@ spec:
       type: string
       default: "3600"
 
+    # Metrics and Artifact Collection
+    - name: METRICS_ENABLED
+      description: Enable artifact collection and MLflow upload
+      type: string
+      default: "true"
+
+    - name: METRICS_CONFIG
+      description: Metrics collection profile ConfigMap name
+      type: string
+      default: "metrics-collection-default"
+
+    - name: GRAFANA_URL
+      description: Grafana URL for dashboard links (leave empty to auto-detect from cluster)
+      type: string
+      default: ""
+
     # Stage Control Parameters
     - name: SKIP_DOWNLOAD
       description: Skip model download stage
@@ -305,31 +267,12 @@ spec:
       type: string
       default: "false"
 
-    # Metrics Collection Configuration
-    - name: METRICS_ENABLED
-      description: Enable system metrics collection
-      type: string
-      default: "true"
-
-    - name: METRICS_CONFIG
-      description: Metrics collection profile ConfigMap name
-      type: string
-      default: "metrics-collection-default"
-
-    - name: GRAFANA_URL
-      description: Grafana URL for dashboard links (leave empty to auto-detect from cluster)
-      type: string
-      default: ""
-
   workspaces:
     - name: models-storage
-      description: PVC for model storage (required for download stage)
-
-    - name: source
-      description: Workspace for cloning llm-d repository (required for deploy stage)
+      description: PVC for model storage (required for download and deploy stages)
 
     - name: results
-      description: PVC for benchmark results and collection data
+      description: PVC for benchmark results and collected artifacts
 
     - name: manifests-storage
       description: Workspace for rendered manifests and ConfigMaps
@@ -348,7 +291,7 @@ spec:
         - name: BENCHMARK_CONFIG
           value: $(params.BENCHMARK_CONFIG)
         - name: EPP_CONFIG
-          value: $(params.EPP_CONFIG)
+          value: ""
         - name: NAMESPACE
           value: $(params.NAMESPACE)
         - name: MODEL_NAME
@@ -362,19 +305,17 @@ spec:
         - name: ACCELERATOR
           value: $(params.ACCELERATOR)
         - name: RELEASE_NAME
-          value: $(params.RELEASE_NAME)
+          value: ""
         - name: MLFLOW_EXPERIMENT_NAME
           value: $(params.MLFLOW_EXPERIMENT_NAME)
         - name: GATEWAY_PROVIDER
-          value: $(params.GATEWAY_PROVIDER)
+          value: "istio"
         - name: TARGET
           value: $(params.TARGET)
         - name: IMAGE
           value: $(params.IMAGE)
-        - name: LLM_D_REPO_REF
-          value: $(params.LLM_D_REPO_REF)
 
-    # Stage 0b: Export ConfigMaps
+    # Stage 0b: Export ConfigMaps to workspace
     - name: export-configmaps
       runAfter:
         - merge-configs
@@ -390,7 +331,7 @@ spec:
         - name: BENCHMARK_CONFIG
           value: $(params.BENCHMARK_CONFIG)
         - name: EPP_CONFIG
-          value: $(params.EPP_CONFIG)
+          value: ""
         - name: METRICS_CONFIG
           value: $(params.METRICS_CONFIG)
       workspaces:
@@ -418,8 +359,8 @@ spec:
         - name: models-storage
           workspace: models-storage
 
-    # Stage 2a: Clone llm-d Repository
-    - name: git-clone-llm-d
+    # Stage 2: Deploy Model with Precise Prefix Caching
+    - name: deploy-rhoai-model
       runAfter:
         - download-model
       when:
@@ -427,168 +368,44 @@ spec:
           operator: in
           values: ["false"]
       taskRef:
-        name: git-clone
-      params:
-        - name: URL
-          value: $(params.LLM_D_REPO_URL)
-        - name: REVISION
-          value: $(tasks.merge-configs.results.llm-d-repo-ref)
-        - name: SUBDIRECTORY
-          value: "llm-d-repo"
-      workspaces:
-        - name: output
-          workspace: source
-
-    # Stage 2b: Deploy with Helmfile - Inference Scheduling Mode
-    - name: deploy-llm-d-inference-scheduling
-      runAfter:
-        - git-clone-llm-d
-      when:
-        - input: "$(params.SKIP_DEPLOY)"
-          operator: in
-          values: ["false"]
-        - input: "$(params.DEPLOYMENT_CONFIG)"
-          operator: in
-          values: ["deployment-llm-d-inference-scheduling"]
-      taskRef:
-        name: deploy-llm-d-inference-scheduling
+        name: deploy-rhoai-model-prefix-cache
       params:
         - name: MODEL_NAME
           value: $(params.MODEL_NAME)
-        - name: MODEL_REVISION
-          value: $(params.MODEL_REVISION)
-        - name: RELEASE_NAME
-          value: $(params.RELEASE_NAME)
         - name: NAMESPACE
           value: $(params.NAMESPACE)
-        - name: GATEWAY_PROVIDER
-          value: $(params.GATEWAY_PROVIDER)
-        - name: REPLICAS
-          value: $(params.REPLICAS)
         - name: TP
           value: $(params.TP)
-        - name: HF_TOKEN_SECRET
-          value: $(params.HF_TOKEN_SECRET)
-        - name: VLLM_ARGS
-          value: $(tasks.merge-configs.results.vllm-args)
-        - name: SKIP_IF_EXISTS
-          value: "true"
-        - name: PIPELINE_RUN_NAME
-          value: "$(context.pipelineRun.name)"
-      workspaces:
-        - name: source
-          workspace: source
-        - name: manifests-storage
-          workspace: manifests-storage
-
-    # Stage 2c: Deploy with Helmfile - PD Disaggregation Mode
-    - name: deploy-llm-d-pd-disaggregation
-      runAfter:
-        - git-clone-llm-d
-      when:
-        - input: "$(params.SKIP_DEPLOY)"
-          operator: in
-          values: ["false"]
-        - input: "$(params.DEPLOYMENT_CONFIG)"
-          operator: in
-          values: ["deployment-llm-d-pd-disaggregation"]
-      taskRef:
-        name: deploy-llm-d-pd-disaggregation
-      params:
-        - name: MODEL_NAME
-          value: $(params.MODEL_NAME)
-        - name: MODEL_REVISION
-          value: $(params.MODEL_REVISION)
-        - name: RELEASE_NAME
-          value: $(params.RELEASE_NAME)
-        - name: NAMESPACE
-          value: $(params.NAMESPACE)
-        - name: GATEWAY_PROVIDER
-          value: $(params.GATEWAY_PROVIDER)
-        - name: PREFILL_REPLICAS
-          value: $(params.PREFILL_REPLICAS)
-        - name: PREFILL_TP
-          value: $(params.PREFILL_TP)
-        - name: DECODE_REPLICAS
-          value: $(params.DECODE_REPLICAS)
-        - name: DECODE_TP
-          value: $(params.DECODE_TP)
-        - name: PD_THRESHOLD
-          value: $(params.PD_THRESHOLD)
-        - name: HASH_BLOCK_SIZE
-          value: $(params.HASH_BLOCK_SIZE)
-        - name: ENABLE_RDMA
-          value: $(params.ENABLE_RDMA)
-        - name: HF_TOKEN_SECRET
-          value: $(params.HF_TOKEN_SECRET)
-        - name: VLLM_ARGS
-          value: $(tasks.merge-configs.results.vllm-args)
-        - name: SKIP_IF_EXISTS
-          value: "true"
-        - name: PIPELINE_RUN_NAME
-          value: "$(context.pipelineRun.name)"
-      workspaces:
-        - name: source
-          workspace: source
-        - name: manifests-storage
-          workspace: manifests-storage
-
-    # Stage 2d: Deploy with Helmfile - Precise Prefix Cache Mode
-    - name: deploy-llm-d-precise-prefix-cache
-      runAfter:
-        - git-clone-llm-d
-      when:
-        - input: "$(params.SKIP_DEPLOY)"
-          operator: in
-          values: ["false"]
-        - input: "$(params.DEPLOYMENT_CONFIG)"
-          operator: in
-          values: ["deployment-llm-d-precise-prefix-cache"]
-      taskRef:
-        name: deploy-llm-d-precise-prefix-cache
-      params:
-        - name: MODEL_NAME
-          value: $(params.MODEL_NAME)
-        - name: MODEL_REVISION
-          value: $(params.MODEL_REVISION)
-        - name: RELEASE_NAME
-          value: $(params.RELEASE_NAME)
-        - name: NAMESPACE
-          value: $(params.NAMESPACE)
-        - name: GATEWAY_PROVIDER
-          value: $(params.GATEWAY_PROVIDER)
         - name: REPLICAS
           value: $(params.REPLICAS)
-        - name: TP
-          value: $(params.TP)
         - name: BLOCK_SIZE
           value: $(params.BLOCK_SIZE)
         - name: HASH_SEED
           value: $(params.HASH_SEED)
         - name: ZMQ_PORT
           value: $(params.ZMQ_PORT)
-        - name: MS_IMAGE
-          value: $(params.MS_IMAGE)
-        - name: HF_TOKEN_SECRET
-          value: $(params.HF_TOKEN_SECRET)
+        - name: SCHEDULER_VERBOSITY
+          value: $(params.SCHEDULER_VERBOSITY)
+        - name: ENABLE_CACHE_METRICS
+          value: $(params.ENABLE_CACHE_METRICS)
+        - name: CACHE_SCORER_WEIGHT
+          value: $(params.CACHE_SCORER_WEIGHT)
+        - name: LOAD_SCORER_WEIGHT
+          value: $(params.LOAD_SCORER_WEIGHT)
         - name: VLLM_ARGS
           value: $(tasks.merge-configs.results.vllm-args)
         - name: SKIP_IF_EXISTS
           value: "true"
-        - name: PIPELINE_RUN_NAME
-          value: "$(context.pipelineRun.name)"
+        - name: ENABLE_AUTH
+          value: $(params.ENABLE_AUTH)
       workspaces:
-        - name: source
-          workspace: source
-        - name: manifests-storage
-          workspace: manifests-storage
+        - name: models-storage
+          workspace: models-storage
 
     # Stage 3: Wait for Endpoint
     - name: wait-for-endpoint
       runAfter:
-        - deploy-llm-d-inference-scheduling
-        - deploy-llm-d-pd-disaggregation
-        - deploy-llm-d-precise-prefix-cache
+        - deploy-rhoai-model
       when:
         - input: "$(params.SKIP_BENCHMARK)"
           operator: in
@@ -619,9 +436,9 @@ spec:
         name: detect-benchmark-type
       params:
         - name: IMAGE
-          value: $(tasks.merge-configs.results.guidellm-image)
+          value: $(params.IMAGE)
 
-    # Stage 4a: Run GuideLLM Benchmark
+    # Stage 4a: Run GuideLLM Benchmark (if IMAGE doesn't contain "mlperf")
     - name: run-guidellm-benchmark
       runAfter:
         - detect-benchmark-type
@@ -700,7 +517,7 @@ spec:
         - name: IMAGE
           value: $(params.IMAGE)
         - name: TARGET
-          value: $(params.TARGET)
+          value: $(tasks.merge-configs.results.target-url)
         - name: MODEL
           value: $(params.MODEL_NAME)
         - name: ACCELERATOR
@@ -737,7 +554,7 @@ spec:
         - name: results
           workspace: results
 
-    # Stage 5: Collect Artifacts (must run BEFORE cleanup while pods still exist)
+    # Stage 5: Collect Artifacts (pod logs, K8s manifests)
     - name: collect-artifacts
       runAfter:
         - run-guidellm-benchmark
@@ -790,8 +607,8 @@ spec:
           workspace: results
           subPath: artifacts
 
-    # Stage 7: Cleanup Deployment (runs AFTER collection while pods still exist)
-    - name: cleanup-deployment
+    # Stage 7: Cleanup Deployment
+    - name: cleanup-rhoai-deployment
       runAfter:
         - collect-artifacts
         - upload-to-mlflow
@@ -800,10 +617,10 @@ spec:
           operator: in
           values: ["false"]
       taskRef:
-        name: cleanup-llm-d-deployment
+        name: cleanup-rhoai-deployment
       params:
-        - name: RELEASE_NAME
-          value: $(params.RELEASE_NAME)
+        - name: MODEL_NAME
+          value: $(params.MODEL_NAME)
         - name: NAMESPACE
           value: $(params.NAMESPACE)
         - name: WAIT_FOR_DELETION

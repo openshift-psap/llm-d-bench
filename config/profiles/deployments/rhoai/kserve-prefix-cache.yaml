@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: deployment-rhoai-kserve-prefix-cache
+  namespace: llm-d-bench
+  annotations:
+    description: "RHOAI KServe LLMInferenceService deployment with Precise Prefix Caching"
+  labels:
+    config-type: deployment
+data:
+  DEPLOYMENT_TYPE: "rhoai"
+  DEPLOYMENT_MODE: "kserve-prefix-cache"
+  VERSION: "RHOAI-3.0"
+  MLFLOW_ENABLED: "true"
+  MLFLOW_TAGS: |
+    deployment=rhoai
+    platform=kserve
+    benchmark-tool=guidellm
+    prefix-caching=precise
+  # Precise Prefix Cache Configuration
+  BLOCK_SIZE: "64"
+  HASH_SEED: "42"
+  ZMQ_PORT: "5557"
+  REPLICAS: "2"
+  SCHEDULER_VERBOSITY: "4"
+  ENABLE_CACHE_METRICS: "true"
+  CACHE_SCORER_WEIGHT: "2.0"
+  LOAD_SCORER_WEIGHT: "1.0"

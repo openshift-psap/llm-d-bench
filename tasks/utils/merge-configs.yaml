@@ -133,10 +133,12 @@ spec:
       description: GuideLLM benchmark image
     - name: llm-d-repo-ref
       description: llm-d repository branch/tag/commit to use for git-clone
+    - name: release-name
+      description: Release name (provided or auto-derived from MODEL_NAME)
 
   steps:
     - name: merge
-      image: bitnami/kubectl:latest
+      image: docker.io/bitnami/kubectl:latest
       script: |
         #!/bin/bash
         set -e
@@ -295,10 +297,11 @@ spec:
 
           case "$DEPLOYMENT_TYPE" in
             rhoai)
-              # RHOAI: Service name based on sanitized MODEL_NAME
+              # RHOAI: KServe workload service based on sanitized MODEL_NAME
+              # Pattern: https://{deployment-name}-kserve-workload-svc.{namespace}.svc.cluster.local:8000
               MODEL_NAME="$(params.MODEL_NAME)"
               DEPLOYMENT_NAME=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-42)
-              TARGET_URL="http://${DEPLOYMENT_NAME}.${NAMESPACE}.svc.cluster.local:80"
+              TARGET_URL="https://${DEPLOYMENT_NAME}-kserve-workload-svc.${NAMESPACE}.svc.cluster.local:8000"
               echo "Computed TARGET_URL for RHOAI: $TARGET_URL"
               ;;
 
@@ -339,5 +342,15 @@ spec:
 
           echo -n "$TARGET_URL" > $(results.target-url.path)
         fi
+
+        # Emit release-name result
+        if [ -n "$(params.RELEASE_NAME)" ]; then
+          echo -n "$(params.RELEASE_NAME)" > $(results.release-name.path)
+        else
+          # Auto-derive from MODEL_NAME (same logic as RHOAI/RHAIIS deploy tasks)
+          DERIVED_NAME=$(echo "$(params.MODEL_NAME)" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-42)
+          echo -n "$DERIVED_NAME" > $(results.release-name.path)
+        fi
+        echo "  Release Name: $(cat $(results.release-name.path))"
 
         echo "✓ Configuration merge completed successfully"

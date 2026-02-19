@@ -34,7 +34,7 @@ spec:
 
   steps:
     - name: discover-grafana
-      image: bitnami/kubectl:latest
+      image: docker.io/bitnami/kubectl:latest
       results:
         - name: grafana-base-url
           description: Discovered or provided Grafana base URL
@@ -64,7 +64,7 @@ spec:
         echo -n "" > $(step.results.grafana-base-url.path)
 
     - name: upload
-      image: image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest
+      image: ghcr.io/openshift-psap/llm-d-bench/guidellm:pr-18
       env:
         - name: MLFLOW_RUN_ID
           value: $(params.MLFLOW_RUN_ID)

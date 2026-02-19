@@ -11,6 +11,7 @@ resources:
   - datasources.yaml
   - deployment.yaml
   - service.yaml
+  - route.yaml
 
 commonLabels:
   app.kubernetes.io/part-of: llm-d-bench

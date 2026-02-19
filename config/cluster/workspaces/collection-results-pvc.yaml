@@ -7,7 +7,7 @@ metadata:
     type: workspace
 spec:
   accessModes:
-    - ReadWriteMany  # Required for sharing between pipeline tasks
+    - ReadWriteOnce  # TopoLVM only supports RWO; affinity-assistant ensures tasks run on same node
   resources:
     requests:
       storage: 10Gi

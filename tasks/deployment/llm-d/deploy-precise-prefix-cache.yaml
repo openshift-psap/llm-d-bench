@@ -182,7 +182,7 @@ spec:
 
           # Replace model name in kv-events topic (needs the original format with /)
           echo "  Replacing model name in kv-events topic: '$DEFAULT_MODEL' -> '$(params.MODEL_NAME)'"
-          sed -i "s|kv@\${POD_IP}@$DEFAULT_MODEL|kv@\${POD_IP}@$(params.MODEL_NAME)|g" $MS_VALUES_FILE
+          sed -i "s|kv@\$(POD_IP)@$DEFAULT_MODEL|kv@\$(POD_IP)@$(params.MODEL_NAME)|g" $MS_VALUES_FILE
         fi
 
         # 1c. Update ZMQ port in kv-events config if different from default
@@ -247,7 +247,7 @@ spec:
         VLLM_CMD="${VLLM_CMD}--port 8000 \\"$'\n'
         VLLM_CMD="${VLLM_CMD}--block-size $(params.BLOCK_SIZE) \\"$'\n'
         VLLM_CMD="${VLLM_CMD}--prefix-caching-hash-algo sha256_cbor \\"$'\n'
-        VLLM_CMD="${VLLM_CMD}--kv-events-config \"{\\\"enable_kv_cache_events\\\":true,\\\"publisher\\\":\\\"zmq\\\",\\\"endpoint\\\":\\\"tcp://gaie-\${GAIE_RELEASE_NAME_POSTFIX}-epp.\${NAMESPACE}.svc.cluster.local:$(params.ZMQ_PORT)\\\",\\\"topic\\\":\\\"kv@\${POD_IP}@$(params.MODEL_NAME)\\\"}\" \\"$'\n'
+        VLLM_CMD="${VLLM_CMD}--kv-events-config \"{\\\"enable_kv_cache_events\\\":true,\\\"publisher\\\":\\\"zmq\\\",\\\"endpoint\\\":\\\"tcp://gaie-\$(GAIE_RELEASE_NAME_POSTFIX)-epp.\$(NAMESPACE).svc.cluster.local:$(params.ZMQ_PORT)\\\",\\\"topic\\\":\\\"kv@\$(POD_IP)@$(params.MODEL_NAME)\\\"}\" \\"$'\n'
 
         # Add our customizations
         VLLM_CMD="${VLLM_CMD}--tensor-parallel-size $TP \\"$'\n'
