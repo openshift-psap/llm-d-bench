@@ -21,12 +21,6 @@ spec:
 
   taskRunTemplate:
     serviceAccountName: deploy-model-sa
-    podTemplate:
-      labels:
-        kueue.x-k8s.io/queue-name: psap-releases-queue
-        kueue.x-k8s.io/priority-class: psap-releases
-
-  ttlSecondsAfterFinished: 3600
 
   params:
     # Model Configuration
@@ -44,11 +38,16 @@ spec:
       value: "1"
     - name: ENABLE_AUTH
       value: "false"
+    - name: KUEUE_QUEUE_NAME
+      value: "psap-releases"
     - name: VLLM_ARGS
       value:
-        - "--max-model-len=8192"
+        - "--max-model-len=10000"
         - "--gpu-memory-utilization=0.95"
 
+    # vLLM Image
+    - name: DEPLOYMENT_IMAGE
+      value: "quay.io/aipcc/rhaiis/cuda-ubi9:3.3.0-1769597087"
     # Routing Mode - PREFIX-ESTIMATION (EPP with kv-cache-utilization-scorer)
     - name: ROUTING_MODE
       value: "prefix-estimation"
@@ -60,9 +59,7 @@ spec:
     # Benchmark Configuration
     - name: IMAGE
       value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:v0.5.3"
-    # EPP Gateway endpoint
-    - name: TARGET
-      value: "http://openshift-ai-inference-openshift-default.openshift-ingress.svc.cluster.local/llm-d-bench/qwen-qwen3-06b"
+    # TARGET is now auto-derived from deployment task results
     - name: GUIDELLM_PROCESSOR
       value: "Qwen/Qwen3-0.6B"
     - name: GUIDELLM_BACKEND_TYPE
@@ -74,7 +71,7 @@ spec:
     - name: GUIDELLM_DATA
       value: "prompt_tokens=1000,output_tokens=1000"
     - name: GUIDELLM_MAX_SECONDS
-      value: "60"
+      value: "180"
     - name: GUIDELLM_MAX_REQUESTS
       value: ""
 

@@ -38,6 +38,11 @@ spec:
       type: string
       default: "true"
 
+    - name: RUN_UUID
+      description: Unique run identifier (first 5 chars appended to deployment name)
+      type: string
+      default: ""
+
   steps:
     - name: cleanup-rhoai-deployment
       image: registry.redhat.io/openshift4/ose-cli:latest
@@ -48,7 +53,16 @@ spec:
 
         # Generate deployment name from model name
         # Logic: lowercase | replace / with - | replace . with empty | trim suffix - | truncate to 42 chars
-        DEPLOYMENT_NAME=$(echo "$(params.MODEL_NAME)" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-42)
+        BASE_NAME=$(echo "$(params.MODEL_NAME)" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-42)
+
+        # Append first 5 chars of RUN_UUID if provided for unique deployments
+        RUN_UUID="$(params.RUN_UUID)"
+        if [ -n "$RUN_UUID" ]; then
+          UUID_SUFFIX=$(echo "$RUN_UUID" | cut -c1-5)
+          DEPLOYMENT_NAME="${BASE_NAME}-${UUID_SUFFIX}"
+        else
+          DEPLOYMENT_NAME="$BASE_NAME"
+        fi
 
         echo "Cleanup target:"
         echo "  Deployment: $DEPLOYMENT_NAME"

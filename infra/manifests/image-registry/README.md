@@ -10,6 +10,7 @@ The llm-d-bench pipelines build custom container images that need to be pushed t
 
 - OpenShift cluster with internal image registry capability
 - Available StorageClass (default: `lvms-vg1`)
+
 - Cluster admin permissions
 
 ## Quick Setup

@@ -12,7 +12,7 @@ spec:
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: ClusterQueue
 metadata:
-  name: benchmark-cluster-queue
+  name: psap-releases
 spec:
   namespaceSelector: {}
   queueingStrategy: StrictFIFO
@@ -27,14 +27,14 @@ spec:
       - name: nvidia.com/gpu
         nominalQuota: 8
       - name: cpu
-        nominalQuota: 200
+        nominalQuota: 140
       - name: memory
-        nominalQuota: 1000Gi
+        nominalQuota: 1800Gi
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: LocalQueue
 metadata:
-  name: psap-benchmark
+  name: psap-releases
   namespace: llm-d-bench
 spec:
-  clusterQueue: benchmark-cluster-queue
+  clusterQueue: psap-releases

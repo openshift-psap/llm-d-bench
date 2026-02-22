@@ -21,12 +21,6 @@ spec:
 
   taskRunTemplate:
     serviceAccountName: deploy-model-sa
-    podTemplate:
-      labels:
-        kueue.x-k8s.io/queue-name: psap-releases-queue
-        kueue.x-k8s.io/priority-class: psap-releases
-
-  ttlSecondsAfterFinished: 3600
 
   params:
     # Model Configuration
@@ -41,13 +35,19 @@ spec:
     - name: REPLICAS
       value: "1"
     - name: TP
-      value: "1"
+      value: "4"
     - name: ENABLE_AUTH
       value: "false"
+    - name: KUEUE_QUEUE_NAME
+      value: "psap-releases"
     - name: VLLM_ARGS
       value:
         - "--max-model-len=8192"
         - "--gpu-memory-utilization=0.95"
+
+    # vLLM Image
+    - name: DEPLOYMENT_IMAGE
+      value: "quay.io/aipcc/rhaiis/cuda-ubi9:3.3.0-1769597087"
 
     # Routing Mode - DIRECT (KServe SVC only, no EPP)
     - name: ROUTING_MODE
@@ -56,9 +56,7 @@ spec:
     # Benchmark Configuration
     - name: IMAGE
       value: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:v0.5.3"
-    # Direct endpoint (KServe SVC)
-    - name: TARGET
-      value: "https://qwen-qwen3-06b-kserve-workload-svc.llm-d-bench.svc.cluster.local:8000"
+    # TARGET is now auto-derived from deployment task results
     - name: GUIDELLM_PROCESSOR
       value: "Qwen/Qwen3-0.6B"
     - name: GUIDELLM_BACKEND_TYPE
@@ -70,7 +68,7 @@ spec:
     - name: GUIDELLM_DATA
       value: "prompt_tokens=1000,output_tokens=1000"
     - name: GUIDELLM_MAX_SECONDS
-      value: "120"
+      value: "180"
     - name: GUIDELLM_MAX_REQUESTS
       value: ""
 

@@ -64,6 +64,21 @@ spec:
       type: string
       default: "openshift-ingress"
 
+    - name: DEPLOYMENT_IMAGE
+      description: vLLM container image for the inference service
+      type: string
+      default: ""
+
+    - name: KUEUE_QUEUE_NAME
+      description: Kueue LocalQueue name for GPU scheduling
+      type: string
+      default: "psap-releases"
+
+    - name: RUN_UUID
+      description: Unique run identifier (first 5 chars appended to deployment name). If empty, uses PipelineRun UID.
+      type: string
+      default: "$(context.pipelineRun.uid)"
+
     # Benchmark Configuration
     - name: IMAGE
       description: |
@@ -75,8 +90,9 @@ spec:
       default: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
 
     - name: TARGET
-      description: Target inference endpoint URL
+      description: Target inference endpoint URL (optional - auto-derived from deployment if not provided)
       type: string
+      default: ""
 
     # GuideLLM-specific Parameters (all optional)
     - name: GUIDELLM_PROCESSOR
@@ -149,41 +165,6 @@ spec:
       type: array
       default: []
 
-    # MLPerf-specific Parameters (all optional)
-    - name: MLPERF_DATASET_NAME
-      description: Dataset filename (MLPerf only, e.g., "cnn_eval.json")
-      type: string
-      default: ""
-
-    - name: MLPERF_SCENARIO
-      description: MLPerf scenario - Offline, Server, SingleStream, MultiStream (MLPerf only)
-      type: string
-      default: ""
-
-    - name: MLPERF_TEST_MODE
-      description: MLPerf test mode - accuracy or performance (MLPerf only)
-      type: string
-      default: ""
-
-    - name: MLPERF_BATCH_SIZE
-      description: Batch size for inference (MLPerf only)
-      type: string
-      default: ""
-
-    - name: MLPERF_NUM_SAMPLES
-      description: Number of samples to process (MLPerf only)
-      type: string
-      default: ""
-
-    - name: MLPERF_OUTPUT_DIR
-      description: Output directory for results (MLPerf only)
-      type: string
-      default: ""
-
-    - name: MLPERF_SERVER_TARGET_QPS
-      description: Target QPS for Server scenario (MLPerf only)
-      type: string
-      default: ""
 
     # Health Check Configuration
     - name: HEALTH_CHECK_TIMEOUT
@@ -271,6 +252,12 @@ spec:
           value: $(params.GATEWAY_NAME)
         - name: GATEWAY_NAMESPACE
           value: $(params.GATEWAY_NAMESPACE)
+        - name: DEPLOYMENT_IMAGE
+          value: $(params.DEPLOYMENT_IMAGE)
+        - name: KUEUE_QUEUE_NAME
+          value: $(params.KUEUE_QUEUE_NAME)
+        - name: RUN_UUID
+          value: $(params.RUN_UUID)
       workspaces:
         - name: models-storage
           workspace: models-storage
@@ -287,10 +274,14 @@ spec:
         name: wait-for-endpoint
       params:
         - name: TARGET_URL
-          value: $(params.TARGET)
+          value: $(tasks.deploy-rhoai-model.results.TARGET_ENDPOINT)
         - name: ENDPOINT_PATH
           value: "/v1/models"
-        - name: TIMEOUT_SECONDS
+        - name: DEPLOYMENT_NAME
+          value: $(tasks.deploy-rhoai-model.results.DEPLOYMENT_NAME)
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: LOADING_TIMEOUT_SECONDS
           value: $(params.HEALTH_CHECK_TIMEOUT)
         - name: RETRY_INTERVAL
           value: "10"
@@ -329,7 +320,7 @@ spec:
         - name: IMAGE
           value: $(params.IMAGE)
         - name: TARGET
-          value: $(params.TARGET)
+          value: $(tasks.deploy-rhoai-model.results.TARGET_ENDPOINT)
         - name: MODEL
           value: $(params.MODEL_NAME)
         - name: GUIDELLM_PROCESSOR
@@ -382,7 +373,7 @@ spec:
         - name: IMAGE
           value: $(params.IMAGE)
         - name: TARGET
-          value: $(params.TARGET)
+          value: $(tasks.deploy-rhoai-model.results.TARGET_ENDPOINT)
         - name: MODEL
           value: $(params.MODEL_NAME)
         - name: ACCELERATOR
@@ -435,6 +426,8 @@ spec:
           value: $(params.MODEL_NAME)
         - name: NAMESPACE
           value: $(params.NAMESPACE)
+        - name: RUN_UUID
+          value: $(params.RUN_UUID)
         - name: WAIT_FOR_DELETION
           value: "true"
         - name: SKIP_IF_NOT_EXISTS

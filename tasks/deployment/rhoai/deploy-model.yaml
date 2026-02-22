@@ -59,9 +59,9 @@ spec:
       default: "/models"
 
     - name: KUEUE_QUEUE_NAME
-      description: Kueue LocalQueue name for GPU scheduling (optional)
+      description: Kueue LocalQueue name for GPU scheduling
       type: string
-      default: ""
+      default: "psap-releases"
 
     - name: RUN_UUID
       description: Pipeline run UUID for tracking/correlation
@@ -87,9 +87,24 @@ spec:
       type: string
       default: "openshift-ingress"
 
+    - name: DEPLOYMENT_IMAGE
+      description: vLLM container image for the inference service
+      type: string
+      default: "registry.redhat.io/rhaiis/vllm-cuda-rhel9:3.3.0"
+
   workspaces:
     - name: models-storage
       description: PVC containing downloaded models
+
+  results:
+    - name: DEPLOYMENT_NAME
+      description: The generated deployment name (used for constructing endpoints)
+    - name: DIRECT_ENDPOINT
+      description: Direct KServe service endpoint URL
+    - name: EPP_ENDPOINT
+      description: EPP Gateway endpoint URL
+    - name: TARGET_ENDPOINT
+      description: The correct endpoint based on routing mode (DIRECT or EPP)
 
   steps:
     - name: deploy-rhoai-model
@@ -103,7 +118,16 @@ spec:
 
         # Generate deployment name from model name
         # Logic: lowercase | replace / with - | replace . with empty | trim suffix - | truncate to 42 chars
-        DEPLOYMENT_NAME=$(echo "$(params.MODEL_NAME)" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-42)
+        BASE_NAME=$(echo "$(params.MODEL_NAME)" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-42)
+
+        # Append first 5 chars of RUN_UUID if provided for unique deployments
+        RUN_UUID="$(params.RUN_UUID)"
+        if [ -n "$RUN_UUID" ]; then
+          UUID_SUFFIX=$(echo "$RUN_UUID" | cut -c1-5)
+          DEPLOYMENT_NAME="${BASE_NAME}-${UUID_SUFFIX}"
+        else
+          DEPLOYMENT_NAME="$BASE_NAME"
+        fi
 
         echo "Deployment: $DEPLOYMENT_NAME"
         echo "Namespace: $(params.NAMESPACE)"
@@ -124,6 +148,7 @@ spec:
         echo "Configuration:"
         echo "  Model: $(params.MODEL_NAME)"
         echo "  Model URI: $MODEL_URI"
+        echo "  Image: $(params.DEPLOYMENT_IMAGE)"
         echo "  TP (Tensor Parallel / GPU Count): $(params.TP)"
         echo "  Replicas: $(params.REPLICAS)"
         echo "  Routing Mode: $(params.ROUTING_MODE)"
@@ -299,6 +324,7 @@ spec:
                 model: $DEPLOYMENT_NAME${POD_EXTRA_LABELS}
             containers:
             - name: main
+              image: "$(params.DEPLOYMENT_IMAGE)"
               command: ["python3", "-m", "vllm.entrypoints.openai.api_server"]
               args:
                 - "--port=8000"
@@ -352,3 +378,26 @@ spec:
         fi
         echo ""
         echo "Use 'oc get llminferenceservice $DEPLOYMENT_NAME -n $(params.NAMESPACE)' to check status"
+
+        # Write task results for downstream tasks
+        DIRECT_URL="https://${DEPLOYMENT_NAME}-kserve-workload-svc.$(params.NAMESPACE).svc.cluster.local:8000"
+        EPP_URL="http://$(params.GATEWAY_NAME)-openshift-default.$(params.GATEWAY_NAMESPACE).svc.cluster.local/$(params.NAMESPACE)/${DEPLOYMENT_NAME}"
+
+        # Select correct endpoint based on routing mode
+        if [ "$ROUTING_MODE" = "direct" ]; then
+          TARGET_URL="$DIRECT_URL"
+        else
+          TARGET_URL="$EPP_URL"
+        fi
+
+        echo -n "$DEPLOYMENT_NAME" > $(results.DEPLOYMENT_NAME.path)
+        echo -n "$DIRECT_URL" > $(results.DIRECT_ENDPOINT.path)
+        echo -n "$EPP_URL" > $(results.EPP_ENDPOINT.path)
+        echo -n "$TARGET_URL" > $(results.TARGET_ENDPOINT.path)
+
+        echo ""
+        echo "Task Results:"
+        echo "  DEPLOYMENT_NAME: $DEPLOYMENT_NAME"
+        echo "  DIRECT_ENDPOINT: $DIRECT_URL"
+        echo "  EPP_ENDPOINT: $EPP_URL"
+        echo "  TARGET_ENDPOINT: $TARGET_URL"

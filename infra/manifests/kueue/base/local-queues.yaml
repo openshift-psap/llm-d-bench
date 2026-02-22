@@ -2,15 +2,15 @@
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: LocalQueue
 metadata:
-  name: psap-releases-queue
+  name: psap-releases
   namespace: llm-d-bench
 spec:
-  clusterQueue: benchmark-cluster-queue
+  clusterQueue: psap-releases
 ---
 apiVersion: kueue.x-k8s.io/v1beta1
 kind: LocalQueue
 metadata:
-  name: psap-research-queue
+  name: psap-research
   namespace: llm-d-bench
 spec:
-  clusterQueue: benchmark-cluster-queue
+  clusterQueue: psap-releases
