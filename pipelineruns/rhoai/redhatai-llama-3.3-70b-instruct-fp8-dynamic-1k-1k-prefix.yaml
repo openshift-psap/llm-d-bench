@@ -1,15 +1,16 @@
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
-  generateName: redhatai-llama-33-70b-instruct-fp8-dynamic-1k-1k-
+  generateName: redhatai-llama-33-70b-instruct-fp8-dynamic-1k-1k-prefix-
   labels:
     app: llm-d-bench
-    pipeline: downstream-end-to-end-benchmark
-    experiment: redhatai-llama-33-70b-instruct-fp8-dynamic-1k-1k
+    pipeline: rhoai-end-to-end-benchmark-prefix-cache
+    experiment: redhatai-llama-33-70b-instruct-fp8-dynamic-1k-1k-prefix
     benchmark-tool: guidellm
-    deployment-mode: rhoai
+    deployment-mode: rhoai-prefix-cache
 spec:
   pipelineRef:
+    # name: rhoai-end-to-end-benchmark-prefix-cache
     name: rhoai-end-to-end-benchmark
 
   taskRunTemplate:
@@ -18,20 +19,27 @@ spec:
   ttlSecondsAfterFinished: 3600
 
   params:
+#    - name: SKIP_BENCHMARK
+#      value: "true"
+#    - name: SKIP_CLEANUP
+#      value: "true"
+
     - name: MODEL_NAME
       value: "RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic"
 
+    # Configuration Profiles
     - name: VLLM_CONFIG
-      # value: "vllm-prefix-caching-long"
       value: "vllm-prefix-caching"
+      # value: "vllm-prefix-caching-long"
     - name: DEPLOYMENT_CONFIG
-      # value: "deployment-rhoai-kserve"
-      value: "deployment-rhoai-kserve-prefix-cache"
+      value: "deployment-rhoai-kserve"
+      # value: "deployment-rhoai-kserve-prefix-cache"
     - name: BENCHMARK_CONFIG
       value: "concurrent-1k-1k"
-      # value: "heavy-heterogeneous"
       # value: "multi-turn"
+      # value: "heavy-heterogeneous"
 
+    # Deployment Configuration
     - name: ENABLE_AUTH
       value: "false"
     - name: REPLICAS
@@ -39,6 +47,23 @@ spec:
     - name: TP
       value: "2"
 
+    # Precise Prefix Cache Configuration
+    - name: BLOCK_SIZE
+      value: "64"
+    - name: HASH_SEED
+      value: "42"
+    - name: ZMQ_PORT
+      value: "5557"
+    - name: SCHEDULER_VERBOSITY
+      value: "4"
+    - name: ENABLE_CACHE_METRICS
+      value: "true"
+    - name: CACHE_SCORER_WEIGHT
+      value: "2.0"
+    - name: LOAD_SCORER_WEIGHT
+      value: "1.0"
+
+    # Benchmark Configuration
     - name: ACCELERATOR
       value: "H200"
     - name: BENCHMARK_ENV_VARS
@@ -46,6 +71,7 @@ spec:
         - "GUIDELLM__MAX_WORKER_PROCESSES=100"
         # - "MULTITURN=true"
 
+    # MLflow Configuration
     - name: MLFLOW_ENABLED
       value: "true"
     - name: MLFLOW_EXPERIMENT_NAME
@@ -53,12 +79,13 @@ spec:
       # value: "redhatai-llama-33-70b-instruct-fp8-dynamic-heavy-heterogeneous"
       # value: "redhatai-llama-33-70b-instruct-fp8-dynamic-multiturn"
     - name: VERSION
-      value: "RHOAI-3.3-RC3"
+      value: "RHOAI-3.3-RC1"
     - name: MLFLOW_TAGS
       value:
         - "deployment=rhoai"
         - "benchmark-tool=guidellm"
-        - "epp=precise-prefix-caching"
+        # - "epp=precise-prefix-caching"
+        - "epp=prefix-cache-estimation"
 
   timeouts:
     pipeline: "2h"

@@ -18,6 +18,9 @@ spec:
   ttlSecondsAfterFinished: 3600
 
   params:
+    - name: SKIP_CLEANUP
+      value: "true"
+
     - name: MODEL_NAME
       value: "openai/gpt-oss-120b"
 
@@ -28,14 +31,6 @@ spec:
     - name: BENCHMARK_CONFIG
       value: "concurrent-1k-1k"
 
-    - name: VLLM_ARGS
-      value:
-        - "--max-model-len=8192"
-        - "--uvicorn-log-level=debug"
-        - "--trust-remote-code"
-        - "--gpu-memory-utilization=0.92"
-        - "--no-enable-prefix-caching"
-        - "--disable-log-requests"
     - name: ENABLE_AUTH
       value: "false"
     - name: REPLICAS
@@ -47,14 +42,15 @@ spec:
       value: "H200"
     - name: BENCHMARK_ENV_VARS
       value:
-        - "GUIDELLM__MAX_WORKER_PROCESSES=50"
+        - "GUIDELLM__MAX_WORKER_PROCESSES=100"
+        - "GUIDELLM__LOGGING__CONSOLE_LOG_LEVEL=DEBUG"
 
     - name: MLFLOW_ENABLED
       value: "true"
     - name: MLFLOW_EXPERIMENT_NAME
       value: "openai-gpt-oss-120b-1k-1k"
     - name: VERSION
-      value: "RHOAI-3.0"
+      value: "RHOAI-3.3-RC3"
     - name: MLFLOW_TAGS
       value:
         - "deployment=rhoai"
@@ -68,14 +64,10 @@ spec:
     - name: models-storage
       persistentVolumeClaim:
         claimName: models-storage
-    - name: source
-      volumeClaimTemplate:
-        spec:
-          accessModes:
-            - ReadWriteOnce
-          resources:
-            requests:
-              storage: 1Gi
 
     - name: results
+      persistentVolumeClaim:
+        claimName: collection-results
+
+    - name: manifests-storage
       emptyDir: {}

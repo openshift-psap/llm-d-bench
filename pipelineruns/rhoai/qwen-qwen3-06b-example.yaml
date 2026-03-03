@@ -283,7 +283,11 @@ spec:
       persistentVolumeClaim:
         claimName: models-storage
 
-    # Results workspace (optional, only for non-MLflow mode)
-    # Use emptyDir for MLflow mode, PVC for file-based results
+    # Results workspace - PVC for artifact collection and persistence
     - name: results
+      persistentVolumeClaim:
+        claimName: collection-results
+
+    # Manifests storage for ConfigMap exports
+    - name: manifests-storage
       emptyDir: {}

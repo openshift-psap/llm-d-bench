@@ -18,18 +18,32 @@ spec:
   ttlSecondsAfterFinished: 3600
 
   params:
+    - name: SKIP_DOWNLOAD
+      value: "true"
+    - name: SKIP_DEPLOY
+      value: "true"
+#    - name: SKIP_BENCHMARK
+#      value: "true"
+    - name: SKIP_CLEANUP
+      value: "true"
+
+ #   - name: MS_IMAGE
+      # value: "ghcr.io/llm-d/llm-d-cuda:v0.4.0"
+      # value: "ghcr.io/llm-d/llm-d-cuda-dev:sha-f7546ae"
+ #     value: "quay.io/rh-ee-aperdomo/llm-d-dev:v0.4.0-vllm-0.13.0"
+
     - name: MODEL_NAME
       value: "RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic"
 
     - name: VLLM_CONFIG
-      # value: "vllm-prefix-caching-long"
-      value: "vllm-prefix-caching"
+      value: "vllm-prefix-caching-long"
+      # value: "vllm-prefix-caching"
     - name: DEPLOYMENT_CONFIG
       value: "deployment-llm-d-precise-prefix-cache"
     - name: BENCHMARK_CONFIG
-      value: "concurrent-1k-1k"
+      # value: "concurrent-1k-1k"
       # value: "heavy-heterogeneous"
-      # value: "multi-turn"
+      value: "multi-turn"
 
     - name: LLM_D_REPO_REF
       value: "afc99a53d44103f552e12deb4f7df8a53fbbabc0"
@@ -46,29 +60,30 @@ spec:
     - name: BENCHMARK_ENV_VARS
       value:
         - "GUIDELLM__MAX_WORKER_PROCESSES=100"
-        # - "MULTITURN=true"
+        - "MULTITURN=true"
 
     - name: MLFLOW_ENABLED
       value: "true"
     - name: MLFLOW_EXPERIMENT_NAME
-      value: "redhatai-llama-33-70b-instruct-fp8-dynamic-1k-1k"
+      # value: "redhatai-llama-33-70b-instruct-fp8-dynamic-1k-1k"
       # value: "redhatai-llama-33-70b-instruct-fp8-dynamic-heavy-heterogeneous"
-      # value: "redhatai-llama-33-70b-instruct-fp8-dynamic-multiturn"
+      value: "redhatai-llama-33-70b-instruct-fp8-dynamic-multiturn"
     - name: VERSION
-      # value: "llm-d-0.4"
-      value: "raw-vllm-0.13.0"
+      value: "llm-d-0.4-dgray"
     - name: MLFLOW_TAGS
       value:
         - "deployment=llm-d"
         - "benchmark-tool=guidellm"
-        - "epp=none"
+        # - "epp=precise-prefix-caching"
+        - "epp=prefix-cache-estimation"
 
-    - name: SKIP_DEPLOY
-      value: "true"
-    - name: SKIP_CLEANUP
-      value: "true"
+#    - name: SKIP_DEPLOY
+#      value: "true"
+#    - name: SKIP_CLEANUP
+#      value: "true"
     - name: TARGET
-      value: "http://raw-vllm-service.llm-d-bench.svc.cluster.local:8000"
+      value: "http://infra-inference-scheduling-inference-gateway-istio.llm-d-bench.svc.cluster.local:80"
+      # value: "http://infra-kv-events-inference-gateway-istio.llm-d-bench.svc.cluster.local:80"
 
   timeouts:
     pipeline: "2h"

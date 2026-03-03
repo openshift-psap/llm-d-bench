@@ -424,10 +424,11 @@ spec:
         NAMESPACE=$(params.NAMESPACE)
 
         echo "Rendering manifests with helmfile template..."
-        helmfile template $ENV_FLAG -n $NAMESPACE > $(workspaces.manifests-storage.path)/rendered/manifests.yaml 2>/dev/null || {
+        if ! helmfile template $ENV_FLAG -n $NAMESPACE > $(workspaces.manifests-storage.path)/rendered/manifests.yaml 2>&1; then
           echo "WARNING: helmfile template failed - manifests will not be captured"
+          echo "This is non-fatal, continuing with deployment..."
           exit 0
-        }
+        fi
 
         # Copy the patched values files
         cp ms-kv-events/values.yaml $(workspaces.manifests-storage.path)/rendered/values.yaml || true
@@ -448,6 +449,8 @@ spec:
           value: /tmp/.cache/helm
         - name: HELM_CONFIG_HOME
           value: /tmp/.config/helm
+        - name: HELM_PLUGINS
+          value: /tmp/.local/share/helm/plugins
       script: |
         #!/bin/bash
         set -e
@@ -472,10 +475,12 @@ spec:
           exit 1
         fi
 
-        # Initialize helmfile plugins
-        if ! helmfile init --force > /dev/null 2>&1; then
-          echo "ERROR: Failed to initialize helmfile"
-          exit 1
+        # Initialize helmfile plugins (non-fatal - plugins may already exist)
+        echo "Initializing helmfile plugins..."
+        if helmfile init --force 2>&1; then
+          echo "✓ Helmfile plugins initialized"
+        else
+          echo "⚠ Helmfile init failed (likely plugins already installed) - continuing anyway"
         fi
 
         # Determine environment flag based on gateway provider

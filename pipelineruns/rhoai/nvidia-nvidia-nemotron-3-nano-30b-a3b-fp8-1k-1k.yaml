@@ -28,15 +28,6 @@ spec:
     - name: BENCHMARK_CONFIG
       value: "concurrent-1k-1k"
 
-    - name: VLLM_ARGS
-      value:
-        - "--max-model-len=8192"
-        - "--uvicorn-log-level=debug"
-        - "--trust-remote-code"
-        - "--gpu-memory-utilization=0.92"
-        - "--no-enable-prefix-caching"
-        - "--disable-log-requests"
-        - "--kv-cache-dtype=fp8"
     - name: ENABLE_AUTH
       value: "false"
     - name: REPLICAS
@@ -55,7 +46,7 @@ spec:
     - name: MLFLOW_EXPERIMENT_NAME
       value: "nvidia-nvidia-nemotron-3-nano-30b-a3b-fp8-1k-1k"
     - name: VERSION
-      value: "RHOAI-3.2-RC3"
+      value: "RHOAI-3.3-RC3"
     - name: MLFLOW_TAGS
       value:
         - "deployment=rhoai"
@@ -69,14 +60,10 @@ spec:
     - name: models-storage
       persistentVolumeClaim:
         claimName: models-storage
-    - name: source
-      volumeClaimTemplate:
-        spec:
-          accessModes:
-            - ReadWriteOnce
-          resources:
-            requests:
-              storage: 1Gi
 
     - name: results
+      persistentVolumeClaim:
+        claimName: collection-results
+
+    - name: manifests-storage
       emptyDir: {}

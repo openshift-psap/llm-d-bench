@@ -62,15 +62,10 @@ spec:
     - name: models-storage
       persistentVolumeClaim:
         claimName: models-storage
-    - name: source
-      volumeClaimTemplate:
-        spec:
-          accessModes:
-            - ReadWriteOnce
-          resources:
-            requests:
-              storage: 1Gi
 
     - name: results
       persistentVolumeClaim:
-        claimName: benchmark-results
+        claimName: collection-results
+
+    - name: manifests-storage
+      emptyDir: {}
