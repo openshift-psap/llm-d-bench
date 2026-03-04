@@ -10,7 +10,7 @@ metadata:
     deployment-mode: rhoai
 spec:
   pipelineRef:
-    name: rhoai-end-to-end-benchmark
+    name: rhoai-end-to-end-benchmark-prefix-cache
 
   taskRunTemplate:
     serviceAccountName: deploy-model-sa

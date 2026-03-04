@@ -379,19 +379,19 @@ spec:
         - name: REPLICAS
           value: $(params.REPLICAS)
         - name: BLOCK_SIZE
-          value: $(params.BLOCK_SIZE)
+          value: $(tasks.merge-configs.results.block-size)
         - name: HASH_SEED
-          value: $(params.HASH_SEED)
+          value: $(tasks.merge-configs.results.hash-seed)
         - name: ZMQ_PORT
-          value: $(params.ZMQ_PORT)
+          value: $(tasks.merge-configs.results.zmq-port)
         - name: SCHEDULER_VERBOSITY
-          value: $(params.SCHEDULER_VERBOSITY)
+          value: $(tasks.merge-configs.results.scheduler-verbosity)
         - name: ENABLE_CACHE_METRICS
-          value: $(params.ENABLE_CACHE_METRICS)
+          value: $(tasks.merge-configs.results.enable-cache-metrics)
         - name: CACHE_SCORER_WEIGHT
-          value: $(params.CACHE_SCORER_WEIGHT)
+          value: $(tasks.merge-configs.results.cache-scorer-weight)
         - name: LOAD_SCORER_WEIGHT
-          value: $(params.LOAD_SCORER_WEIGHT)
+          value: $(tasks.merge-configs.results.load-scorer-weight)
         - name: VLLM_ARGS
           value: $(tasks.merge-configs.results.vllm-args)
         - name: SKIP_IF_EXISTS

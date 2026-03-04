@@ -135,6 +135,20 @@ spec:
       description: llm-d repository branch/tag/commit to use for git-clone
     - name: release-name
       description: Release name (provided or auto-derived from MODEL_NAME)
+    - name: block-size
+      description: KV cache block size for prefix caching
+    - name: hash-seed
+      description: Python hash seed for consistent hashing
+    - name: zmq-port
+      description: ZMQ port for KV-events communication
+    - name: scheduler-verbosity
+      description: Scheduler logging verbosity level
+    - name: enable-cache-metrics
+      description: Enable KV cache metrics logging
+    - name: cache-scorer-weight
+      description: Weight for precise-prefix-cache-scorer
+    - name: load-scorer-weight
+      description: Weight for load-aware-scorer
 
   steps:
     - name: merge
@@ -352,5 +366,14 @@ spec:
           echo -n "$DERIVED_NAME" > $(results.release-name.path)
         fi
         echo "  Release Name: $(cat $(results.release-name.path))"
+
+        # Prefix cache parameters (with defaults)
+        echo -n "$(echo "$MERGED" | jq -r '.BLOCK_SIZE // "64"')" > $(results.block-size.path)
+        echo -n "$(echo "$MERGED" | jq -r '.HASH_SEED // "42"')" > $(results.hash-seed.path)
+        echo -n "$(echo "$MERGED" | jq -r '.ZMQ_PORT // "5557"')" > $(results.zmq-port.path)
+        echo -n "$(echo "$MERGED" | jq -r '.SCHEDULER_VERBOSITY // "4"')" > $(results.scheduler-verbosity.path)
+        echo -n "$(echo "$MERGED" | jq -r '.ENABLE_CACHE_METRICS // "true"')" > $(results.enable-cache-metrics.path)
+        echo -n "$(echo "$MERGED" | jq -r '.CACHE_SCORER_WEIGHT // "2.0"')" > $(results.cache-scorer-weight.path)
+        echo -n "$(echo "$MERGED" | jq -r '.LOAD_SCORER_WEIGHT // "1.0"')" > $(results.load-scorer-weight.path)
 
         echo "✓ Configuration merge completed successfully"

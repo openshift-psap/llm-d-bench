@@ -34,7 +34,7 @@ spec:
     - name: REPLICAS
       description: Number of replicas (minimum 2 recommended for cache routing)
       type: string
-      default: "2"
+      default: "4"
 
     - name: BLOCK_SIZE
       description: KV cache block size (must match between vLLM and scheduler)
@@ -206,6 +206,10 @@ spec:
                   emptyDir: {}
                 containers:
                 - name: main
+                  ports:
+                  - containerPort: $(params.ZMQ_PORT)
+                    name: zmq
+                    protocol: TCP
                   args:
                   - --v=$(params.SCHEDULER_VERBOSITY)
                   - --pool-name
