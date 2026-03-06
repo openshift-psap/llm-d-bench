@@ -374,11 +374,25 @@ class BenchmarkProcessor:
             "uuid": uuid,
             "ttft_mean": ttft_metrics.get("mean"),
             "ttft_p99": _get_nested(ttft_metrics, "percentiles", "p99"),
+            "ttft_p90": _get_nested(ttft_metrics, "percentiles", "p90"),
             "itl_mean": itl_metrics.get("mean"),
             "itl_p99": _get_nested(itl_metrics, "percentiles", "p99"),
+            "itl_p90": _get_nested(itl_metrics, "percentiles", "p90"),
+            "tpot_p90": _get_nested(tpot_metrics, "percentiles", "p90"),
+            "request_latency_p90": _get_nested(request_latency_metrics, "percentiles", "p90"),
+            "request_latency_p95": _get_nested(request_latency_metrics, "percentiles", "p95"),
+            "request_latency_p99": _get_nested(request_latency_metrics, "percentiles", "p99"),
             "runtime_args": self.runtime_args,
             "replicas": self.replicas,
         }
+
+        # Calculate TTFT P99/P50 ratio (latency spread indicator)
+        ttft_p99_val = _get_nested(ttft_metrics, "percentiles", "p99")
+        ttft_p50_val = ttft_metrics.get("median")
+        if ttft_p99_val is not None and ttft_p50_val is not None and ttft_p50_val > 0:
+            row["ttft_p99_p50_ratio"] = ttft_p99_val / ttft_p50_val
+        else:
+            row["ttft_p99_p50_ratio"] = None
 
         return row
 
@@ -477,8 +491,15 @@ class BenchmarkProcessor:
             "uuid",
             "ttft_mean",
             "ttft_p99",
+            "ttft_p90",
+            "ttft_p99_p50_ratio",
             "itl_mean",
             "itl_p99",
+            "itl_p90",
+            "tpot_p90",
+            "request_latency_p90",
+            "request_latency_p95",
+            "request_latency_p99",
             "runtime_args",
             "replicas",
         ]
@@ -535,56 +556,156 @@ class BenchmarkProcessor:
                     "output_toks": output_toks,
                 }
             ],
-            "plots": [
+            "metric_groups": [
+                # Row 1: Throughput
                 {
-                    "x_metric": "intended concurrency",
-                    "y_metric": "output_tok/sec",
-                    "x_label": "Concurrency",
-                    "y_label": "Throughput (Output tokens/sec)",
-                    "title": "Throughput vs Concurrency",
-                    "higher_is_better": True,
-                    "log_x": False,
-                    "log_y": False,
+                    "name": "Throughput",
+                    "plots": [
+                        {
+                            "x_metric": "intended concurrency",
+                            "y_metric": "output_tok/sec",
+                            "x_label": "Concurrency",
+                            "y_label": "Output tok/s",
+                            "title": "Throughput",
+                            "higher_is_better": True,
+                        },
+                    ],
                 },
+                # Row 2: TTFT percentiles
                 {
-                    "x_metric": "intended concurrency",
-                    "y_metric": "ttft_median",
-                    "x_label": "Concurrency",
-                    "y_label": "TTFT median (ms)",
-                    "title": "TTFT median vs Concurrency",
-                    "higher_is_better": False,
-                    "log_x": False,
-                    "log_y": False,
+                    "name": "TTFT",
+                    "plots": [
+                        {
+                            "x_metric": "intended concurrency",
+                            "y_metric": "ttft_p1",
+                            "x_label": "Concurrency",
+                            "y_label": "P1 (ms)",
+                            "title": "TTFT P1",
+                            "higher_is_better": False,
+                        },
+                        {
+                            "x_metric": "intended concurrency",
+                            "y_metric": "ttft_median",
+                            "x_label": "Concurrency",
+                            "y_label": "P50 (ms)",
+                            "title": "TTFT P50",
+                            "higher_is_better": False,
+                        },
+                        {
+                            "x_metric": "intended concurrency",
+                            "y_metric": "ttft_p90",
+                            "x_label": "Concurrency",
+                            "y_label": "P90 (ms)",
+                            "title": "TTFT P90",
+                            "higher_is_better": False,
+                        },
+                        {
+                            "x_metric": "intended concurrency",
+                            "y_metric": "ttft_p99",
+                            "x_label": "Concurrency",
+                            "y_label": "P99 (ms)",
+                            "title": "TTFT P99",
+                            "higher_is_better": False,
+                        },
+                        {
+                            "x_metric": "intended concurrency",
+                            "y_metric": "ttft_p99_p50_ratio",
+                            "x_label": "Concurrency",
+                            "y_label": "P99/P50 Ratio",
+                            "title": "TTFT Spread",
+                            "higher_is_better": False,
+                        },
+                    ],
                 },
+                # Row 3: TPOT percentiles
                 {
-                    "x_metric": "intended concurrency",
-                    "y_metric": "ttft_p95",
-                    "x_label": "Concurrency",
-                    "y_label": "TTFT P95 (ms)",
-                    "title": "TTFT P95 vs Concurrency",
-                    "higher_is_better": False,
-                    "log_x": False,
-                    "log_y": False,
+                    "name": "TPOT",
+                    "plots": [
+                        {
+                            "x_metric": "intended concurrency",
+                            "y_metric": "tpot_median",
+                            "x_label": "Concurrency",
+                            "y_label": "P50 (ms)",
+                            "title": "TPOT P50",
+                            "higher_is_better": False,
+                        },
+                        {
+                            "x_metric": "intended concurrency",
+                            "y_metric": "tpot_p90",
+                            "x_label": "Concurrency",
+                            "y_label": "P90 (ms)",
+                            "title": "TPOT P90",
+                            "higher_is_better": False,
+                        },
+                        {
+                            "x_metric": "intended concurrency",
+                            "y_metric": "tpot_p99",
+                            "x_label": "Concurrency",
+                            "y_label": "P99 (ms)",
+                            "title": "TPOT P99",
+                            "higher_is_better": False,
+                        },
+                    ],
                 },
+                # Row 4: ITL percentiles
                 {
-                    "x_metric": "intended concurrency",
-                    "y_metric": "itl_median",
-                    "x_label": "Concurrency",
-                    "y_label": "ITL median (ms)",
-                    "title": "ITL median vs Concurrency",
-                    "higher_is_better": False,
-                    "log_x": False,
-                    "log_y": False,
+                    "name": "ITL",
+                    "plots": [
+                        {
+                            "x_metric": "intended concurrency",
+                            "y_metric": "itl_median",
+                            "x_label": "Concurrency",
+                            "y_label": "P50 (ms)",
+                            "title": "ITL P50",
+                            "higher_is_better": False,
+                        },
+                        {
+                            "x_metric": "intended concurrency",
+                            "y_metric": "itl_p90",
+                            "x_label": "Concurrency",
+                            "y_label": "P90 (ms)",
+                            "title": "ITL P90",
+                            "higher_is_better": False,
+                        },
+                        {
+                            "x_metric": "intended concurrency",
+                            "y_metric": "itl_p99",
+                            "x_label": "Concurrency",
+                            "y_label": "P99 (ms)",
+                            "title": "ITL P99",
+                            "higher_is_better": False,
+                        },
+                    ],
                 },
+                # Row 5: E2E Latency percentiles
                 {
-                    "x_metric": "intended concurrency",
-                    "y_metric": "tpot_median",
-                    "x_label": "Concurrency",
-                    "y_label": "TPOT median (ms)",
-                    "title": "TPOT median vs Concurrency",
-                    "higher_is_better": False,
-                    "log_x": False,
-                    "log_y": False,
+                    "name": "E2E Latency",
+                    "plots": [
+                        {
+                            "x_metric": "intended concurrency",
+                            "y_metric": "request_latency_median",
+                            "x_label": "Concurrency",
+                            "y_label": "P50 (s)",
+                            "title": "E2E Latency P50",
+                            "higher_is_better": False,
+                        },
+                        {
+                            "x_metric": "intended concurrency",
+                            "y_metric": "request_latency_p90",
+                            "x_label": "Concurrency",
+                            "y_label": "P90 (s)",
+                            "title": "E2E Latency P90",
+                            "higher_is_better": False,
+                        },
+                        {
+                            "x_metric": "intended concurrency",
+                            "y_metric": "request_latency_p99",
+                            "x_label": "Concurrency",
+                            "y_label": "P99 (s)",
+                            "title": "E2E Latency P99",
+                            "higher_is_better": False,
+                        },
+                    ],
                 },
             ],
             "filters": {
@@ -694,7 +815,8 @@ class BenchmarkProcessor:
 
     def generate_report(self) -> None:
         """
-        Generate HTML report based on configuration.
+        Generate HTML report based on configuration with metrics grouped by type.
+        Max 3 columns, with throughput spanning full width.
         """
         logger.info("Generating HTML report")
 
@@ -712,49 +834,72 @@ class BenchmarkProcessor:
             all_data["replicas"] = 1
         all_data["replicas"] = all_data["replicas"].fillna(1).astype(int)
 
-        model_configs = self.config["models"]
-        plot_configs = self.config["plots"]
+        model_config = self.config["models"][0]
+        metric_groups = self.config["metric_groups"]
         colors = self.config["styling"]["colors"]
         markers = self.config["styling"]["markers"]
 
-        n_rows = len(plot_configs)
-        n_cols = len(model_configs)
+        # Define grid layout: 6 rows × 3 columns
+        # Row 1: Throughput (spans 3 columns)
+        # Row 2-3: TTFT (5 plots split: 3 + 2)
+        # Row 4: TPOT (3 plots)
+        # Row 5: ITL (3 plots)
+        # Row 6: E2E Latency (3 plots)
 
-        # Create subplot titles with metric names
-        subplot_titles = []
-        for plot_config in plot_configs:
-            for model_config in model_configs:
-                better_text = (
-                    "Higher is better"
-                    if plot_config.get("higher_is_better", True)
-                    else "Lower is better"
-                )
-                subplot_titles.append(
-                    f"<b>{plot_config['y_label']}</b><br><sub>{better_text}</sub>"
-                )
+        specs = [
+            [{"colspan": 3}, None, None],  # Row 1: Throughput spans 3 columns
+            [{}, {}, {}],  # Row 2: TTFT P1, P50, P90
+            [{}, {}, None],  # Row 3: TTFT P99, Spread, empty
+            [{}, {}, {}],  # Row 4: TPOT P50, P90, P99
+            [{}, {}, {}],  # Row 5: ITL P50, P90, P99
+            [{}, {}, {}],  # Row 6: E2E Latency P50, P90, P99
+        ]
+
+        # Build subplot titles - one per actual subplot (15 total, skipping None specs)
+        # Titles are assigned in order to non-None spec cells
+        subplot_titles = [
+            # Row 1: Throughput (1 subplot)
+            "<b>Throughput</b><br><sub>Higher is better</sub>",
+            # Row 2: TTFT P1, P50, P90 (3 subplots)
+            "<b>TTFT P1</b><br><sub>Lower is better</sub>",
+            "<b>TTFT P50</b><br><sub>Lower is better</sub>",
+            "<b>TTFT P90</b><br><sub>Lower is better</sub>",
+            # Row 3: TTFT P99, Spread (2 subplots, 3rd cell is None)
+            "<b>TTFT P99</b><br><sub>Lower is better</sub>",
+            "<b>TTFT Spread</b><br><sub>Lower is better</sub>",
+            # Row 4: TPOT P50, P90, P99 (3 subplots)
+            "<b>TPOT P50</b><br><sub>Lower is better</sub>",
+            "<b>TPOT P90</b><br><sub>Lower is better</sub>",
+            "<b>TPOT P99</b><br><sub>Lower is better</sub>",
+            # Row 5: ITL P50, P90, P99 (3 subplots)
+            "<b>ITL P50</b><br><sub>Lower is better</sub>",
+            "<b>ITL P90</b><br><sub>Lower is better</sub>",
+            "<b>ITL P99</b><br><sub>Lower is better</sub>",
+            # Row 6: E2E Latency P50, P90, P99 (3 subplots)
+            "<b>E2E Latency P50</b><br><sub>Lower is better</sub>",
+            "<b>E2E Latency P90</b><br><sub>Lower is better</sub>",
+            "<b>E2E Latency P99</b><br><sub>Lower is better</sub>",
+        ]  # Total: 15 titles for 15 actual subplots
 
         fig = make_subplots(
-            rows=n_rows,
-            cols=n_cols,
+            rows=6,
+            cols=3,
+            specs=specs,
             subplot_titles=subplot_titles,
-            vertical_spacing=0.08,
+            vertical_spacing=0.10,  # Slightly more spacing for section titles
             horizontal_spacing=0.08,
         )
 
+        # Filter data for the model
+        filtered_data = self.filter_data_for_config(all_data, model_config)
+
         # Collect all configurations for consistent coloring
-        # Don't filter by TP here, just show all TP values for the model
         all_configs = set()
-        for model_config in model_configs:
-            model_data = self.filter_data_for_config(all_data, model_config)
-            if not model_data.empty:
-                for cfg in model_data.groupby(
-                    ["accelerator", "version", "TP", "replicas"]
-                ).groups.keys():
-                    all_configs.add(cfg)
-            else:
-                logger.warning(
-                    f"No data found for model {model_config['model']} after filtering"
-                )
+        if not filtered_data.empty:
+            for cfg in filtered_data.groupby(
+                ["accelerator", "version", "TP", "replicas"]
+            ).groups.keys():
+                all_configs.add(cfg)
 
         all_configs = sorted(list(all_configs))
 
@@ -762,105 +907,105 @@ class BenchmarkProcessor:
         config_to_marker = {}
         for idx, cfg in enumerate(all_configs):
             accelerator, version, tp, replicas = cfg
-            label = f"{accelerator} | {version} | TP={tp} | R={replicas}"
+            label = f"{accelerator} | {version} | TP={int(tp)} | R={int(replicas)}"
             config_to_color[label] = colors[idx % len(colors)]
             config_to_marker[label] = markers[idx % len(markers)]
 
         legend_entries = set()
 
-        for row_idx, plot_config in enumerate(plot_configs, start=1):
-            for col_idx, model_config in enumerate(model_configs, start=1):
-                filtered_data = self.filter_data_for_config(all_data, model_config)
+        # Define plot positions: (row, col, metric_key)
+        plot_positions = [
+            # Row 1: Throughput
+            (1, 1, "output_tok/sec", "Concurrency", "Output tok/s"),
+            # Row 2: TTFT P1, P50, P90
+            (2, 1, "ttft_p1", "Concurrency", "P1 (ms)"),
+            (2, 2, "ttft_median", "Concurrency", "P50 (ms)"),
+            (2, 3, "ttft_p90", "Concurrency", "P90 (ms)"),
+            # Row 3: TTFT P99, Spread
+            (3, 1, "ttft_p99", "Concurrency", "P99 (ms)"),
+            (3, 2, "ttft_p99_p50_ratio", "Concurrency", "P99/P50 Ratio"),
+            # Row 4: TPOT P50, P90, P99
+            (4, 1, "tpot_median", "Concurrency", "P50 (ms)"),
+            (4, 2, "tpot_p90", "Concurrency", "P90 (ms)"),
+            (4, 3, "tpot_p99", "Concurrency", "P99 (ms)"),
+            # Row 5: ITL P50, P90, P99
+            (5, 1, "itl_median", "Concurrency", "P50 (ms)"),
+            (5, 2, "itl_p90", "Concurrency", "P90 (ms)"),
+            (5, 3, "itl_p99", "Concurrency", "P99 (ms)"),
+            # Row 6: E2E Latency P50, P90, P99
+            (6, 1, "request_latency_median", "Concurrency", "P50 (s)"),
+            (6, 2, "request_latency_p90", "Concurrency", "P90 (s)"),
+            (6, 3, "request_latency_p99", "Concurrency", "P99 (s)"),
+        ]
 
-                if filtered_data.empty:
-                    logger.warning(f"No data for {model_config['model']}")
-                    continue
+        # Plot each metric
+        for row, col, metric_key, x_label, y_label in plot_positions:
+            if filtered_data.empty:
+                continue
 
-                filtered_data = filtered_data.sort_values(by=[plot_config["x_metric"]])
+            plot_data = filtered_data.sort_values(by="intended concurrency")
 
-                for group_key, group_data in filtered_data.groupby(
-                    ["accelerator", "version", "TP", "replicas"]
-                ):
-                    accelerator, version, tp, replicas = group_key
-                    label = f"{accelerator} | {version} | TP={tp} | R={replicas}"
+            for group_key, group_data in plot_data.groupby(
+                ["accelerator", "version", "TP", "replicas"]
+            ):
+                accelerator, version, tp, replicas = group_key
+                label = f"{accelerator} | {version} | TP={int(tp)} | R={int(replicas)}"
 
-                    color = config_to_color[label]
-                    marker = config_to_marker[label]
+                color = config_to_color[label]
+                marker = config_to_marker[label]
 
-                    show_legend = label not in legend_entries
-                    if show_legend:
-                        legend_entries.add(label)
+                show_legend = label not in legend_entries
+                if show_legend:
+                    legend_entries.add(label)
 
-                    fig.add_trace(
-                        go.Scatter(
-                            x=group_data[plot_config["x_metric"]],
-                            y=group_data[plot_config["y_metric"]],
-                            mode="lines+markers",
-                            name=label,
-                            line=dict(color=color, width=2),
-                            marker=dict(
-                                size=8, symbol=marker, line=dict(width=1, color="white")
-                            ),
-                            showlegend=show_legend,
-                            legendgroup=label,
+                fig.add_trace(
+                    go.Scatter(
+                        x=group_data["intended concurrency"],
+                        y=group_data[metric_key],
+                        mode="lines+markers",
+                        name=label,
+                        line=dict(color=color, width=2),
+                        marker=dict(
+                            size=8, symbol=marker, line=dict(width=1, color="white")
                         ),
-                        row=row_idx,
-                        col=col_idx,
-                    )
-
-                xaxis_name = (
-                    f"xaxis{(row_idx - 1) * n_cols + col_idx}"
-                    if (row_idx - 1) * n_cols + col_idx > 1
-                    else "xaxis"
-                )
-                yaxis_name = (
-                    f"yaxis{(row_idx - 1) * n_cols + col_idx}"
-                    if (row_idx - 1) * n_cols + col_idx > 1
-                    else "yaxis"
+                        showlegend=show_legend,
+                        legendgroup=label,
+                    ),
+                    row=row,
+                    col=col,
                 )
 
-                fig.update_layout(
-                    {
-                        xaxis_name: {
-                            "title": plot_config["x_label"],
-                            "showgrid": True,
-                            "gridwidth": 0.5,
-                            "gridcolor": "lightgray",
-                            "showline": True,
-                            "linewidth": 1,
-                            "linecolor": "black",
-                            "mirror": True,
-                            "type": "log"
-                            if plot_config.get("log_x", False)
-                            else "linear",
-                        },
-                        yaxis_name: {
-                            "title": plot_config["y_label"],
-                            "showgrid": True,
-                            "gridwidth": 0.5,
-                            "gridcolor": "lightgray",
-                            "showline": True,
-                            "linewidth": 1,
-                            "linecolor": "black",
-                            "mirror": True,
-                            "type": "log"
-                            if plot_config.get("log_y", False)
-                            else "linear",
-                        },
-                    }
-                )
+        # Update axis labels for each subplot
+        axis_labels = [
+            (1, 1, "Concurrency", "Output tok/s"),  # Throughput
+            (2, 1, "Concurrency", "P1 (ms)"),  # TTFT P1
+            (2, 2, "Concurrency", "P50 (ms)"),  # TTFT P50
+            (2, 3, "Concurrency", "P90 (ms)"),  # TTFT P90
+            (3, 1, "Concurrency", "P99 (ms)"),  # TTFT P99
+            (3, 2, "Concurrency", "P99/P50 Ratio"),  # TTFT Spread
+            (4, 1, "Concurrency", "P50 (ms)"),  # TPOT P50
+            (4, 2, "Concurrency", "P90 (ms)"),  # TPOT P90
+            (4, 3, "Concurrency", "P99 (ms)"),  # TPOT P99
+            (5, 1, "Concurrency", "P50 (ms)"),  # ITL P50
+            (5, 2, "Concurrency", "P90 (ms)"),  # ITL P90
+            (5, 3, "Concurrency", "P99 (ms)"),  # ITL P99
+            (6, 1, "Concurrency", "P50 (s)"),  # E2E P50
+            (6, 2, "Concurrency", "P90 (s)"),  # E2E P90
+            (6, 3, "Concurrency", "P99 (s)"),  # E2E P99
+        ]
 
-        if n_cols == 1:
-            plot_width = 1200
-            left_margin = 120
-        else:
-            plot_width = 500 * n_cols
-            left_margin = 120
+        for row, col, x_label, y_label in axis_labels:
+            fig.update_xaxes(title_text=x_label, row=row, col=col)
+            fig.update_yaxes(title_text=y_label, row=row, col=col)
 
-        model_short_name = model_configs[0]["model"].split("/")[-1]
+        # Calculate dimensions
+        plot_width = 450 * 3  # 3 columns × 450px each = 1350px
+        plot_height = 400 * 6  # 6 rows × 400px each = 2400px
+
+        model_short_name = model_config["model"].split("/")[-1]
         versions_str = ", ".join(self.compare_versions)
 
-        # Build data profile subtitle dynamically
+        # Build data profile subtitle
         data_profile_parts = []
         if self.prompt_tokens is not None:
             data_profile_parts.append(f"prompt_tokens: {self.prompt_tokens}")
@@ -876,7 +1021,7 @@ class BenchmarkProcessor:
         data_profile_str = (
             " | ".join(data_profile_parts)
             if data_profile_parts
-            else f"Input Tokens: {model_configs[0]['prompt_toks']} | Output Tokens: {model_configs[0]['output_toks']}"
+            else f"Input Tokens: {model_config['prompt_toks']} | Output Tokens: {model_config['output_toks']}"
         )
 
         fig.update_layout(
@@ -893,12 +1038,12 @@ class BenchmarkProcessor:
                 "y": 0.99,
                 "yanchor": "top",
             },
-            height=450 * n_rows,
+            height=plot_height,
             width=plot_width,
             plot_bgcolor="white",
             paper_bgcolor="white",
             font={"family": "Arial, sans-serif", "size": 11},
-            margin=dict(t=150, l=left_margin, r=200, b=50),
+            margin=dict(t=150, l=80, r=250, b=50),
             legend={
                 "title": {"text": "<b>Configuration</b>"},
                 "orientation": "v",
@@ -912,11 +1057,88 @@ class BenchmarkProcessor:
             showlegend=True,
         )
 
+        # Add centered section titles as separators between metric groups
+        annotations = [
+            # TTFT section title (in gap between row 1 and row 2)
+            dict(
+                text="<b>— Time To First Token (TTFT) —</b>",
+                xref="paper",
+                yref="paper",
+                x=0.5,
+                y=0.865,
+                xanchor="center",
+                yanchor="middle",
+                showarrow=False,
+                font=dict(size=12, color="#666"),
+                bgcolor="rgba(255,255,255,0.9)",
+            ),
+            # TPOT section title (in gap between row 3 and row 4)
+            dict(
+                text="<b>— Time Per Output Token (TPOT) —</b>",
+                xref="paper",
+                yref="paper",
+                x=0.5,
+                y=0.500,
+                xanchor="center",
+                yanchor="middle",
+                showarrow=False,
+                font=dict(size=12, color="#666"),
+                bgcolor="rgba(255,255,255,0.9)",
+            ),
+            # ITL section title (in gap between row 4 and row 5)
+            dict(
+                text="<b>— Inter-Token Latency (ITL) —</b>",
+                xref="paper",
+                yref="paper",
+                x=0.5,
+                y=0.315,
+                xanchor="center",
+                yanchor="middle",
+                showarrow=False,
+                font=dict(size=12, color="#666"),
+                bgcolor="rgba(255,255,255,0.9)",
+            ),
+            # E2E Latency section title (in gap between row 5 and row 6)
+            dict(
+                text="<b>— End-to-End Request Latency —</b>",
+                xref="paper",
+                yref="paper",
+                x=0.5,
+                y=0.130,
+                xanchor="center",
+                yanchor="middle",
+                showarrow=False,
+                font=dict(size=12, color="#666"),
+                bgcolor="rgba(255,255,255,0.9)",
+            ),
+        ]
+
+        fig.update_layout(annotations=list(fig.layout.annotations) + annotations)
+
+        # Ensure all axes have consistent borders and grids (apply to all at once)
+        fig.update_xaxes(
+            showgrid=True,
+            gridwidth=0.5,
+            gridcolor="lightgray",
+            showline=True,
+            linewidth=1,
+            linecolor="black",
+            mirror=True,
+        )
+
+        fig.update_yaxes(
+            showgrid=True,
+            gridwidth=0.5,
+            gridcolor="lightgray",
+            showline=True,
+            linewidth=1,
+            linecolor="black",
+            mirror=True,
+        )
+
         fig.write_html(self.output_html)
         logger.info(f"Report saved to {self.output_html}")
-        logger.info(
-            f"Report contains {n_rows} plot types × {n_cols} models = {n_rows * n_cols} total plots"
-        )
+        logger.info(f"Report contains 6 rows × 3 columns with 15 total plots")
 
     def process(self) -> None:
         """

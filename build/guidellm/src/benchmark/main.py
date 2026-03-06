@@ -1348,7 +1348,11 @@ def main():
         default="guidellm-benchmarks",
         help="MLflow experiment name",
     )
-    parser.add_argument("--mlflow-tracking-uri", help="MLflow tracking URI")
+    parser.add_argument(
+        "--mlflow-tracking-uri",
+        default=os.environ.get("MLFLOW_TRACKING_URI"),
+        help="MLflow tracking URI (defaults to MLFLOW_TRACKING_URI environment variable)",
+    )
     parser.add_argument(
         "--tag", action="append", dest="tags", help="Additional tags (key=value)"
     )
