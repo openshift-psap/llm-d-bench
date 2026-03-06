@@ -84,12 +84,17 @@ spec:
     - name: CACHE_SCORER_WEIGHT
       description: Weight for precise-prefix-cache-scorer in scheduling
       type: string
+      default: "3.0"
+
+    - name: KV_CACHE_UTILIZATION_SCORER_WEIGHT
+      description: Weight for kv-cache-utilization-scorer in scheduling
+      type: string
       default: "2.0"
 
-    - name: LOAD_SCORER_WEIGHT
-      description: Weight for load-aware-scorer in scheduling
+    - name: QUEUE_SCORER_WEIGHT
+      description: Weight for queue-scorer in scheduling
       type: string
-      default: "1.0"
+      default: "2.0"
 
   workspaces:
     - name: models-storage
@@ -145,8 +150,10 @@ spec:
         echo "  Model URI: $MODEL_URI (entire PVC)"
         echo "  Model Path: $MODEL_PATH"
         echo "  TP (Tensor Parallel / GPU Count): $(params.TP)"
-        echo "  Scheduler Cache Scorer Weight: $(params.CACHE_SCORER_WEIGHT)"
-        echo "  Scheduler Load Scorer Weight: $(params.LOAD_SCORER_WEIGHT)"
+        echo "  Scheduler Scorer Weights:"
+        echo "    - Precise Prefix Cache: $(params.CACHE_SCORER_WEIGHT)"
+        echo "    - KV Cache Utilization: $(params.KV_CACHE_UTILIZATION_SCORER_WEIGHT)"
+        echo "    - Queue: $(params.QUEUE_SCORER_WEIGHT)"
         echo ""
 
         # Build YAML args array for prefix caching + user args
@@ -251,15 +258,18 @@ spec:
                           tokenizersPoolConfig:
                             hf:
                               tokenizersCacheDir: /mnt/tokenizers
-                    - type: load-aware-scorer
+                    - type: kv-cache-utilization-scorer
+                    - type: queue-scorer
                     - type: max-score-picker
                     schedulingProfiles:
                     - name: default
                       plugins:
                       - pluginRef: precise-prefix-cache-scorer
                         weight: $(params.CACHE_SCORER_WEIGHT)
-                      - pluginRef: load-aware-scorer
-                        weight: $(params.LOAD_SCORER_WEIGHT)
+                      - pluginRef: kv-cache-utilization-scorer
+                        weight: $(params.KV_CACHE_UTILIZATION_SCORER_WEIGHT)
+                      - pluginRef: queue-scorer
+                        weight: $(params.QUEUE_SCORER_WEIGHT)
                       - pluginRef: max-score-picker
                   env:
                   - name: HF_HOME

@@ -59,7 +59,8 @@ spec:
       value: "H200"
     - name: BENCHMARK_ENV_VARS
       value:
-        - "GUIDELLM__MAX_WORKER_PROCESSES=100"
+        # - "GUIDELLM__MAX_WORKER_PROCESSES=100"
+        - "GUIDELLM__LOGGING__CONSOLE_LOG_LEVEL=DEBUG"
         - "MULTITURN=true"
 
     - name: MLFLOW_ENABLED
@@ -69,7 +70,7 @@ spec:
       # value: "redhatai-llama-33-70b-instruct-fp8-dynamic-heavy-heterogeneous"
       value: "redhatai-llama-33-70b-instruct-fp8-dynamic-multiturn"
     - name: VERSION
-      value: "llm-d-0.4-dgray"
+      value: "llm-d-0.4-dev"
     - name: MLFLOW_TAGS
       value:
         - "deployment=llm-d"

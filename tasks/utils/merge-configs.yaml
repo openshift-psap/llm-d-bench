@@ -147,8 +147,10 @@ spec:
       description: Enable KV cache metrics logging
     - name: cache-scorer-weight
       description: Weight for precise-prefix-cache-scorer
-    - name: load-scorer-weight
-      description: Weight for load-aware-scorer
+    - name: kv-cache-utilization-scorer-weight
+      description: Weight for kv-cache-utilization-scorer
+    - name: queue-scorer-weight
+      description: Weight for queue-scorer
 
   steps:
     - name: merge
@@ -301,9 +303,16 @@ spec:
         echo -n "$(echo "$MERGED" | jq -r '.DECODE_REPLICAS // "N/A"')" > $(results.decode-replicas.path)
 
         # Compute TARGET_URL
-        if [ -n "$(params.TARGET)" ]; then
-          echo "Using provided TARGET: $(params.TARGET)"
-          echo -n "$(params.TARGET)" > $(results.target-url.path)
+        # Check pipeline param first (highest precedence), then merged config
+        TARGET_PARAM="$(params.TARGET)"
+        TARGET_FROM_CONFIG=$(echo "$MERGED" | jq -r '.TARGET // ""')
+
+        if [ -n "$TARGET_PARAM" ]; then
+          echo "Using TARGET from pipeline parameter: $TARGET_PARAM"
+          echo -n "$TARGET_PARAM" > $(results.target-url.path)
+        elif [ -n "$TARGET_FROM_CONFIG" ]; then
+          echo "Using TARGET from config profile: $TARGET_FROM_CONFIG"
+          echo -n "$TARGET_FROM_CONFIG" > $(results.target-url.path)
         else
           # Get deployment type from merged config
           DEPLOYMENT_TYPE=$(echo "$MERGED" | jq -r '.DEPLOYMENT_TYPE // ""')
@@ -311,12 +320,19 @@ spec:
 
           case "$DEPLOYMENT_TYPE" in
             rhoai)
-              # RHOAI: KServe workload service based on sanitized MODEL_NAME
-              # Pattern: https://{deployment-name}-kserve-workload-svc.{namespace}.svc.cluster.local:8000
+              # RHOAI: Query LLMInferenceService to get the gateway URL (routes through InferencePool and EPP scheduler)
               MODEL_NAME="$(params.MODEL_NAME)"
               DEPLOYMENT_NAME=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-42)
-              TARGET_URL="https://${DEPLOYMENT_NAME}-kserve-workload-svc.${NAMESPACE}.svc.cluster.local:8000"
-              echo "Computed TARGET_URL for RHOAI: $TARGET_URL"
+
+              # Get the URL from the LLMInferenceService status
+              TARGET_URL=$(kubectl get llminferenceservice "${DEPLOYMENT_NAME}" -n "${NAMESPACE}" -o jsonpath='{.status.url}' 2>/dev/null || echo "")
+
+              if [ -z "$TARGET_URL" ]; then
+                echo "Warning: Could not get URL from LLMInferenceService, falling back to default pattern"
+                TARGET_URL="https://inference-gateway.apps.psap-llmd-h200.ibm-rh-ai.rhperfscale.org/${NAMESPACE}/${DEPLOYMENT_NAME}"
+              fi
+
+              echo "Computed TARGET_URL for RHOAI (via gateway): $TARGET_URL"
               ;;
 
             rhaiis)
@@ -373,7 +389,8 @@ spec:
         echo -n "$(echo "$MERGED" | jq -r '.ZMQ_PORT // "5557"')" > $(results.zmq-port.path)
         echo -n "$(echo "$MERGED" | jq -r '.SCHEDULER_VERBOSITY // "4"')" > $(results.scheduler-verbosity.path)
         echo -n "$(echo "$MERGED" | jq -r '.ENABLE_CACHE_METRICS // "true"')" > $(results.enable-cache-metrics.path)
-        echo -n "$(echo "$MERGED" | jq -r '.CACHE_SCORER_WEIGHT // "2.0"')" > $(results.cache-scorer-weight.path)
-        echo -n "$(echo "$MERGED" | jq -r '.LOAD_SCORER_WEIGHT // "1.0"')" > $(results.load-scorer-weight.path)
+        echo -n "$(echo "$MERGED" | jq -r '.CACHE_SCORER_WEIGHT // "3.0"')" > $(results.cache-scorer-weight.path)
+        echo -n "$(echo "$MERGED" | jq -r '.KV_CACHE_UTILIZATION_SCORER_WEIGHT // "2.0"')" > $(results.kv-cache-utilization-scorer-weight.path)
+        echo -n "$(echo "$MERGED" | jq -r '.QUEUE_SCORER_WEIGHT // "2.0"')" > $(results.queue-scorer-weight.path)
 
         echo "✓ Configuration merge completed successfully"

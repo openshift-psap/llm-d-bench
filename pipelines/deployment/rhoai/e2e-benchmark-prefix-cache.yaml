@@ -95,12 +95,17 @@ spec:
     - name: CACHE_SCORER_WEIGHT
       description: Weight for precise-prefix-cache-scorer in scheduling
       type: string
+      default: "3.0"
+
+    - name: KV_CACHE_UTILIZATION_SCORER_WEIGHT
+      description: Weight for kv-cache-utilization-scorer in scheduling
+      type: string
       default: "2.0"
 
-    - name: LOAD_SCORER_WEIGHT
-      description: Weight for load-aware-scorer in scheduling
+    - name: QUEUE_SCORER_WEIGHT
+      description: Weight for queue-scorer in scheduling
       type: string
-      default: "1.0"
+      default: "2.0"
 
     # Benchmark Configuration
     - name: IMAGE
@@ -390,8 +395,10 @@ spec:
           value: $(tasks.merge-configs.results.enable-cache-metrics)
         - name: CACHE_SCORER_WEIGHT
           value: $(tasks.merge-configs.results.cache-scorer-weight)
-        - name: LOAD_SCORER_WEIGHT
-          value: $(tasks.merge-configs.results.load-scorer-weight)
+        - name: KV_CACHE_UTILIZATION_SCORER_WEIGHT
+          value: $(tasks.merge-configs.results.kv-cache-utilization-scorer-weight)
+        - name: QUEUE_SCORER_WEIGHT
+          value: $(tasks.merge-configs.results.queue-scorer-weight)
         - name: VLLM_ARGS
           value: $(tasks.merge-configs.results.vllm-args)
         - name: SKIP_IF_EXISTS

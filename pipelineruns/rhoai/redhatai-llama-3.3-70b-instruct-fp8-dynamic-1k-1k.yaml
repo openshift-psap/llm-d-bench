@@ -18,6 +18,11 @@ spec:
   ttlSecondsAfterFinished: 3600
 
   params:
+    # - name: SKIP_BENCHMARK
+    #   value: "true"
+    - name: SKIP_CLEANUP
+      value: "true"
+
     - name: MODEL_NAME
       value: "RedHatAI/Llama-3.3-70B-Instruct-FP8-dynamic"
 
@@ -43,7 +48,8 @@ spec:
       value: "H200"
     - name: BENCHMARK_ENV_VARS
       value:
-        - "GUIDELLM__MAX_WORKER_PROCESSES=100"
+        # - "GUIDELLM__MAX_WORKER_PROCESSES=100"
+        - "GUIDELLM__LOGGING__CONSOLE_LOG_LEVEL=DEBUG"
         # - "MULTITURN=true"
 
     - name: MLFLOW_ENABLED
