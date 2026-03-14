@@ -9,6 +9,7 @@ dependencies = [
     "mlflow==3.7.0",
     "certifi==2025.7.9",
     "mistral-common",
+    "transformers>=5.0.0",
 ]
 
 [build-system]
