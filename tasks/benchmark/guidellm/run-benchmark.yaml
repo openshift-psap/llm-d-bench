@@ -61,6 +61,11 @@ spec:
       type: string
       default: ""
 
+    - name: GUIDELLM_REQUEST_TYPE
+      description: Request type for guidellm (e.g., completions). If empty, guidellm uses its default.
+      type: string
+      default: ""
+
     - name: ACCELERATOR
       description: Accelerator type tag (e.g., H200, A100)
       type: string
@@ -248,6 +253,7 @@ spec:
         [ -n "$(params.GUIDELLM_DATA)" ] && ARGS+=(--data "$(params.GUIDELLM_DATA)")
         [ -n "$(params.GUIDELLM_MAX_SECONDS)" ] && ARGS+=(--max-seconds "$(params.GUIDELLM_MAX_SECONDS)")
         [ -n "$(params.GUIDELLM_MAX_REQUESTS)" ] && ARGS+=(--max-requests "$(params.GUIDELLM_MAX_REQUESTS)")
+        [ -n "$(params.GUIDELLM_REQUEST_TYPE)" ] && ARGS+=(--request-type "$(params.GUIDELLM_REQUEST_TYPE)")
         [ -n "$(params.ACCELERATOR)" ] && ARGS+=(--accelerator "$(params.ACCELERATOR)")
         [ -n "$(params.VERSION)" ] && ARGS+=(--version "$(params.VERSION)")
         [ -n "$(params.TP)" ] && ARGS+=(--tp "$(params.TP)")

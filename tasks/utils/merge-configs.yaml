@@ -123,6 +123,8 @@ spec:
       description: GuideLLM max seconds
     - name: guidellm-max-requests
       description: GuideLLM max requests
+    - name: guidellm-request-type
+      description: GuideLLM request type
     - name: replicas
       description: Number of replicas (standard or inferred from deployment mode)
     - name: prefill-replicas
@@ -296,6 +298,7 @@ spec:
         echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_DATA // ""')" > $(results.guidellm-data.path)
         echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_MAX_SECONDS // ""')" > $(results.guidellm-max-seconds.path)
         echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_MAX_REQUESTS // ""')" > $(results.guidellm-max-requests.path)
+        echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_REQUEST_TYPE // ""')" > $(results.guidellm-request-type.path)
 
         # Replica parameters
         echo -n "$(echo "$MERGED" | jq -r '.REPLICAS // "1"')" > $(results.replicas.path)

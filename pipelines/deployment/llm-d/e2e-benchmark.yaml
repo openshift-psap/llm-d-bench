@@ -212,6 +212,11 @@ spec:
       type: string
       default: ""
 
+    - name: GUIDELLM_REQUEST_TYPE
+      description: Request type for guidellm (e.g., completions). If empty, guidellm uses its default.
+      type: string
+      default: ""
+
     - name: ACCELERATOR
       description: Accelerator type tag
       type: string
@@ -656,6 +661,8 @@ spec:
           value: $(tasks.merge-configs.results.guidellm-max-seconds)
         - name: GUIDELLM_MAX_REQUESTS
           value: $(tasks.merge-configs.results.guidellm-max-requests)
+        - name: GUIDELLM_REQUEST_TYPE
+          value: $(tasks.merge-configs.results.guidellm-request-type)
         - name: ACCELERATOR
           value: $(params.ACCELERATOR)
         - name: MLFLOW_EXPERIMENT_NAME
