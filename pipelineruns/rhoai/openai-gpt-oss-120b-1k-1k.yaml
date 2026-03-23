@@ -21,10 +21,10 @@ spec:
   params:
     # - name: SKIP_BENCHMARK
     #   value: "true"
-    - name: SKIP_DEPLOY
-      value: "true"
-    - name: SKIP_CLEANUP
-      value: "true"
+    # - name: SKIP_DEPLOY
+    #   value: "true"
+    # - name: SKIP_CLEANUP
+    #   value: "true"
 
     - name: MODEL_NAME
       value: "openai/gpt-oss-120b"
@@ -49,8 +49,8 @@ spec:
 
     - name: ACCELERATOR
       value: "H200"
-    - name: GUIDELLM_REQUEST_TYPE
-      value: "completions"
+    # - name: GUIDELLM_REQUEST_TYPE
+    #   value: "chat_completions"
 
     - name: BENCHMARK_ENV_VARS
       value:
@@ -65,7 +65,7 @@ spec:
       # value: "openai-gpt-oss-120b-heavy-heterogeneous"
       value: "openai-gpt-oss-120b-multiturn"
     - name: VERSION
-      value: "RHOAI-3.3-RC3"
+      value: "RHOAI-3.3"
     - name: MLFLOW_TAGS
       value:
         - "deployment=rhoai"
