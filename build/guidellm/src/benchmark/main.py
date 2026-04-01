@@ -468,6 +468,7 @@ def run_benchmark_with_mlflow(
     tp_size: int = 1,
     runtime_args: str = "",
     run_uuid: str = None,
+    parent_run_id: str = None,
 ) -> str:
     if mlflow_tracking_uri:
         mlflow.set_tracking_uri(mlflow_tracking_uri)
@@ -479,10 +480,13 @@ def run_benchmark_with_mlflow(
     logger.info(f"MLflow run name: {run_name}")
     if run_uuid:
         logger.info(f"Pipeline RUN_UUID for correlation: {run_uuid}")
+    if parent_run_id:
+        logger.info(f"Parent run ID (nested run): {parent_run_id}")
 
     logger.info(f"Starting benchmark sweep: rates={rate}")
 
-    with mlflow.start_run(run_name=run_name) as run:
+    # Create run - nested under parent if provided
+    with mlflow.start_run(run_name=run_name, nested=bool(parent_run_id)) as run:
         # Save MLflow run_id to file for finally block to append artifacts
         mlflow_run_id_file = "/tmp/mlflow_run_id.txt"
         with open(mlflow_run_id_file, "w") as f:
@@ -958,6 +962,10 @@ def main():
         help="Pipeline run UUID for tracking correlation. If provided, uses this as MLflow run name instead of auto-generating.",
     )
     parser.add_argument(
+        "--parent-run-id",
+        help="MLflow parent run ID for nested runs. Creates this run as a child of the parent.",
+    )
+    parser.add_argument(
         "--tp",
         type=int,
         default=1,
@@ -1136,6 +1144,7 @@ def main():
             tp_size=args.tp,
             runtime_args=args.runtime_args,
             run_uuid=args.run_uuid,
+            parent_run_id=args.parent_run_id,
         )
         logger.info("\nBenchmark sweep completed successfully.")
         logger.info(f"  MLflow Run ID: {run_id}")

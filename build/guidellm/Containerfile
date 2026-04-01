@@ -1,12 +1,13 @@
-ARG IMAGE_VERSION=v0.3.1
+ARG IMAGE_VERSION=v0.5.4
 FROM ghcr.io/vllm-project/guidellm:${IMAGE_VERSION}
 
 # XXX: Temporary fix to keep track of the GuideLLM version
-ENV GUIDELLM_VERSION=v0.3.1
+ENV GUIDELLM_VERSION=v0.5.4
 
 USER root
 
 RUN mkdir -p /tmp/.huggingface && chmod -R 777 /tmp/.huggingface
+ENV HF_HOME=/tmp/.huggingface
 
 COPY pyproject.toml .
 COPY src/ src/
