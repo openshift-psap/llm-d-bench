@@ -2,6 +2,9 @@
 
 Tekton pipelines for running LLM inference benchmarks on OpenShift with multiple deployment modes and benchmark tools.
 
+> [!WARNING]
+> This repository is archived and it is not maintained. For the time being, it is deprecated in favor of [Benchflow](httpts://github.com/albertoperdomo2/benchflow).
+
 ## What is llm-d-bench?
 
 llm-d-bench provides automated end-to-end benchmarking pipelines for LLM inference workloads. It supports:
