@@ -7,5 +7,6 @@ resources:
   - vllm-default.yaml
   - vllm-experts-parallel.yaml
   - vllm-fp8-cache.yaml
+  - vllm-pd-disaggregation.yaml
   - vllm-prefix-caching.yaml
   - vllm-prefix-caching-long.yaml

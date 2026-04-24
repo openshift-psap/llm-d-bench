@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: vllm-pd-disaggregation
+  namespace: llm-d-bench
+  annotations:
+    description: "vLLM config for PD disaggregation with NIXL KV transfer"
+  labels:
+    config-type: vllm
+data:
+  VLLM_ARGS: |
+    --block-size=128
+    --kv-transfer-config={"kv_connector":"NixlConnector","kv_role":"kv_both"}
+    --max-model-len=32000
+    --gpu-memory-utilization=0.92
+    --trust-remote-code
+    --disable-uvicorn-access-log
+    --disable-log-requests

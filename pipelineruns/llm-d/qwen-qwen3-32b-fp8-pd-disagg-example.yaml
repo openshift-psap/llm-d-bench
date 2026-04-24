@@ -1,0 +1,205 @@
+# ===========================================
+# llm-d PD Disaggregation Benchmark - Example
+# ===========================================
+# Demonstrates PD disaggregation deployment with GuideLLM benchmarking.
+# Parameters are organized by layer:
+#   - Workload: What load to generate (benchmark profile, concurrency)
+#   - SUT Config: How the inference stack is configured (PD mode, replicas, TP, vLLM args)
+#   - Environment: Where it runs (helmfile environment, RDMA, model storage)
+#
+# Prerequisites:
+#   - Cluster with minimum 48 GPUs for this config (16 prefill + 32 decode)
+#   - Istio gateway installed
+#   - For ibmcluster environment: DRA webhook installed, hostPath model cache at /var/mnt/modelcache
+#
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: qwen3-32b-fp8-pd-disagg-
+  labels:
+    app: llm-d-bench
+    pipeline: llm-d-end-to-end-benchmark
+    experiment: qwen3-32b-fp8-pd-disagg
+    benchmark-tool: guidellm
+    deployment-mode: llm-d-pd-disaggregation
+spec:
+  pipelineRef:
+    name: llm-d-end-to-end-benchmark
+
+  taskRunTemplate:
+    serviceAccountName: deploy-model-sa
+    # podTemplate:
+    #   labels:
+    #     # Kueue integration (optional)
+    #     kueue.x-k8s.io/queue-name: psap-releases-queue
+    #     kueue.x-k8s.io/priority-class: psap-releases
+
+  ttlSecondsAfterFinished: 3600
+
+  params:
+    # ===========================================
+    # Model Configuration
+    # ===========================================
+    - name: MODEL_NAME
+      # REQUIRED - HuggingFace model identifier
+      value: "Qwen/Qwen3-32B-FP8"
+
+    # ===========================================
+    # Workload Layer — What load to generate
+    # ===========================================
+    - name: BENCHMARK_CONFIG
+      # Benchmark workload profile
+      # Options:
+      #   - concurrent-1k-1k: 1k prompt/1k output tokens, rates 650-1
+      #   - concurrent-8k-1k: 8k prompt/1k output tokens, rates 650-1
+      #   - concurrent-8k-1k-pd: 8k/1k with PD concurrency sweep (25-4000), 420s per rate
+      value: "concurrent-8k-1k-pd"
+
+    # ===========================================
+    # SUT Config Layer — How the inference stack is configured
+    # ===========================================
+    - name: DEPLOYMENT_MODE
+      # REQUIRED for PD disaggregation
+      value: "pd-disaggregation"
+
+    - name: VLLM_CONFIG
+      # vLLM engine profile
+      # Options:
+      #   - vllm-default: Standard config (max-model-len=8192)
+      #   - vllm-pd-disaggregation: PD config with NIXL KV transfer, block-size=128, max-model-len=32000
+      value: "vllm-pd-disaggregation"
+
+    - name: DEPLOYMENT_CONFIG
+      # Deployment platform profile
+      value: "deployment-llm-d-pd-disaggregation"
+
+    - name: EPP_CONFIG
+      # EPP/GAIE scheduler profile for PD routing
+      value: "scheduler-pd-disaggregation"
+
+    - name: RELEASE_NAME
+      # REQUIRED - Unique deployment identifier
+      value: "qwen3-32b-pd"
+
+    - name: PREFILL_REPLICAS
+      # DEFAULT: "4"
+      # Number of prefill worker pods (low TP, high count for throughput)
+      value: "16"
+
+    - name: PREFILL_TP
+      # DEFAULT: "1"
+      # Tensor parallelism per prefill pod
+      value: "1"
+
+    - name: DECODE_REPLICAS
+      # DEFAULT: "1"
+      # Number of decode worker pods (high TP for latency)
+      value: "4"
+
+    - name: DECODE_TP
+      # DEFAULT: "4"
+      # Tensor parallelism per decode pod
+      # Total GPUs: (PREFILL_REPLICAS × PREFILL_TP) + (DECODE_REPLICAS × DECODE_TP)
+      #           = (16 × 1) + (4 × 8) = 48 GPUs
+      value: "8"
+
+    - name: PD_THRESHOLD
+      # DEFAULT: "0"
+      # 0 = always disaggregate, >0 = selective based on input length
+      value: "0"
+
+    - name: HASH_BLOCK_SIZE
+      # DEFAULT: "5"
+      # Hash block size for GAIE PD profiling
+      value: "5"
+
+    - name: TP
+      # Used for benchmark metadata/reporting
+      value: "8"
+
+    # ===========================================
+    # Environment Layer — Where it runs
+    # ===========================================
+    - name: GATEWAY_PROVIDER
+      # DEFAULT: "istio"
+      value: "istio"
+
+    - name: HELMFILE_ENVIRONMENT
+      # DEFAULT: "" (derived from GATEWAY_PROVIDER)
+      # Set to target cluster's helmfile environment
+      # Options: "", "ibmcluster", "xpu", "hpu", "aks", "amd", "gke"
+      # Example: "ibmcluster" loads ms-pd/values_ibmcluster.yaml with DRA resources
+      value: ""
+
+    - name: MODELSERVICE_IMAGE
+      # DEFAULT: "" (uses chart/values defaults)
+      # Override ModelService container image for prefill/decode pods
+      # Example: "ghcr.io/llm-d/llm-d-cuda:v0.5.1"
+      value: ""
+
+    - name: ENABLE_RDMA
+      # DEFAULT: "true"
+      # Set to "false" when using DRA webhook (DRA manages RDMA resources)
+      value: "true"
+
+    # - name: LLM_D_REPO_REF
+    #   # DEFAULT: from deployment profile (v0.4.0)
+    #   # Override llm-d repo ref for newer helmfile features
+    #   # Use "main" or specific tag with target environment support
+    #   value: "main"
+
+    # ===========================================
+    # MLflow Configuration
+    # ===========================================
+    - name: MLFLOW_ENABLED
+      value: "true"
+
+    - name: MLFLOW_EXPERIMENT_NAME
+      value: "qwen3-32b-fp8-pd-disaggregation"
+
+    - name: ACCELERATOR
+      # GPU type tag for MLflow
+      value: "H100"
+
+    - name: MLFLOW_TAGS
+      value:
+        - "deployment=llm-d"
+        - "benchmark-tool=guidellm"
+        - "deployment-mode=pd-disaggregation"
+
+    # ===========================================
+    # Stage Control
+    # ===========================================
+    - name: SKIP_DOWNLOAD
+      # Set to "true" if model is pre-cached (e.g., on hostPath)
+      value: "false"
+
+    - name: SKIP_DEPLOY
+      value: "false"
+
+    - name: SKIP_BENCHMARK
+      value: "false"
+
+    - name: SKIP_CLEANUP
+      value: "false"
+
+  timeouts:
+    pipeline: "4h"
+    tasks: "3h"
+
+  workspaces:
+    - name: models-storage
+      persistentVolumeClaim:
+        claimName: models-storage
+
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 1Gi
+
+    - name: results
+      emptyDir: {}

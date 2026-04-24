@@ -109,6 +109,18 @@ spec:
       type: string
       default: "true"
 
+    # Environment Configuration
+    - name: HELMFILE_ENVIRONMENT
+      description: "Helmfile environment override (e.g., ibmcluster, xpu, hpu, aks). When set, used as -e flag directly. When empty, derived from GATEWAY_PROVIDER."
+      type: string
+      default: ""
+
+    # Image Configuration
+    - name: MODELSERVICE_IMAGE
+      description: "Container image for prefill/decode ModelService pods (e.g., ghcr.io/llm-d/llm-d-cuda:v0.5.1). When empty, uses chart/values defaults."
+      type: string
+      default: ""
+
   workspaces:
     - name: source
       description: Workspace containing cloned llm-d repository (at llm-d-repo/)
@@ -236,9 +248,13 @@ spec:
         /tmp/yq -i '.prefill.containers[0].env = [.prefill.containers[0].env[] | select(.name != "CUDA_VISIBLE_DEVICES")]' $MS_VALUES_FILE
         /tmp/yq -i '.prefill.containers[0].env += [{"name": "CUDA_VISIBLE_DEVICES", "value": "'"$PREFILL_CUDA"'"}]' $MS_VALUES_FILE
 
-        # 2.5. Override prefill ModelService image
-        echo "  Setting prefill ModelService image to ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"
-        /tmp/yq -i '.prefill.containers[0].image = "ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"' $MS_VALUES_FILE
+        # 2.5. Override prefill ModelService image (if specified)
+        if [ -n "$(params.MODELSERVICE_IMAGE)" ]; then
+          echo "  Setting prefill ModelService image to $(params.MODELSERVICE_IMAGE)"
+          /tmp/yq -i '.prefill.containers[0].image = "$(params.MODELSERVICE_IMAGE)"' $MS_VALUES_FILE
+        else
+          echo "  Using chart/values default prefill image"
+        fi
 
         # 3. Decode Worker Configuration
         echo "  Configuring decode workers: $(params.DECODE_REPLICAS) replicas, TP=$(params.DECODE_TP)..."
@@ -259,9 +275,13 @@ spec:
         /tmp/yq -i '.decode.containers[0].env = [.decode.containers[0].env[] | select(.name != "CUDA_VISIBLE_DEVICES")]' $MS_VALUES_FILE
         /tmp/yq -i '.decode.containers[0].env += [{"name": "CUDA_VISIBLE_DEVICES", "value": "'"$DECODE_CUDA"'"}]' $MS_VALUES_FILE
 
-        # 3.5. Override decode ModelService image
-        echo "  Setting decode ModelService image to ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"
-        /tmp/yq -i '.decode.containers[0].image = "ghcr.io/llm-d/llm-d-cuda-dev:sha-3222272"' $MS_VALUES_FILE
+        # 3.5. Override decode ModelService image (if specified)
+        if [ -n "$(params.MODELSERVICE_IMAGE)" ]; then
+          echo "  Setting decode ModelService image to $(params.MODELSERVICE_IMAGE)"
+          /tmp/yq -i '.decode.containers[0].image = "$(params.MODELSERVICE_IMAGE)"' $MS_VALUES_FILE
+        else
+          echo "  Using chart/values default decode image"
+        fi
 
         # 4. Build complete args arrays for both prefill and decode (prevents duplicates)
         echo "  Building vLLM arguments arrays..."
@@ -391,25 +411,32 @@ spec:
           exit 1
         fi
 
-        # Determine environment flag based on gateway provider
+        # Determine environment flag
+        # HELMFILE_ENVIRONMENT takes precedence over GATEWAY_PROVIDER derivation
+        HELMFILE_ENVIRONMENT="$(params.HELMFILE_ENVIRONMENT)"
         ENV_FLAG=""
-        case "$GATEWAY_PROVIDER" in
-          istio)
-            ENV_FLAG=""  # Default is istio
-            ;;
-          kgateway)
-            ENV_FLAG="-e kgateway"
-            ;;
-          standalone)
-            ENV_FLAG="-e standalone"
-            ;;
-          gke)
-            ENV_FLAG="-e gke"
-            ;;
-          *)
-            echo "WARNING: Unknown gateway provider: $GATEWAY_PROVIDER, using default (istio)"
-            ;;
-        esac
+        if [ -n "$HELMFILE_ENVIRONMENT" ]; then
+          ENV_FLAG="-e $HELMFILE_ENVIRONMENT"
+          echo "Using helmfile environment: $HELMFILE_ENVIRONMENT"
+        else
+          case "$GATEWAY_PROVIDER" in
+            istio)
+              ENV_FLAG=""  # Default is istio
+              ;;
+            kgateway)
+              ENV_FLAG="-e kgateway"
+              ;;
+            standalone)
+              ENV_FLAG="-e standalone"
+              ;;
+            gke)
+              ENV_FLAG="-e gke"
+              ;;
+            *)
+              echo "WARNING: Unknown gateway provider: $GATEWAY_PROVIDER, using default (istio)"
+              ;;
+          esac
+        fi
 
         # Set release name postfix environment variable for helmfile
         export RELEASE_NAME_POSTFIX="$RELEASE_NAME"
