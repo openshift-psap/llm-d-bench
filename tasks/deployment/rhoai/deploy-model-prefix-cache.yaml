@@ -1,0 +1,345 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: deploy-rhoai-model-prefix-cache
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "Deploy Model as LLMInferenceService with Precise Prefix Caching"
+    tekton.dev/tags: model, deploy, kserve, vllm, prefix-cache, kv-events
+    tekton.dev/platforms: "linux/amd64"
+spec:
+  description: >-
+    Deploy a model from PVC as a KServe LLMInferenceService using vLLM with Precise Prefix Caching.
+    This task generates and applies the LLMInferenceService YAML manifest with scheduler configuration
+    for KV cache-aware routing. The scheduler tracks cache blocks across replicas and routes requests
+    to maximize cache hit rates.
+
+    Requires the deploy-model-sa service account to have permissions for LLMInferenceService resources.
+
+  params:
+    - name: MODEL_NAME
+      description: HuggingFace model identifier
+      type: string
+
+    - name: NAMESPACE
+      description: Namespace for deployment
+      type: string
+
+    - name: TP
+      description: Tensor parallelism size (number of GPUs per replica)
+      type: string
+      default: "1"
+
+    - name: REPLICAS
+      description: Number of replicas (minimum 2 recommended for cache routing)
+      type: string
+      default: "4"
+
+    - name: BLOCK_SIZE
+      description: KV cache block size (must match between vLLM and scheduler)
+      type: string
+      default: "64"
+
+    - name: HASH_SEED
+      description: Python hash seed for consistent hashing (must match between vLLM and scheduler)
+      type: string
+      default: "42"
+
+    - name: ZMQ_PORT
+      description: ZMQ port for KV-events communication
+      type: string
+      default: "5557"
+
+    - name: VLLM_ARGS
+      description: Additional vLLM arguments as newline-delimited string or array (from merge-configs)
+      type: string
+      default: ""
+
+    - name: SKIP_IF_EXISTS
+      description: Skip deployment if LLMInferenceService already exists
+      type: string
+      default: "true"
+
+    - name: ENABLE_AUTH
+      description: Enable authentication on the service
+      type: string
+      default: "false"
+
+    - name: CACHE_DIR
+      description: Base directory on PVC where models are stored
+      type: string
+      default: "/models"
+
+    - name: SCHEDULER_VERBOSITY
+      description: Scheduler logging verbosity level (0-10, higher = more verbose)
+      type: string
+      default: "4"
+
+    - name: ENABLE_CACHE_METRICS
+      description: Enable KV cache metrics logging
+      type: string
+      default: "true"
+
+    - name: CACHE_SCORER_WEIGHT
+      description: Weight for precise-prefix-cache-scorer in scheduling
+      type: string
+      default: "3.0"
+
+    - name: KV_CACHE_UTILIZATION_SCORER_WEIGHT
+      description: Weight for kv-cache-utilization-scorer in scheduling
+      type: string
+      default: "2.0"
+
+    - name: QUEUE_SCORER_WEIGHT
+      description: Weight for queue-scorer in scheduling
+      type: string
+      default: "2.0"
+
+  workspaces:
+    - name: models-storage
+      description: PVC containing downloaded models
+
+  steps:
+    - name: deploy-rhoai-model-prefix-cache
+      image: registry.redhat.io/openshift4/ose-cli:latest
+      workingDir: /tmp
+      env:
+        - name: VLLM_ARGS_INPUT
+          value: $(params.VLLM_ARGS)
+      script: |
+        #!/bin/bash
+        set -e
+
+        # Generate deployment name from model name
+        # Logic: lowercase | replace / with - | replace . with empty | trim suffix - | truncate to 42 chars
+        DEPLOYMENT_NAME=$(echo "$(params.MODEL_NAME)" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-42)
+
+        echo "=== RHOAI LLMInferenceService with Precise Prefix Caching ==="
+        echo "Deployment: $DEPLOYMENT_NAME"
+        echo "Namespace: $(params.NAMESPACE)"
+        echo "Model: $(params.MODEL_NAME)"
+        echo "Replicas: $(params.REPLICAS)"
+        echo "Block Size: $(params.BLOCK_SIZE)"
+        echo "Hash Seed: $(params.HASH_SEED)"
+        echo "ZMQ Port: $(params.ZMQ_PORT)"
+        echo ""
+
+        # Validate minimum replicas for cache routing
+        if [ "$(params.REPLICAS)" -lt 2 ]; then
+          echo "WARNING: Precise Prefix caching works best with 2+ replicas"
+          echo "         Current replicas: $(params.REPLICAS)"
+          echo ""
+        fi
+
+        if [ "$(params.SKIP_IF_EXISTS)" = "true" ]; then
+          if oc get llminferenceservice "$DEPLOYMENT_NAME" -n "$(params.NAMESPACE)" 2>/dev/null; then
+            echo "✓ LLMInferenceService $DEPLOYMENT_NAME already exists - skipping"
+            echo "  To force update, set SKIP_IF_EXISTS=false"
+            exit 0
+          fi
+        fi
+
+        MODEL_DIR_NAME=$(echo "$(params.MODEL_NAME)" | sed 's/\//-/g')
+        # Mount entire PVC to avoid subPath mount failures with NFS
+        MODEL_URI="pvc://models-storage"
+        # Full path on PVC where model is located
+        MODEL_PATH="/mnt/models$(params.CACHE_DIR)/${MODEL_DIR_NAME}"
+
+        echo "Configuration:"
+        echo "  Model URI: $MODEL_URI (entire PVC)"
+        echo "  Model Path: $MODEL_PATH"
+        echo "  TP (Tensor Parallel / GPU Count): $(params.TP)"
+        echo "  Scheduler Scorer Weights:"
+        echo "    - Precise Prefix Cache: $(params.CACHE_SCORER_WEIGHT)"
+        echo "    - KV Cache Utilization: $(params.KV_CACHE_UTILIZATION_SCORER_WEIGHT)"
+        echo "    - Queue: $(params.QUEUE_SCORER_WEIGHT)"
+        echo ""
+
+        # Build YAML args array for prefix caching + user args
+        VLLM_ARGS_YAML=""
+
+        # Add prefix caching args (8 spaces for proper YAML indentation)
+        VLLM_ARGS_YAML="${VLLM_ARGS_YAML}        - \"--enable-prefix-caching\"\n"
+        VLLM_ARGS_YAML="${VLLM_ARGS_YAML}        - \"--prefix-caching-hash-algo=sha256_cbor\"\n"
+        VLLM_ARGS_YAML="${VLLM_ARGS_YAML}        - \"--block-size=$(params.BLOCK_SIZE)\"\n"
+        # Use single quotes for kv-events-config to avoid escaping issues with JSON
+        KV_JSON="{\"enable_kv_cache_events\": true, \"publisher\": \"zmq\", \"endpoint\": \"tcp://${DEPLOYMENT_NAME}-epp-service:$(params.ZMQ_PORT)\", \"topic\": \"kv@\$(POD_IP)@\$(MODEL_NAME)\"}"
+        VLLM_ARGS_YAML="${VLLM_ARGS_YAML}        - '--kv-events-config=$KV_JSON'\n"
+
+        # Add user-specified args from profile
+        if [ -n "$VLLM_ARGS_INPUT" ]; then
+          echo "vLLM args from config profile:"
+          while IFS= read -r arg; do
+            arg=$(echo "$arg" | xargs)  # trim whitespace
+            if [ -n "$arg" ]; then
+              echo "  $arg"
+              VLLM_ARGS_YAML="${VLLM_ARGS_YAML}        - \"$arg\"\n"
+            fi
+          done <<< "$VLLM_ARGS_INPUT"
+          echo ""
+        fi
+
+        # Determine cache metrics interval (10s if enabled)
+        if [ "$(params.ENABLE_CACHE_METRICS)" = "true" ]; then
+          METRICS_INTERVAL="10000000000"  # 10 seconds in nanoseconds
+        else
+          METRICS_INTERVAL="0"
+        fi
+
+        # Generate LLMInferenceService YAML with Precise Prefix Caching
+        cat > /tmp/llm-inference-service.yaml <<EOF
+        apiVersion: serving.kserve.io/v1alpha1
+        kind: LLMInferenceService
+        metadata:
+          name: $DEPLOYMENT_NAME
+          namespace: $(params.NAMESPACE)
+          annotations:
+            security.opendatahub.io/enable-auth: "$(params.ENABLE_AUTH)"
+            serving.kserve.io/enable-prometheus-scraping: "true"
+            llm-d-bench/prefix-caching: "precise"
+            llm-d-bench/block-size: "$(params.BLOCK_SIZE)"
+            llm-d-bench/hash-seed: "$(params.HASH_SEED)"
+        spec:
+          model:
+            name: $(params.MODEL_NAME)
+            uri: ${MODEL_URI}
+          replicas: $(params.REPLICAS)
+          router:
+            scheduler:
+              template:
+                volumes:
+                - name: tokenizers
+                  emptyDir: {}
+                containers:
+                - name: main
+                  ports:
+                  - containerPort: $(params.ZMQ_PORT)
+                    name: zmq
+                    protocol: TCP
+                  args:
+                  - --v=$(params.SCHEDULER_VERBOSITY)
+                  - --pool-name
+                  - "{{ ChildName .ObjectMeta.Name \`-inference-pool\` }}"
+                  - --pool-namespace
+                  - "{{ .ObjectMeta.Namespace }}"
+                  - --pool-group
+                  - inference.networking.x-k8s.io
+                  - --zap-encoder
+                  - json
+                  - --grpc-port
+                  - "9002"
+                  - --grpc-health-port
+                  - "9003"
+                  - --secure-serving
+                  - --model-server-metrics-scheme
+                  - https
+                  - --model-server-metrics-https-insecure-skip-verify
+                  - --cert-path
+                  - /var/run/kserve/tls
+                  - --config-text
+                  - |
+                    apiVersion: inference.networking.x-k8s.io/v1alpha1
+                    kind: EndpointPickerConfig
+                    plugins:
+                    - type: single-profile-handler
+                    - type: precise-prefix-cache-scorer
+                      parameters:
+                        kvEventsConfig:
+                          zmqEndpoint: "tcp://*:$(params.ZMQ_PORT)"
+                          topicFilter: kv
+                        indexerConfig:
+                          tokenProcessorConfig:
+                            blockSize: $(params.BLOCK_SIZE)
+                            hashSeed: '$(params.HASH_SEED)'
+                          kvBlockIndexConfig:
+                            enableMetrics: $(params.ENABLE_CACHE_METRICS)
+                            metricsLoggingInterval: ${METRICS_INTERVAL}
+                          tokenizersPoolConfig:
+                            hf:
+                              tokenizersCacheDir: /mnt/tokenizers
+                    - type: kv-cache-utilization-scorer
+                    - type: queue-scorer
+                    - type: max-score-picker
+                    schedulingProfiles:
+                    - name: default
+                      plugins:
+                      - pluginRef: precise-prefix-cache-scorer
+                        weight: $(params.CACHE_SCORER_WEIGHT)
+                      - pluginRef: kv-cache-utilization-scorer
+                        weight: $(params.KV_CACHE_UTILIZATION_SCORER_WEIGHT)
+                      - pluginRef: queue-scorer
+                        weight: $(params.QUEUE_SCORER_WEIGHT)
+                      - pluginRef: max-score-picker
+                  env:
+                  - name: HF_HOME
+                    value: /mnt/tokenizers
+                  volumeMounts:
+                  - mountPath: /mnt/tokenizers
+                    name: tokenizers
+                  resources: {}
+            route: {}
+            gateway: {}
+          template:
+            containers:
+            - name: main
+              command: ["python3", "-m", "vllm.entrypoints.openai.api_server"]
+              args:
+                - "--port=8000"
+                - "--host=0.0.0.0"
+                - "--model=${MODEL_PATH}"
+                - "--served-model-name=$(params.MODEL_NAME)"
+                - "--tensor-parallel-size=$(params.TP)"
+                - "--enable-ssl-refresh"
+                - "--ssl-certfile=/var/run/kserve/tls/tls.crt"
+                - "--ssl-keyfile=/var/run/kserve/tls/tls.key"
+        $(echo -e "$VLLM_ARGS_YAML")
+              env:
+              - name: POD_IP
+                valueFrom:
+                  fieldRef:
+                    apiVersion: v1
+                    fieldPath: status.podIP
+              - name: MODEL_NAME
+                value: $(params.MODEL_NAME)
+              - name: PYTHONHASHSEED
+                value: "$(params.HASH_SEED)"
+              resources:
+                limits:
+                  nvidia.com/gpu: "$(params.TP)"
+                requests:
+                  nvidia.com/gpu: "$(params.TP)"
+              livenessProbe:
+                httpGet:
+                  path: /health
+                  port: 8000
+                  scheme: HTTPS
+                initialDelaySeconds: 400
+                periodSeconds: 10
+                timeoutSeconds: 10
+                successThreshold: 1
+                failureThreshold: 3
+        EOF
+
+        echo "Generated LLMInferenceService manifest:"
+        echo "========================================="
+        cat /tmp/llm-inference-service.yaml
+        echo "========================================="
+        echo ""
+
+        # Apply the manifest
+        echo "Applying manifest..."
+        oc apply -f /tmp/llm-inference-service.yaml
+
+        echo ""
+        echo "✓ Deployment created successfully!"
+        echo "  Service: $DEPLOYMENT_NAME"
+        echo "  Namespace: $(params.NAMESPACE)"
+        echo "  Mode: Precise Prefix Caching"
+        echo "  Scheduler: Configured with KV-events routing"
+        echo ""
+        echo "Next steps:"
+        echo "  1. Check status: oc get llminferenceservice $DEPLOYMENT_NAME -n $(params.NAMESPACE)"
+        echo "  2. View scheduler logs: oc logs -l serving.kserve.io/inferenceservice=$DEPLOYMENT_NAME -c main -n $(params.NAMESPACE) --selector=component=epp"
+        echo "  3. Monitor cache metrics in scheduler logs (every 10s if enabled)"
+        echo ""

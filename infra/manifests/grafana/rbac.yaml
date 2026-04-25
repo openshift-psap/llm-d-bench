@@ -1,0 +1,86 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: grafana
+  namespace: grafana
+  labels:
+    app.kubernetes.io/name: grafana
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: grafana-cluster-role
+  labels:
+    app.kubernetes.io/name: grafana
+rules:
+  # Read access to openshift-monitoring for Thanos queries
+  - apiGroups:
+      - ""
+    resources:
+      - namespaces
+    verbs:
+      - get
+      - list
+      - watch
+  # Access to view pod information (for pod variables in dashboards)
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+  # Access to view deployment information
+  - apiGroups:
+      - apps
+    resources:
+      - deployments
+    verbs:
+      - get
+      - list
+      - watch
+  # Allow querying Prometheus/Thanos directly (non-resource URLs)
+  - nonResourceURLs:
+      - /api/v1/query
+      - /api/v1/query_range
+    verbs:
+      - get
+  # Allow access to Prometheus API through Kubernetes API proxy
+  - apiGroups:
+      - monitoring.coreos.com
+    resources:
+      - prometheuses
+      - prometheuses/api
+      - prometheuses/status
+    verbs:
+      - get
+      - list
+      - watch
+      - proxy
+      - create
+  - apiGroups:
+      - ""
+    resources:
+      - services/proxy
+      - endpoints/proxy
+    verbs:
+      - get
+      - list
+      - watch
+      - proxy
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: grafana-cluster-rolebinding
+  labels:
+    app.kubernetes.io/name: grafana
+subjects:
+  - kind: ServiceAccount
+    name: grafana
+    namespace: grafana
+roleRef:
+  kind: ClusterRole
+  name: grafana-cluster-role
+  apiGroup: rbac.authorization.k8s.io

@@ -28,16 +28,6 @@ spec:
     - name: BENCHMARK_CONFIG
       value: "concurrent-1k-1k"
 
-    - name: VLLM_ARGS
-      value:
-        - "--max-model-len=8192"
-        - "--uvicorn-log-level=debug"
-        - "--trust-remote-code"
-        - "--gpu-memory-utilization=0.92"
-        - "--no-enable-prefix-caching"
-        - "--disable-log-requests"
-        - "--enable-expert-parallel"
-        - "--distributed-executor-backend=mp"
     - name: ENABLE_AUTH
       value: "false"
     - name: REPLICAS
@@ -56,7 +46,7 @@ spec:
     - name: MLFLOW_EXPERIMENT_NAME
       value: "redhatai-qwen3-235b-a22b-fp8-dynamic-1k-1k"
     - name: VERSION
-      value: "RHOAI-3.0"
+      value: "RHOAI-3.3-RC3"
     - name: MLFLOW_TAGS
       value:
         - "deployment=rhoai"
@@ -70,14 +60,10 @@ spec:
     - name: models-storage
       persistentVolumeClaim:
         claimName: models-storage
-    - name: source
-      volumeClaimTemplate:
-        spec:
-          accessModes:
-            - ReadWriteOnce
-          resources:
-            requests:
-              storage: 1Gi
 
     - name: results
+      persistentVolumeClaim:
+        claimName: collection-results
+
+    - name: manifests-storage
       emptyDir: {}

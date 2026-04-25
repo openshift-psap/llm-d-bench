@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: metrics-collection-default
+  namespace: llm-d-bench
+  annotations:
+    description: "Default metrics collection profile - core system metrics only"
+  labels:
+    config-type: metrics
+data:
+  # Collection settings
+  QUERY_STEP: "15s"
+  QUERY_TIMEOUT: "30s"
+  COLLECTION_MODE: "standard"
+  
+  # GPU Metrics
+  GPU_UTILIZATION: "DCGM_FI_DEV_GPU_UTIL"
+  GPU_MEMORY_USED: "DCGM_FI_DEV_FB_USED"
+  
+  # CPU/Memory Metrics  
+  CPU_USAGE: "container_cpu_usage_seconds_total"
+  MEMORY_WORKING_SET: "container_memory_working_set_bytes"
+  
+  # Network Metrics
+  NETWORK_RECEIVE_BYTES: "container_network_receive_bytes_total"
+  NETWORK_TRANSMIT_BYTES: "container_network_transmit_bytes_total"
+  
+  # Pod Status
+  POD_RESTARTS: "kube_pod_container_status_restarts_total"
+  
+  # vLLM Metrics (if available)
+  VLLM_ENABLED: "false"

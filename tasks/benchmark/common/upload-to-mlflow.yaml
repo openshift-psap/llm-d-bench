@@ -1,0 +1,234 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: upload-to-mlflow
+  labels:
+    app.kubernetes.io/version: "0.4"
+  annotations:
+    tekton.dev/displayName: "Upload to MLflow"
+spec:
+  description: >-
+    Upload collected artifacts (logs, manifests) to MLflow. Auto-discovers
+    the Grafana route from the cluster, generates a dashboard URL with the
+    benchmark time window, and sets it as an MLflow tag.
+
+  params:
+    - name: MLFLOW_RUN_ID
+      type: string
+    - name: NAMESPACE
+      type: string
+    - name: RELEASE_NAME
+      type: string
+    - name: BENCHMARK_START_TIME
+      type: string
+    - name: BENCHMARK_END_TIME
+      type: string
+    - name: GRAFANA_URL
+      description: Grafana base URL override (leave empty to auto-detect from cluster)
+      type: string
+      default: ""
+
+  workspaces:
+    - name: artifacts
+      description: Workspace containing collected artifacts (logs, manifests)
+
+  steps:
+    - name: discover-grafana
+      image: docker.io/bitnami/kubectl:latest
+      results:
+        - name: grafana-base-url
+          description: Discovered or provided Grafana base URL
+      script: |
+        #!/bin/bash
+        set -e
+
+        PROVIDED_URL="$(params.GRAFANA_URL)"
+
+        if [ -n "$PROVIDED_URL" ]; then
+          echo -n "$PROVIDED_URL" > $(step.results.grafana-base-url.path)
+          echo "Using provided Grafana URL: $PROVIDED_URL"
+          exit 0
+        fi
+
+        echo "Discovering Grafana URL from cluster..."
+        for NS in grafana openshift-monitoring; do
+          HOST=$(kubectl get route grafana -n "$NS" -o jsonpath='{.spec.host}' 2>/dev/null || true)
+          if [ -n "$HOST" ]; then
+            echo -n "https://$HOST" > $(step.results.grafana-base-url.path)
+            echo "Discovered Grafana URL: https://$HOST (namespace: $NS)"
+            exit 0
+          fi
+        done
+
+        echo "WARNING: Could not discover Grafana URL from cluster"
+        echo -n "" > $(step.results.grafana-base-url.path)
+
+    - name: upload
+      image: ghcr.io/openshift-psap/llm-d-bench/guidellm:pr-18
+      env:
+        - name: MLFLOW_RUN_ID
+          value: $(params.MLFLOW_RUN_ID)
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: RELEASE_NAME
+          value: $(params.RELEASE_NAME)
+        - name: BENCHMARK_START_TIME
+          value: $(params.BENCHMARK_START_TIME)
+        - name: BENCHMARK_END_TIME
+          value: $(params.BENCHMARK_END_TIME)
+        - name: GRAFANA_BASE_URL
+          value: $(steps.discover-grafana.results.grafana-base-url)
+        - name: MLFLOW_TRACKING_URI
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: tracking-uri
+              optional: true
+        - name: MLFLOW_TRACKING_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: username
+              optional: true
+        - name: MLFLOW_TRACKING_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-ui-auth
+              key: password
+              optional: true
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: access-key
+              optional: true
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: secret-key
+              optional: true
+        - name: AWS_DEFAULT_REGION
+          valueFrom:
+            secretKeyRef:
+              name: mlflow-s3-secret
+              key: region
+              optional: true
+        - name: MLFLOW_TRACKING_INSECURE_TLS
+          value: "true"
+      script: |
+        #!/usr/bin/env python3
+        import os
+        import sys
+        import shutil
+        from pathlib import Path
+        from datetime import datetime
+
+        run_id = os.environ.get('MLFLOW_RUN_ID', '')
+        tracking_uri = os.environ.get('MLFLOW_TRACKING_URI', '')
+        namespace = os.environ.get('NAMESPACE', '')
+        release_name = os.environ.get('RELEASE_NAME', '')
+        start_time = os.environ.get('BENCHMARK_START_TIME', '')
+        end_time = os.environ.get('BENCHMARK_END_TIME', '')
+        grafana_base_url = os.environ.get('GRAFANA_BASE_URL', '')
+        artifacts_path = "$(workspaces.artifacts.path)"
+
+        print(f"Configuration:")
+        print(f"  Run ID: {run_id}")
+        print(f"  Tracking URI: {tracking_uri}")
+        print(f"  Namespace: {namespace}")
+        print(f"  Release: {release_name}")
+        print(f"  Time range: {start_time} to {end_time}")
+        print(f"  Grafana Base URL: {grafana_base_url}")
+        print(f"  Artifacts path: {artifacts_path}")
+        print()
+
+        # Generate Grafana URL with time range
+        grafana_url = ""
+        missing = []
+        if not grafana_base_url:
+            missing.append("GRAFANA_BASE_URL")
+        if not start_time:
+            missing.append("BENCHMARK_START_TIME")
+        if not end_time:
+            missing.append("BENCHMARK_END_TIME")
+
+        if missing:
+            print(f"Skipping Grafana URL generation (missing: {', '.join(missing)})")
+        else:
+            try:
+                start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                end_dt = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+                start_ms = int(start_dt.timestamp() * 1000)
+                end_ms = int(end_dt.timestamp() * 1000)
+
+                grafana_url = (
+                    f"{grafana_base_url}/d/llm-d-bench"
+                    f"?var-namespace={namespace}"
+                    f"&var-release={release_name}"
+                    f"&from={start_ms}"
+                    f"&to={end_ms}"
+                    f"&var-run_id={run_id}"
+                )
+                print(f"Generated Grafana URL: {grafana_url}")
+            except Exception as e:
+                print(f"Failed to generate Grafana URL: {e}")
+
+        if not run_id or not tracking_uri:
+            print("MLflow not configured, skipping upload")
+            sys.exit(0)
+
+        import mlflow
+        mlflow.set_tracking_uri(tracking_uri)
+
+        if os.environ.get('MLFLOW_TRACKING_INSECURE_TLS', '').lower() == 'true':
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
+        client = mlflow.tracking.MlflowClient()
+
+        # Set Grafana URL tag
+        print("\nSetting MLflow tags...")
+        try:
+            if grafana_url:
+                client.set_tag(run_id, "grafana_url", grafana_url)
+                print(f"  grafana_url = {grafana_url}")
+            print("  Tags set")
+        except Exception as e:
+            print(f"  Failed to set tags: {e}")
+
+        # Upload artifacts (logs, manifests)
+        artifacts_dir = Path(artifacts_path)
+        if artifacts_dir.exists():
+            files = [f for f in artifacts_dir.rglob("*") if f.is_file()]
+            print(f"\nFound {len(files)} files in artifacts directory")
+            if files:
+                print("Uploading artifacts...")
+                for f in files:
+                    try:
+                        rel = f.relative_to(artifacts_path)
+                        artifact_path = str(rel.parent) if str(rel.parent) != "." else None
+                        client.log_artifact(run_id, str(f), artifact_path=artifact_path)
+                        print(f"  {rel}")
+                    except Exception as e:
+                        print(f"  FAILED {f.name}: {e}")
+            else:
+                print("  No files found in artifacts directory")
+        else:
+            print(f"\nArtifacts directory does not exist: {artifacts_path}")
+
+        # Cleanup: delete contents of artifacts directory (not the directory itself,
+        # since it's a mounted volume and removing it causes "Device or resource busy")
+        print("\nCleaning up workspace...")
+        try:
+            if artifacts_dir.exists():
+                for item in artifacts_dir.iterdir():
+                    if item.is_dir():
+                        shutil.rmtree(item)
+                    else:
+                        item.unlink()
+                print(f"  Cleaned: {artifacts_path}")
+        except Exception as e:
+            print(f"  Warning: cleanup failed: {e}")
+
+        print("\nDone")

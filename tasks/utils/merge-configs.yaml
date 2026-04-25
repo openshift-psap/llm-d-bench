@@ -123,6 +123,8 @@ spec:
       description: GuideLLM max seconds
     - name: guidellm-max-requests
       description: GuideLLM max requests
+    - name: guidellm-request-type
+      description: GuideLLM request type
     - name: replicas
       description: Number of replicas (standard or inferred from deployment mode)
     - name: prefill-replicas
@@ -133,10 +135,28 @@ spec:
       description: GuideLLM benchmark image
     - name: llm-d-repo-ref
       description: llm-d repository branch/tag/commit to use for git-clone
+    - name: release-name
+      description: Release name (provided or auto-derived from MODEL_NAME)
+    - name: block-size
+      description: KV cache block size for prefix caching
+    - name: hash-seed
+      description: Python hash seed for consistent hashing
+    - name: zmq-port
+      description: ZMQ port for KV-events communication
+    - name: scheduler-verbosity
+      description: Scheduler logging verbosity level
+    - name: enable-cache-metrics
+      description: Enable KV cache metrics logging
+    - name: cache-scorer-weight
+      description: Weight for precise-prefix-cache-scorer
+    - name: kv-cache-utilization-scorer-weight
+      description: Weight for kv-cache-utilization-scorer
+    - name: queue-scorer-weight
+      description: Weight for queue-scorer
 
   steps:
     - name: merge
-      image: bitnami/kubectl:latest
+      image: docker.io/bitnami/kubectl:latest
       script: |
         #!/bin/bash
         set -e
@@ -278,6 +298,7 @@ spec:
         echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_DATA // ""')" > $(results.guidellm-data.path)
         echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_MAX_SECONDS // ""')" > $(results.guidellm-max-seconds.path)
         echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_MAX_REQUESTS // ""')" > $(results.guidellm-max-requests.path)
+        echo -n "$(echo "$MERGED" | jq -r '.GUIDELLM_REQUEST_TYPE // ""')" > $(results.guidellm-request-type.path)
 
         # Replica parameters
         echo -n "$(echo "$MERGED" | jq -r '.REPLICAS // "1"')" > $(results.replicas.path)
@@ -285,9 +306,16 @@ spec:
         echo -n "$(echo "$MERGED" | jq -r '.DECODE_REPLICAS // "N/A"')" > $(results.decode-replicas.path)
 
         # Compute TARGET_URL
-        if [ -n "$(params.TARGET)" ]; then
-          echo "Using provided TARGET: $(params.TARGET)"
-          echo -n "$(params.TARGET)" > $(results.target-url.path)
+        # Check pipeline param first (highest precedence), then merged config
+        TARGET_PARAM="$(params.TARGET)"
+        TARGET_FROM_CONFIG=$(echo "$MERGED" | jq -r '.TARGET // ""')
+
+        if [ -n "$TARGET_PARAM" ]; then
+          echo "Using TARGET from pipeline parameter: $TARGET_PARAM"
+          echo -n "$TARGET_PARAM" > $(results.target-url.path)
+        elif [ -n "$TARGET_FROM_CONFIG" ]; then
+          echo "Using TARGET from config profile: $TARGET_FROM_CONFIG"
+          echo -n "$TARGET_FROM_CONFIG" > $(results.target-url.path)
         else
           # Get deployment type from merged config
           DEPLOYMENT_TYPE=$(echo "$MERGED" | jq -r '.DEPLOYMENT_TYPE // ""')
@@ -295,11 +323,19 @@ spec:
 
           case "$DEPLOYMENT_TYPE" in
             rhoai)
-              # RHOAI: Service name based on sanitized MODEL_NAME
+              # RHOAI: Query LLMInferenceService to get the gateway URL (routes through InferencePool and EPP scheduler)
               MODEL_NAME="$(params.MODEL_NAME)"
               DEPLOYMENT_NAME=$(echo "$MODEL_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-42)
-              TARGET_URL="http://${DEPLOYMENT_NAME}.${NAMESPACE}.svc.cluster.local:80"
-              echo "Computed TARGET_URL for RHOAI: $TARGET_URL"
+
+              # Get the URL from the LLMInferenceService status
+              TARGET_URL=$(kubectl get llminferenceservice "${DEPLOYMENT_NAME}" -n "${NAMESPACE}" -o jsonpath='{.status.url}' 2>/dev/null || echo "")
+
+              if [ -z "$TARGET_URL" ]; then
+                echo "Warning: Could not get URL from LLMInferenceService, falling back to default pattern"
+                TARGET_URL="https://inference-gateway.apps.psap-llmd-h200.ibm-rh-ai.rhperfscale.org/${NAMESPACE}/${DEPLOYMENT_NAME}"
+              fi
+
+              echo "Computed TARGET_URL for RHOAI (via gateway): $TARGET_URL"
               ;;
 
             rhaiis)
@@ -339,5 +375,25 @@ spec:
 
           echo -n "$TARGET_URL" > $(results.target-url.path)
         fi
+
+        # Emit release-name result
+        if [ -n "$(params.RELEASE_NAME)" ]; then
+          echo -n "$(params.RELEASE_NAME)" > $(results.release-name.path)
+        else
+          # Auto-derive from MODEL_NAME (same logic as RHOAI/RHAIIS deploy tasks)
+          DERIVED_NAME=$(echo "$(params.MODEL_NAME)" | tr '[:upper:]' '[:lower:]' | sed 's/\//-/g' | sed 's/\.//g' | sed 's/-$//' | cut -c1-42)
+          echo -n "$DERIVED_NAME" > $(results.release-name.path)
+        fi
+        echo "  Release Name: $(cat $(results.release-name.path))"
+
+        # Prefix cache parameters (with defaults)
+        echo -n "$(echo "$MERGED" | jq -r '.BLOCK_SIZE // "64"')" > $(results.block-size.path)
+        echo -n "$(echo "$MERGED" | jq -r '.HASH_SEED // "42"')" > $(results.hash-seed.path)
+        echo -n "$(echo "$MERGED" | jq -r '.ZMQ_PORT // "5557"')" > $(results.zmq-port.path)
+        echo -n "$(echo "$MERGED" | jq -r '.SCHEDULER_VERBOSITY // "4"')" > $(results.scheduler-verbosity.path)
+        echo -n "$(echo "$MERGED" | jq -r '.ENABLE_CACHE_METRICS // "true"')" > $(results.enable-cache-metrics.path)
+        echo -n "$(echo "$MERGED" | jq -r '.CACHE_SCORER_WEIGHT // "3.0"')" > $(results.cache-scorer-weight.path)
+        echo -n "$(echo "$MERGED" | jq -r '.KV_CACHE_UTILIZATION_SCORER_WEIGHT // "2.0"')" > $(results.kv-cache-utilization-scorer-weight.path)
+        echo -n "$(echo "$MERGED" | jq -r '.QUEUE_SCORER_WEIGHT // "2.0"')" > $(results.queue-scorer-weight.path)
 
         echo "✓ Configuration merge completed successfully"

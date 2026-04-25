@@ -4,6 +4,9 @@ results/**
 config/cluster/secrets/*.yaml
 !config/cluster/secrets/*.example.yaml
 
+infra/manifests/grafana/grafana-admin-credentials.yaml
+!infra/manifests/grafana/grafana-admin-credentials.example.yaml
+
 # Python
 __pycache__/
 *.py[cod]

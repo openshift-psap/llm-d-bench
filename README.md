@@ -94,7 +94,7 @@ See [docs/ADVANCED.md](docs/ADVANCED.md) for detailed configuration.
 
 Pre-built container images are available from GitHub Container Registry:
 
-- **GuideLLM**: `ghcr.io/openshift-psap/llm-d-bench/guidellm:latest`
+- **GuideLLM**: `ghcr.io/openshift-psap/llm-d-bench/guidellm:pr-18`
   - Load testing with configurable concurrency levels
   - Detailed latency and throughput metrics
 

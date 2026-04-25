@@ -10,7 +10,8 @@ metadata:
     deployment-mode: rhoai
 spec:
   pipelineRef:
-    name: rhoai-end-to-end-benchmark
+    name: rhoai-end-to-end-benchmark-prefix-cache
+    # name: rhoai-end-to-end-benchmark
 
   taskRunTemplate:
     serviceAccountName: deploy-model-sa
@@ -18,47 +19,59 @@ spec:
   ttlSecondsAfterFinished: 3600
 
   params:
+    # - name: SKIP_BENCHMARK
+    #   value: "true"
+    # - name: SKIP_DEPLOY
+    #   value: "true"
+    # - name: SKIP_CLEANUP
+    #   value: "true"
+
     - name: MODEL_NAME
       value: "openai/gpt-oss-120b"
 
     - name: VLLM_CONFIG
-      value: "vllm-default"
+      value: "vllm-prefix-caching-long"
+      # value: "vllm-prefix-caching"
     - name: DEPLOYMENT_CONFIG
-      value: "deployment-rhoai-kserve"
+      # value: "deployment-rhoai-kserve"
+      value: "deployment-rhoai-kserve-prefix-cache"
     - name: BENCHMARK_CONFIG
-      value: "concurrent-1k-1k"
+      # value: "concurrent-1k-1k"
+      # value: "heavy-heterogeneous"
+      value: "multi-turn"
 
-    - name: VLLM_ARGS
-      value:
-        - "--max-model-len=8192"
-        - "--uvicorn-log-level=debug"
-        - "--trust-remote-code"
-        - "--gpu-memory-utilization=0.92"
-        - "--no-enable-prefix-caching"
-        - "--disable-log-requests"
     - name: ENABLE_AUTH
       value: "false"
     - name: REPLICAS
-      value: "1"
-    - name: TP
       value: "4"
+    - name: TP
+      value: "2"
 
     - name: ACCELERATOR
       value: "H200"
+    # - name: GUIDELLM_REQUEST_TYPE
+    #   value: "chat_completions"
+
     - name: BENCHMARK_ENV_VARS
       value:
-        - "GUIDELLM__MAX_WORKER_PROCESSES=50"
+        # - "GUIDELLM__MAX_WORKER_PROCESSES=100"
+        - "GUIDELLM__LOGGING__CONSOLE_LOG_LEVEL=DEBUG"
+        - "MULTITURN=true"
 
     - name: MLFLOW_ENABLED
       value: "true"
     - name: MLFLOW_EXPERIMENT_NAME
-      value: "openai-gpt-oss-120b-1k-1k"
+      # value: "openai-gpt-oss-120b-1k-1k"
+      # value: "openai-gpt-oss-120b-heavy-heterogeneous"
+      value: "openai-gpt-oss-120b-multiturn"
     - name: VERSION
-      value: "RHOAI-3.0"
+      value: "RHOAI-3.3"
     - name: MLFLOW_TAGS
       value:
         - "deployment=rhoai"
         - "benchmark-tool=guidellm"
+        - "epp=precise-prefix-caching"
+        # - "epp=prefix-cache-estimation"
 
   timeouts:
     pipeline: "2h"
@@ -68,14 +81,10 @@ spec:
     - name: models-storage
       persistentVolumeClaim:
         claimName: models-storage
-    - name: source
-      volumeClaimTemplate:
-        spec:
-          accessModes:
-            - ReadWriteOnce
-          resources:
-            requests:
-              storage: 1Gi
 
     - name: results
+      persistentVolumeClaim:
+        claimName: collection-results
+
+    - name: manifests-storage
       emptyDir: {}

@@ -5,3 +5,4 @@ namespace: llm-d-bench
 
 resources:
   - kserve.yaml
+  - kserve-prefix-cache.yaml

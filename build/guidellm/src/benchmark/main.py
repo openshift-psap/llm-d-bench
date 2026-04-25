@@ -257,6 +257,7 @@ def run_guidellm_cli(
     max_seconds=None,
     max_requests=None,
     processor: str = None,
+    request_type: str = None,
     output_path: str = "benchmark_output.json",
 ) -> tuple[str, str]:
     cmd = [
@@ -289,6 +290,8 @@ def run_guidellm_cli(
         cmd.extend(["--max-requests", str(max_requests)])
     if processor:
         cmd.extend(["--processor", processor])
+    if request_type:
+        cmd.extend(["--request-type", request_type])
 
     logger.info(f"Running guidellm command: {' '.join(cmd)}")
 
@@ -419,6 +422,7 @@ def _run_and_process_benchmark(
     tp_size: int,
     runtime_args: str,
     replicas: int = 1,
+    request_type: str = None,
 ) -> tuple:
     """Helper to run guidellm and process results."""
     Path(output_dir).mkdir(parents=True, exist_ok=True)
@@ -434,6 +438,7 @@ def _run_and_process_benchmark(
         max_seconds=max_seconds,
         max_requests=max_requests,
         processor=processor,
+        request_type=request_type,
         output_path=output_json,
     )
 
@@ -480,6 +485,7 @@ def run_benchmark_without_mlflow(
     tp_size: int = 1,
     runtime_args: str = "",
     replicas: int = 1,
+    request_type: str = None,
 ) -> str:
     """Run benchmark without MLflow tracking, saving results to specified directory."""
     logger.info("Running benchmark without MLflow tracking")
@@ -502,6 +508,7 @@ def run_benchmark_without_mlflow(
         tp_size=tp_size,
         runtime_args=runtime_args,
         replicas=replicas,
+        request_type=request_type,
     )
 
     for i, benchmark in enumerate(benchmarks):
@@ -540,6 +547,7 @@ def run_benchmark_with_mlflow(
     replicas: str = "N/A",
     prefill_replicas: str = "N/A",
     decode_replicas: str = "N/A",
+    request_type: str = None,
 ) -> str:
     if mlflow_tracking_uri:
         mlflow.set_tracking_uri(mlflow_tracking_uri)
@@ -550,8 +558,13 @@ def run_benchmark_with_mlflow(
     multiturn_mode = os.environ.get("MULTITURN", "false").lower() == "true"
 
     # Run name for the whole sweep
-    mode_suffix = "multiturn" if multiturn_mode else "sweep"
-    run_name = f"{model.split('/')[-1]}_{mode_suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    # Use PipelineRun name if provided (Tekton integration), otherwise generate one
+    pipeline_run_name = os.environ.get("PIPELINE_RUN_NAME", "")
+    if pipeline_run_name:
+        run_name = pipeline_run_name
+    else:
+        mode_suffix = "multiturn" if multiturn_mode else "sweep"
+        run_name = f"{model.split('/')[-1]}_{mode_suffix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
     logger.info(f"Starting benchmark sweep: rates={rate}")
     if multiturn_mode:
@@ -608,6 +621,8 @@ def run_benchmark_with_mlflow(
                 "vllm": vllm_version,
                 "guidellm": guidellm_version,
             }
+            if pipeline_run_name:
+                default_tags["pipeline_run"] = pipeline_run_name
             if accelerator:
                 default_tags["accelerator"] = accelerator
             if tags:
@@ -668,6 +683,7 @@ def run_benchmark_with_mlflow(
                             max_seconds=parsed_max_seconds,
                             max_requests=parsed_max_requests,
                             processor=processor,
+                            request_type=request_type,
                             output_path=output_json,
                         )
 
@@ -747,6 +763,7 @@ def run_benchmark_with_mlflow(
                     tp_size=tp_size,
                     runtime_args=runtime_args,
                     replicas=int(replicas) if replicas != "N/A" else 1,
+                    request_type=request_type,
                 )
 
                 if not benchmarks:
@@ -1304,6 +1321,7 @@ def main():
         help="Max number of requests (supports expressions like '10*concurrency' in MULTITURN mode)",
     )
     parser.add_argument("--processor", help="Processor/tokenizer name")
+    parser.add_argument("--request-type", help="Request type for guidellm (e.g., completions)")
 
     parser.add_argument("--accelerator", help="Accelerator type (e.g., H200, A100)")
     parser.add_argument(
@@ -1341,7 +1359,11 @@ def main():
         default="guidellm-benchmarks",
         help="MLflow experiment name",
     )
-    parser.add_argument("--mlflow-tracking-uri", help="MLflow tracking URI")
+    parser.add_argument(
+        "--mlflow-tracking-uri",
+        default=os.environ.get("MLFLOW_TRACKING_URI"),
+        help="MLflow tracking URI (defaults to MLFLOW_TRACKING_URI environment variable)",
+    )
     parser.add_argument(
         "--tag", action="append", dest="tags", help="Additional tags (key=value)"
     )
@@ -1501,6 +1523,7 @@ def main():
                 version=args.version,
                 tp_size=args.tp,
                 runtime_args=args.runtime_args,
+                request_type=args.request_type,
             )
             logger.info("\nBenchmark completed successfully.")
             logger.info(f"  Results saved to: {json_path}")
@@ -1531,6 +1554,7 @@ def main():
             replicas=args.replicas,
             prefill_replicas=args.prefill_replicas,
             decode_replicas=args.decode_replicas,
+            request_type=args.request_type,
         )
         logger.info("\nBenchmark sweep completed successfully.")
         logger.info(f"  MLflow Run ID: {run_id}")

@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: collection-results
+  labels:
+    app: llm-d-bench
+    type: workspace
+spec:
+  accessModes:
+    - ReadWriteOnce  # TopoLVM only supports RWO; affinity-assistant ensures tasks run on same node
+  resources:
+    requests:
+      storage: 10Gi
+---
+# This PVC is used for sharing artifacts and metrics between pipeline tasks
+#
+# Used by:
+#   - collect-artifacts task (saves pod logs and manifests)
+#   - collect-system-metrics task (saves Prometheus metrics)  
+#   - upload-to-mlflow task (reads and uploads to MLflow)
+#
+# Directory structure:
+#   /collection-results/
+#     ├── artifacts/
+#     │   ├── logs/
+#     │   ├── manifests/
+#     │   └── state/
+#     └── metrics/
+#         └── *.json files
+#
+# Must use ReadWriteMany (RWX) to allow multiple tasks to access simultaneously
+#
+# To access collection data:
+#   1. Create a pod with the PVC mounted
+#   2. Use oc cp to retrieve files
+#   3. Or use oc rsh to browse the filesystem
+#
+# Example:
+#   oc run -it --rm view-collection --image=registry.access.redhat.com/ubi9/ubi:latest \
+#     --overrides='{"spec":{"volumes":[{"name":"collection","persistentVolumeClaim":{"claimName":"collection-results"}}],"containers":[{"name":"view-collection","image":"registry.access.redhat.com/ubi9/ubi:latest","command":["sh"],"volumeMounts":[{"name":"collection","mountPath":"/collection"}]}]}}'

@@ -51,7 +51,7 @@ spec:
 
   steps:
     - name: clone
-      image: alpine/git:latest
+      image: docker.io/alpine/git:latest
       env:
         - name: HOME
           value: /tmp

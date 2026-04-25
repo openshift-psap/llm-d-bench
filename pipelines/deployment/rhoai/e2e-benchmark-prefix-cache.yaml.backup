@@ -1,0 +1,579 @@
+apiVersion: tekton.dev/v1
+kind: Pipeline
+metadata:
+  name: rhoai-end-to-end-benchmark
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "RHOAI End-to-End Benchmark"
+    tekton.dev/tags: benchmark, llm, lifecycle, rhoai
+spec:
+  description: >-
+    Complete model lifecycle pipeline: download model from HuggingFace, deploy
+    as LLMInferenceService, run benchmark, and cleanup deployment. Each stage
+    can be optionally skipped via parameters.
+
+  params:
+    # Profile References
+    - name: VLLM_CONFIG
+      description: vLLM profile ConfigMap name (e.g., vllm-default, vllm-fp8-cache)
+      type: string
+      default: ""
+
+    - name: DEPLOYMENT_CONFIG
+      description: Deployment profile ConfigMap name (e.g., deployment-rhoai-kserve)
+      type: string
+      default: ""
+
+    - name: BENCHMARK_CONFIG
+      description: Benchmark profile ConfigMap name (e.g., concurrent-1k-1k, concurrent-8k-1k)
+      type: string
+      default: ""
+
+    # Model Configuration
+    - name: MODEL_NAME
+      description: HuggingFace model identifier (e.g., meta-llama/Llama-3.1-8B)
+      type: string
+
+    - name: MODEL_REVISION
+      description: Model revision to download (git branch/tag/commit)
+      type: string
+      default: "main"
+
+    # Deployment Configuration
+    - name: NAMESPACE
+      description: Namespace for deployment
+      type: string
+      default: "llm-d-bench"
+
+    - name: ENABLE_AUTH
+      description: Enable authentication on the service
+      type: string
+      default: "false"
+
+    - name: REPLICAS
+      description: Number of replicas
+      type: string
+      default: "1"
+
+    - name: PREFILL_REPLICAS
+      description: Number of prefill worker replicas for P/D disaggregation
+      type: string
+      default: ""
+
+    - name: DECODE_REPLICAS
+      description: Number of decode worker replicas for P/D disaggregation
+      type: string
+      default: ""
+
+    # Benchmark Configuration
+    - name: IMAGE
+      description: |
+        Full URL of the GuideLLM custom image.
+        The namespace portion (/llm-d-bench/) should match the namespace where the image was built.
+        If building in a different namespace, override this parameter accordingly.
+        Example: image-registry.openshift-image-registry.svc:5000/<your-namespace>/guidellm-custom:latest
+      type: string
+      default: "image-registry.openshift-image-registry.svc:5000/llm-d-bench/guidellm-custom:latest"
+
+    - name: TARGET
+      description: Target inference endpoint URL (auto-computed based on MODEL_NAME if empty)
+      type: string
+      default: ""
+
+    # GuideLLM-specific Parameters (all optional)
+    - name: GUIDELLM_PROCESSOR
+      description: Tokenizer/processor model name (GuideLLM only, optional)
+      type: string
+      default: ""
+
+    - name: GUIDELLM_BACKEND_TYPE
+      description: Backend type for the inference server (GuideLLM only)
+      type: string
+      default: ""
+
+    - name: GUIDELLM_RATE_TYPE
+      description: Rate strategy - concurrent or synchronous (GuideLLM only)
+      type: string
+      default: ""
+
+    - name: GUIDELLM_RATE
+      description: Comma-separated list of rates to test (GuideLLM only)
+      type: string
+      default: ""
+
+    - name: GUIDELLM_DATA
+      description: Request data profile (GuideLLM only)
+      type: string
+      default: ""
+
+    - name: GUIDELLM_MAX_SECONDS
+      description: Maximum duration per rate in seconds (GuideLLM only)
+      type: string
+      default: ""
+
+    - name: GUIDELLM_MAX_REQUESTS
+      description: Maximum number of requests per rate (GuideLLM only, optional)
+      type: string
+      default: ""
+
+    - name: ACCELERATOR
+      description: Accelerator type tag
+      type: string
+      default: ""
+
+    - name: MLFLOW_EXPERIMENT_NAME
+      description: MLflow experiment name
+      type: string
+      default: "guidellm-benchmarks"
+
+    - name: MLFLOW_ENABLED
+      description: Enable MLflow tracking
+      type: string
+      default: "false"
+
+    - name: MLFLOW_TAGS
+      description: Additional tags as array of key=value pairs (e.g., ["version=3.0", "team=ai"])
+      type: array
+      default: []
+
+    - name: VERSION
+      description: Version identifier for visualization reports
+      type: string
+      default: ""
+
+    - name: TP
+      description: Tensor parallelism size (number of GPUs for deployment and benchmark)
+      type: string
+      default: "1"
+
+    - name: BENCHMARK_ENV_VARS
+      description: Additional environment variables for the benchmark container as array of name=value pairs
+      type: array
+      default: []
+
+    # MLPerf-specific Parameters (all optional)
+    - name: MLPERF_DATASET_NAME
+      description: Dataset filename (MLPerf only, e.g., "cnn_eval.json")
+      type: string
+      default: ""
+
+    - name: MLPERF_SCENARIO
+      description: MLPerf scenario - Offline, Server, SingleStream, MultiStream (MLPerf only)
+      type: string
+      default: ""
+
+    - name: MLPERF_TEST_MODE
+      description: MLPerf test mode - accuracy or performance (MLPerf only)
+      type: string
+      default: ""
+
+    - name: MLPERF_BATCH_SIZE
+      description: Batch size for inference (MLPerf only)
+      type: string
+      default: ""
+
+    - name: MLPERF_NUM_SAMPLES
+      description: Number of samples to process (MLPerf only)
+      type: string
+      default: ""
+
+    - name: MLPERF_OUTPUT_DIR
+      description: Output directory for results (MLPerf only)
+      type: string
+      default: ""
+
+    - name: MLPERF_SERVER_TARGET_QPS
+      description: Target QPS for Server scenario (MLPerf only)
+      type: string
+      default: ""
+
+    # Health Check Configuration
+    - name: HEALTH_CHECK_TIMEOUT
+      description: Endpoint health check timeout in seconds
+      type: string
+      default: "3600"
+
+    # Metrics and Artifact Collection
+    - name: METRICS_ENABLED
+      description: Enable artifact collection and MLflow upload
+      type: string
+      default: "true"
+
+    - name: METRICS_CONFIG
+      description: Metrics collection profile ConfigMap name
+      type: string
+      default: "metrics-collection-default"
+
+    - name: GRAFANA_URL
+      description: Grafana URL for dashboard links (leave empty to auto-detect from cluster)
+      type: string
+      default: ""
+
+    # Stage Control Parameters
+    - name: SKIP_DOWNLOAD
+      description: Skip model download stage
+      type: string
+      default: "false"
+
+    - name: SKIP_DEPLOY
+      description: Skip model deployment stage
+      type: string
+      default: "false"
+
+    - name: SKIP_BENCHMARK
+      description: Skip benchmark execution stage
+      type: string
+      default: "false"
+
+    - name: SKIP_CLEANUP
+      description: Skip deployment cleanup stage
+      type: string
+      default: "false"
+
+  workspaces:
+    - name: models-storage
+      description: PVC for model storage (required for download and deploy stages)
+
+    - name: results
+      description: PVC for benchmark results and collected artifacts
+
+    - name: manifests-storage
+      description: Workspace for rendered manifests and ConfigMaps
+      optional: true
+
+  tasks:
+    # Stage 0: Merge Configuration Profiles
+    - name: merge-configs
+      taskRef:
+        name: merge-configs
+      params:
+        - name: VLLM_CONFIG
+          value: $(params.VLLM_CONFIG)
+        - name: DEPLOYMENT_CONFIG
+          value: $(params.DEPLOYMENT_CONFIG)
+        - name: BENCHMARK_CONFIG
+          value: $(params.BENCHMARK_CONFIG)
+        - name: EPP_CONFIG
+          value: ""
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: MODEL_NAME
+          value: $(params.MODEL_NAME)
+        - name: MODEL_REVISION
+          value: $(params.MODEL_REVISION)
+        - name: TP
+          value: $(params.TP)
+        - name: REPLICAS
+          value: $(params.REPLICAS)
+        - name: ACCELERATOR
+          value: $(params.ACCELERATOR)
+        - name: RELEASE_NAME
+          value: ""
+        - name: MLFLOW_EXPERIMENT_NAME
+          value: $(params.MLFLOW_EXPERIMENT_NAME)
+        - name: GATEWAY_PROVIDER
+          value: "istio"
+        - name: TARGET
+          value: $(params.TARGET)
+        - name: IMAGE
+          value: $(params.IMAGE)
+
+    # Stage 0b: Export ConfigMaps to workspace
+    - name: export-configmaps
+      runAfter:
+        - merge-configs
+      taskRef:
+        name: export-configmaps
+      params:
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: VLLM_CONFIG
+          value: $(params.VLLM_CONFIG)
+        - name: DEPLOYMENT_CONFIG
+          value: $(params.DEPLOYMENT_CONFIG)
+        - name: BENCHMARK_CONFIG
+          value: $(params.BENCHMARK_CONFIG)
+        - name: EPP_CONFIG
+          value: ""
+        - name: METRICS_CONFIG
+          value: $(params.METRICS_CONFIG)
+      workspaces:
+        - name: manifests-storage
+          workspace: manifests-storage
+
+    # Stage 1: Download Model
+    - name: download-model
+      runAfter:
+        - merge-configs
+      when:
+        - input: "$(params.SKIP_DOWNLOAD)"
+          operator: in
+          values: ["false"]
+      taskRef:
+        name: download-model
+      params:
+        - name: MODEL_NAME
+          value: $(params.MODEL_NAME)
+        - name: MODEL_REVISION
+          value: $(params.MODEL_REVISION)
+        - name: SKIP_IF_EXISTS
+          value: "true"
+      workspaces:
+        - name: models-storage
+          workspace: models-storage
+
+    # Stage 2: Deploy Model
+    - name: deploy-rhoai-model
+      runAfter:
+        - download-model
+      when:
+        - input: "$(params.SKIP_DEPLOY)"
+          operator: in
+          values: ["false"]
+      taskRef:
+        name: deploy-rhoai-model
+      params:
+        - name: MODEL_NAME
+          value: $(params.MODEL_NAME)
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: TP
+          value: $(params.TP)
+        - name: VLLM_ARGS
+          value: $(tasks.merge-configs.results.vllm-args)
+        - name: SKIP_IF_EXISTS
+          value: "true"
+        - name: ENABLE_AUTH
+          value: $(params.ENABLE_AUTH)
+        - name: REPLICAS
+          value: $(params.REPLICAS)
+      workspaces:
+        - name: models-storage
+          workspace: models-storage
+
+    # Stage 3: Wait for Endpoint
+    - name: wait-for-endpoint
+      runAfter:
+        - deploy-rhoai-model
+      when:
+        - input: "$(params.SKIP_BENCHMARK)"
+          operator: in
+          values: ["false"]
+      taskRef:
+        name: wait-for-endpoint
+      params:
+        - name: TARGET_URL
+          value: $(tasks.merge-configs.results.target-url)
+        - name: ENDPOINT_PATH
+          value: "/v1/models"
+        - name: TIMEOUT_SECONDS
+          value: $(params.HEALTH_CHECK_TIMEOUT)
+        - name: RETRY_INTERVAL
+          value: "10"
+        - name: VERIFY_TLS
+          value: "false"
+
+    # Stage 3b: Detect Benchmark Type
+    - name: detect-benchmark-type
+      runAfter:
+        - wait-for-endpoint
+      when:
+        - input: "$(params.SKIP_BENCHMARK)"
+          operator: in
+          values: ["false"]
+      taskRef:
+        name: detect-benchmark-type
+      params:
+        - name: IMAGE
+          value: $(params.IMAGE)
+
+    # Stage 4a: Run GuideLLM Benchmark (if IMAGE doesn't contain "mlperf")
+    - name: run-guidellm-benchmark
+      runAfter:
+        - detect-benchmark-type
+      when:
+        - input: "$(params.SKIP_BENCHMARK)"
+          operator: in
+          values: ["false"]
+        - input: "$(tasks.detect-benchmark-type.results.BENCHMARK_TYPE)"
+          operator: in
+          values: ["guidellm"]
+      timeout: "2h"
+      taskRef:
+        name: run-guidellm-benchmark
+      params:
+        - name: IMAGE
+          value: $(params.IMAGE)
+        - name: TARGET
+          value: $(tasks.merge-configs.results.target-url)
+        - name: MODEL
+          value: $(params.MODEL_NAME)
+        - name: GUIDELLM_PROCESSOR
+          value: $(tasks.merge-configs.results.guidellm-processor)
+        - name: GUIDELLM_BACKEND_TYPE
+          value: $(tasks.merge-configs.results.guidellm-backend-type)
+        - name: GUIDELLM_RATE_TYPE
+          value: $(tasks.merge-configs.results.guidellm-rate-type)
+        - name: GUIDELLM_RATE
+          value: $(tasks.merge-configs.results.guidellm-rate)
+        - name: GUIDELLM_DATA
+          value: $(tasks.merge-configs.results.guidellm-data)
+        - name: GUIDELLM_MAX_SECONDS
+          value: $(tasks.merge-configs.results.guidellm-max-seconds)
+        - name: GUIDELLM_MAX_REQUESTS
+          value: $(tasks.merge-configs.results.guidellm-max-requests)
+        - name: ACCELERATOR
+          value: $(params.ACCELERATOR)
+        - name: MLFLOW_EXPERIMENT_NAME
+          value: $(params.MLFLOW_EXPERIMENT_NAME)
+        - name: MLFLOW_ENABLED
+          value: $(params.MLFLOW_ENABLED)
+        - name: MLFLOW_TAGS
+          value: $(params.MLFLOW_TAGS[*])
+        - name: VERSION
+          value: $(params.VERSION)
+        - name: TP
+          value: $(params.TP)
+        - name: REPLICAS
+          value: $(tasks.merge-configs.results.replicas)
+        - name: PREFILL_REPLICAS
+          value: $(tasks.merge-configs.results.prefill-replicas)
+        - name: DECODE_REPLICAS
+          value: $(tasks.merge-configs.results.decode-replicas)
+        - name: BENCHMARK_ENV_VARS
+          value: $(params.BENCHMARK_ENV_VARS[*])
+        - name: PIPELINE_RUN_NAME
+          value: "$(context.pipelineRun.name)"
+      workspaces:
+        - name: results
+          workspace: results
+
+    # Stage 4b: Run MLPerf Benchmark (if IMAGE contains "mlperf")
+    - name: run-mlperf-benchmark
+      runAfter:
+        - detect-benchmark-type
+      when:
+        - input: "$(params.SKIP_BENCHMARK)"
+          operator: in
+          values: ["false"]
+        - input: "$(tasks.detect-benchmark-type.results.BENCHMARK_TYPE)"
+          operator: in
+          values: ["mlperf"]
+      timeout: "2h"
+      taskRef:
+        name: run-mlperf-benchmark
+      params:
+        - name: IMAGE
+          value: $(params.IMAGE)
+        - name: TARGET
+          value: $(tasks.merge-configs.results.target-url)
+        - name: MODEL
+          value: $(params.MODEL_NAME)
+        - name: ACCELERATOR
+          value: $(params.ACCELERATOR)
+        - name: MLFLOW_EXPERIMENT_NAME
+          value: $(params.MLFLOW_EXPERIMENT_NAME)
+        - name: MLFLOW_ENABLED
+          value: $(params.MLFLOW_ENABLED)
+        - name: MLFLOW_TAGS
+          value: $(params.MLFLOW_TAGS[*])
+        - name: VERSION
+          value: $(params.VERSION)
+        - name: TP
+          value: $(params.TP)
+        - name: BENCHMARK_ENV_VARS
+          value: $(params.BENCHMARK_ENV_VARS[*])
+        - name: MLPERF_DATASET_NAME
+          value: $(params.MLPERF_DATASET_NAME)
+        - name: MLPERF_SCENARIO
+          value: $(params.MLPERF_SCENARIO)
+        - name: MLPERF_TEST_MODE
+          value: $(params.MLPERF_TEST_MODE)
+        - name: MLPERF_BATCH_SIZE
+          value: $(params.MLPERF_BATCH_SIZE)
+        - name: MLPERF_NUM_SAMPLES
+          value: $(params.MLPERF_NUM_SAMPLES)
+        - name: MLPERF_OUTPUT_DIR
+          value: $(params.MLPERF_OUTPUT_DIR)
+        - name: MLPERF_SERVER_TARGET_QPS
+          value: $(params.MLPERF_SERVER_TARGET_QPS)
+      workspaces:
+        - name: models-storage
+          workspace: models-storage
+        - name: results
+          workspace: results
+
+    # Stage 5: Collect Artifacts (pod logs, K8s manifests)
+    - name: collect-artifacts
+      runAfter:
+        - run-guidellm-benchmark
+        - run-mlperf-benchmark
+      when:
+        - input: "$(params.METRICS_ENABLED)"
+          operator: in
+          values: ["true"]
+      onError: continue
+      taskRef:
+        name: collect-artifacts
+      params:
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: RELEASE_NAME
+          value: $(tasks.merge-configs.results.release-name)
+        - name: PIPELINE_RUN_NAME
+          value: "$(context.pipelineRun.name)"
+      workspaces:
+        - name: artifacts
+          workspace: results
+          subPath: artifacts
+
+    # Stage 6: Upload artifacts to MLflow and set Grafana URL tag
+    - name: upload-to-mlflow
+      runAfter:
+        - collect-artifacts
+      when:
+        - input: "$(params.METRICS_ENABLED)"
+          operator: in
+          values: ["true"]
+      onError: continue
+      taskRef:
+        name: upload-to-mlflow
+      params:
+        - name: MLFLOW_RUN_ID
+          value: "$(tasks.run-guidellm-benchmark.results.mlflow-run-id)"
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: RELEASE_NAME
+          value: $(tasks.merge-configs.results.release-name)
+        - name: BENCHMARK_START_TIME
+          value: "$(tasks.run-guidellm-benchmark.results.benchmark-start-time)"
+        - name: BENCHMARK_END_TIME
+          value: "$(tasks.run-guidellm-benchmark.results.benchmark-end-time)"
+        - name: GRAFANA_URL
+          value: $(params.GRAFANA_URL)
+      workspaces:
+        - name: artifacts
+          workspace: results
+          subPath: artifacts
+
+    # Stage 7: Cleanup Deployment
+    - name: cleanup-rhoai-deployment
+      runAfter:
+        - collect-artifacts
+        - upload-to-mlflow
+      when:
+        - input: "$(params.SKIP_CLEANUP)"
+          operator: in
+          values: ["false"]
+      taskRef:
+        name: cleanup-rhoai-deployment
+      params:
+        - name: MODEL_NAME
+          value: $(params.MODEL_NAME)
+        - name: NAMESPACE
+          value: $(params.NAMESPACE)
+        - name: WAIT_FOR_DELETION
+          value: "true"
+        - name: SKIP_IF_NOT_EXISTS
+          value: "true"

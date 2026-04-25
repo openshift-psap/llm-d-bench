@@ -22,24 +22,25 @@ spec:
       value: "openai/gpt-oss-120b"
 
     - name: VLLM_CONFIG
-      value: "vllm-prefix-caching"
+      value: "vllm-default"
     - name: DEPLOYMENT_CONFIG
-      value: "deployment-llm-d-precise-prefix-cache"
+      value: "deployment-llm-d-inference-scheduling"
     - name: BENCHMARK_CONFIG
       value: "concurrent-1k-1k"
-      # value: "heavy-heterogeneous"
 
-    - name: DEPLOYMENT_MODE
-      value: "precise-prefix-cache"
-    - name: LLM_D_REPO_REF
-      value: "afc99a53d44103f552e12deb4f7df8a53fbbabc0"
+#    - name: DEPLOYMENT_MODE
+#      value: "precise-prefix-cache"
+#    - name: LLM_D_REPO_REF
+#      value: "afc99a53d44103f552e12deb4f7df8a53fbbabc0"
+    - name: MS_IMAGE
+      value: "ghcr.io/llm-d/llm-d-cuda:v0.4.0"
 
     - name: RELEASE_NAME
       value: "openai-gpt-oss-120b"
     - name: REPLICAS
-      value: "4"
+      value: "1"
     - name: TP
-      value: "2"
+      value: "4"
 
     - name: ACCELERATOR
       value: "H200"
@@ -58,7 +59,7 @@ spec:
       value:
         - "deployment=llm-d"
         - "benchmark-tool=guidellm"
-        - "epp=precise-prefix-cache"
+        # - "epp=precise-prefix-cache"
 
 #    - name: SKIP_DEPLOY
 #      value: "true"

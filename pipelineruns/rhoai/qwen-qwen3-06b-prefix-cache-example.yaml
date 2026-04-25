@@ -1,0 +1,215 @@
+# ===========================================
+# RHOAI End-to-End Benchmark with Precise Prefix Caching
+# ===========================================
+# This PipelineRun demonstrates deploying a model with Precise Prefix Caching enabled.
+# The scheduler tracks KV cache blocks across replicas and routes requests to maximize
+# cache hit rates, improving throughput and reducing latency.
+#
+# Requirements:
+#   - RHOAI 3.0+ with KServe and Service Mesh configured
+#   - Minimum 2 replicas recommended for cache routing benefits
+#   - Consistent hash configuration (BLOCK_SIZE, HASH_SEED) across vLLM and scheduler
+#
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: qwen-qwen3-06b-prefix-cache-
+  labels:
+    app: llm-d-bench
+    pipeline: rhoai-end-to-end-benchmark-prefix-cache
+    experiment: qwen-qwen3-06b-prefix-cache
+    benchmark-tool: guidellm
+    deployment-mode: rhoai-prefix-cache
+spec:
+  pipelineRef:
+    name: rhoai-end-to-end-benchmark-prefix-cache
+
+  taskRunTemplate:
+    serviceAccountName: deploy-model-sa
+    podTemplate:
+      labels:
+        kueue.x-k8s.io/queue-name: psap-releases-queue
+        kueue.x-k8s.io/priority-class: psap-releases
+
+  ttlSecondsAfterFinished: 3600
+
+  params:
+    # ===========================================
+    # Configuration Profiles
+    # ===========================================
+    - name: VLLM_CONFIG
+      # Use vllm-prefix-caching profile
+      value: "vllm-prefix-caching"
+
+    - name: DEPLOYMENT_CONFIG
+      # Use RHOAI KServe with Precise Prefix Caching profile
+      value: "deployment-rhoai-kserve-prefix-cache"
+
+    - name: BENCHMARK_CONFIG
+      # Use concurrent 1k-1k benchmark profile
+      value: "concurrent-1k-1k"
+
+    # ===========================================
+    # Model Configuration
+    # ===========================================
+    - name: MODEL_NAME
+      value: "Qwen/Qwen3-0.6B"
+
+    - name: MODEL_REVISION
+      value: "main"
+
+    # ===========================================
+    # Deployment Configuration
+    # ===========================================
+    - name: NAMESPACE
+      value: "llm-d-bench"
+
+    - name: REPLICAS
+      # Minimum 2 replicas recommended for cache routing
+      value: "2"
+
+    - name: TP
+      value: "1"
+
+    - name: ENABLE_AUTH
+      value: "false"
+
+    # ===========================================
+    # Precise Prefix Cache Configuration
+    # ===========================================
+    - name: BLOCK_SIZE
+      # KV cache block size - must match between vLLM and scheduler
+      value: "64"
+
+    - name: HASH_SEED
+      # Python hash seed for consistent hashing - must match across all components
+      value: "42"
+
+    - name: ZMQ_PORT
+      # ZMQ port for KV-events communication
+      value: "5557"
+
+    - name: SCHEDULER_VERBOSITY
+      # Scheduler logging verbosity (0-10, higher = more verbose)
+      value: "4"
+
+    - name: ENABLE_CACHE_METRICS
+      # Enable KV cache metrics logging (every 10s)
+      value: "true"
+
+    - name: CACHE_SCORER_WEIGHT
+      # Weight for precise-prefix-cache-scorer in scheduling decisions
+      value: "2.0"
+
+    - name: LOAD_SCORER_WEIGHT
+      # Weight for load-aware-scorer in scheduling decisions
+      value: "1.0"
+
+    # ===========================================
+    # vLLM Additional Arguments
+    # ===========================================
+    - name: VLLM_ARGS
+      # Additional vLLM args - prefix caching args are auto-configured by the task
+      value:
+        - "--max-model-len=8192"
+        - "--gpu-memory-utilization=0.95"
+
+    # ===========================================
+    # Benchmark Configuration
+    # ===========================================
+    - name: IMAGE
+      value: "ghcr.io/openshift-psap/llm-d-bench/guidellm:latest"
+
+    - name: TARGET
+      # Auto-computed from MODEL_NAME: qwen-qwen3-06b-kserve-workload-svc
+      value: "https://qwen-qwen3-06b-kserve-workload-svc.llm-d-bench.svc.cluster.local:8000"
+
+    - name: GUIDELLM_PROCESSOR
+      value: "Qwen/Qwen3-0.6B"
+
+    - name: GUIDELLM_BACKEND_TYPE
+      value: "openai_http"
+
+    - name: GUIDELLM_RATE_TYPE
+      value: "concurrent"
+
+    - name: GUIDELLM_RATE
+      # Test with low concurrency to observe cache routing behavior
+      value: "1,5,10"
+
+    - name: GUIDELLM_DATA
+      value: "prompt_tokens=1000,output_tokens=1000"
+
+    - name: GUIDELLM_MAX_SECONDS
+      value: "120"
+
+    - name: GUIDELLM_MAX_REQUESTS
+      value: ""
+
+    # ===========================================
+    # MLflow Configuration
+    # ===========================================
+    - name: MLFLOW_ENABLED
+      value: "true"
+
+    - name: MLFLOW_EXPERIMENT_NAME
+      value: "qwen-qwen3-06b-prefix-cache"
+
+    - name: VERSION
+      value: "RHOAI-3.0-PrefixCache"
+
+    - name: ACCELERATOR
+      value: "H200"
+
+    - name: MLFLOW_TAGS
+      value:
+        - "deployment=RHOAI"
+        - "prefix-caching=precise"
+        - "block-size=64"
+        - "replicas=2"
+
+    - name: BENCHMARK_ENV_VARS
+      value: []
+
+    # ===========================================
+    # Health Check Configuration
+    # ===========================================
+    - name: HEALTH_CHECK_TIMEOUT
+      value: "3600"
+
+    # ===========================================
+    # Stage Control
+    # ===========================================
+    - name: SKIP_DOWNLOAD
+      value: "false"
+
+    - name: SKIP_DEPLOY
+      value: "false"
+
+    - name: SKIP_BENCHMARK
+      value: "false"
+
+    - name: SKIP_CLEANUP
+      value: "false"
+
+  # ===========================================
+  # Timeouts
+  # ===========================================
+  timeouts:
+    pipeline: "2h"
+    tasks: "2h"
+
+  # ===========================================
+  # Workspaces
+  # ===========================================
+  workspaces:
+    - name: models-storage
+      persistentVolumeClaim:
+        claimName: models-storage
+
+    - name: results
+      persistentVolumeClaim:
+        claimName: collection-results
+
+    - name: manifests-storage
+      emptyDir: {}

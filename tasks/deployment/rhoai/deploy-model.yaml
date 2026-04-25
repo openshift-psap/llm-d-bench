@@ -29,9 +29,9 @@ spec:
       default: "1"
 
     - name: VLLM_ARGS
-      description: Additional vLLM arguments as array
-      type: array
-      default: []
+      description: Additional vLLM arguments as newline-delimited string or array (from merge-configs)
+      type: string
+      default: ""
 
     - name: SKIP_IF_EXISTS
       description: Skip deployment if LLMInferenceService already exists
@@ -71,8 +71,9 @@ spec:
     - name: deploy-rhoai-model
       image: registry.redhat.io/openshift4/ose-cli:latest
       workingDir: /tmp
-      args:
-        - $(params.VLLM_ARGS[*])
+      env:
+        - name: VLLM_ARGS_INPUT
+          value: $(params.VLLM_ARGS)
       script: |
         #!/bin/bash
         set -e
@@ -119,14 +120,20 @@ spec:
         echo "  TP (Tensor Parallel / GPU Count): $(params.TP)"
         echo ""
 
-        # Format VLLM_ARGS array as YAML list from positional parameters
+        # Format VLLM_ARGS from newline-delimited string into YAML list
         VLLM_ARGS_YAML=""
-        for arg in "$@"; do
-          if [ -n "$arg" ]; then
-            VLLM_ARGS_YAML="${VLLM_ARGS_YAML}
+        if [ -n "$VLLM_ARGS_INPUT" ]; then
+          echo "vLLM args from config profile:"
+          while IFS= read -r arg; do
+            arg=$(echo "$arg" | xargs)  # trim whitespace
+            if [ -n "$arg" ]; then
+              echo "  $arg"
+              VLLM_ARGS_YAML="${VLLM_ARGS_YAML}
                 - \"${arg}\""
-          fi
-        done
+            fi
+          done <<< "$VLLM_ARGS_INPUT"
+          echo ""
+        fi
 
         # Generate LLMInferenceService YAML based on mode
         if [ "$PD_MODE" = "true" ]; then
@@ -139,6 +146,7 @@ spec:
           namespace: $(params.NAMESPACE)
           annotations:
             security.opendatahub.io/enable-auth: "$(params.ENABLE_AUTH)"
+            serving.kserve.io/enable-prometheus-scraping: "true"
         spec:
           model:
             name: $(params.MODEL_NAME)
@@ -209,6 +217,7 @@ spec:
           namespace: $(params.NAMESPACE)
           annotations:
             security.opendatahub.io/enable-auth: "$(params.ENABLE_AUTH)"
+            serving.kserve.io/enable-prometheus-scraping: "true"
         spec:
           model:
             name: $(params.MODEL_NAME)

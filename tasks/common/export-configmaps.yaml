@@ -1,0 +1,142 @@
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: export-configmaps
+  labels:
+    app.kubernetes.io/version: "0.1"
+  annotations:
+    tekton.dev/displayName: "Export ConfigMaps"
+    tekton.dev/tags: config, export, artifacts
+    tekton.dev/platforms: "linux/amd64"
+spec:
+  description: >-
+    Export ConfigMaps used in the pipeline as YAML artifacts.
+    This task captures the VLLM, deployment, benchmark, and EPP configuration
+    ConfigMaps for artifact storage and reproducibility.
+
+  params:
+    - name: NAMESPACE
+      description: Namespace where ConfigMaps are located
+      type: string
+      default: "llm-d-bench"
+
+    - name: VLLM_CONFIG
+      description: vLLM profile ConfigMap name (optional)
+      type: string
+      default: ""
+
+    - name: DEPLOYMENT_CONFIG
+      description: Deployment profile ConfigMap name (optional)
+      type: string
+      default: ""
+
+    - name: BENCHMARK_CONFIG
+      description: Benchmark profile ConfigMap name (optional)
+      type: string
+      default: ""
+
+    - name: EPP_CONFIG
+      description: EPP scheduler profile ConfigMap name (optional)
+      type: string
+      default: ""
+
+    - name: METRICS_CONFIG
+      description: Metrics collection profile ConfigMap name (optional)
+      type: string
+      default: ""
+
+  workspaces:
+    - name: manifests-storage
+      description: Workspace for storing exported ConfigMaps
+      optional: true
+
+  steps:
+    - name: export-configmaps
+      image: docker.io/bitnami/kubectl:latest
+      script: |
+        #!/bin/bash
+        set -e
+
+        echo "=== ConfigMap Export Task ==="
+        echo ""
+
+        # Check if manifests-storage workspace is bound
+        if [ ! -d "$(workspaces.manifests-storage.path)" ]; then
+          echo "Manifests storage workspace not bound - skipping ConfigMap export"
+          exit 0
+        fi
+
+        NAMESPACE="$(params.NAMESPACE)"
+        OUTPUT_DIR="$(workspaces.manifests-storage.path)/configmaps"
+        mkdir -p "$OUTPUT_DIR"
+
+        export_count=0
+
+        # Export VLLM ConfigMap
+        if [ -n "$(params.VLLM_CONFIG)" ]; then
+          echo "Exporting VLLM ConfigMap: $(params.VLLM_CONFIG)"
+          if kubectl get configmap "$(params.VLLM_CONFIG)" -n "$NAMESPACE" -o yaml > "$OUTPUT_DIR/configmap-vllm.yaml" 2>/dev/null; then
+            echo "  ✓ Exported to configmap-vllm.yaml"
+            export_count=$((export_count + 1))
+          else
+            echo "  ⚠ ConfigMap $(params.VLLM_CONFIG) not found"
+          fi
+        fi
+
+        # Export Deployment ConfigMap
+        if [ -n "$(params.DEPLOYMENT_CONFIG)" ]; then
+          echo "Exporting Deployment ConfigMap: $(params.DEPLOYMENT_CONFIG)"
+          if kubectl get configmap "$(params.DEPLOYMENT_CONFIG)" -n "$NAMESPACE" -o yaml > "$OUTPUT_DIR/configmap-deployment.yaml" 2>/dev/null; then
+            echo "  ✓ Exported to configmap-deployment.yaml"
+            export_count=$((export_count + 1))
+          else
+            echo "  ⚠ ConfigMap $(params.DEPLOYMENT_CONFIG) not found"
+          fi
+        fi
+
+        # Export Benchmark ConfigMap
+        if [ -n "$(params.BENCHMARK_CONFIG)" ]; then
+          echo "Exporting Benchmark ConfigMap: $(params.BENCHMARK_CONFIG)"
+          if kubectl get configmap "$(params.BENCHMARK_CONFIG)" -n "$NAMESPACE" -o yaml > "$OUTPUT_DIR/configmap-benchmark.yaml" 2>/dev/null; then
+            echo "  ✓ Exported to configmap-benchmark.yaml"
+            export_count=$((export_count + 1))
+          else
+            echo "  ⚠ ConfigMap $(params.BENCHMARK_CONFIG) not found"
+          fi
+        fi
+
+        # Export EPP ConfigMap
+        if [ -n "$(params.EPP_CONFIG)" ]; then
+          echo "Exporting EPP ConfigMap: $(params.EPP_CONFIG)"
+          if kubectl get configmap "$(params.EPP_CONFIG)" -n "$NAMESPACE" -o yaml > "$OUTPUT_DIR/configmap-epp.yaml" 2>/dev/null; then
+            echo "  ✓ Exported to configmap-epp.yaml"
+            export_count=$((export_count + 1))
+          else
+            echo "  ⚠ ConfigMap $(params.EPP_CONFIG) not found"
+          fi
+        fi
+
+        # Export Metrics ConfigMap
+        if [ -n "$(params.METRICS_CONFIG)" ]; then
+          echo "Exporting Metrics ConfigMap: $(params.METRICS_CONFIG)"
+          if kubectl get configmap "$(params.METRICS_CONFIG)" -n "$NAMESPACE" -o yaml > "$OUTPUT_DIR/configmap-metrics.yaml" 2>/dev/null; then
+            echo "  ✓ Exported to configmap-metrics.yaml"
+            export_count=$((export_count + 1))
+          else
+            echo "  ⚠ ConfigMap $(params.METRICS_CONFIG) not found"
+          fi
+        fi
+
+        echo ""
+        echo "=== Export Summary ==="
+        echo "Total ConfigMaps exported: $export_count"
+        echo "Output directory: $OUTPUT_DIR"
+        
+        if [ $export_count -gt 0 ]; then
+          echo ""
+          echo "Exported files:"
+          ls -la "$OUTPUT_DIR/"
+        fi
+
+        echo ""
+        echo "✓ ConfigMap export complete"

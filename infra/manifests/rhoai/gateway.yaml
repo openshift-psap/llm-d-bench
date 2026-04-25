@@ -11,7 +11,7 @@ spec:
     - allowedRoutes:
         namespaces:
           from: All
-      hostname: "inference-gateway.apps.REPLACEME.example.com"
+      hostname: "inference-gateway.apps.psap-llmd-h200.ibm-rh-ai.rhperfscale.org" # "REPLACEME.example.com"
       name: https
       port: 443
       protocol: HTTPS
