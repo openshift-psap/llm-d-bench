@@ -112,6 +112,17 @@ spec:
       type: string
       default: "true"
 
+    # Environment & Image Configuration
+    - name: HELMFILE_ENVIRONMENT
+      description: "Helmfile environment override (e.g., ibmcluster, xpu, hpu, aks). When set, used as -e flag directly. When empty, derived from GATEWAY_PROVIDER."
+      type: string
+      default: ""
+
+    - name: MODELSERVICE_IMAGE
+      description: "Container image for prefill/decode ModelService pods. When empty, uses chart/values defaults."
+      type: string
+      default: ""
+
     # Precise Prefix Cache Mode Parameters (only used when DEPLOYMENT_MODE=precise-prefix-cache)
     - name: BLOCK_SIZE
       description: KV cache block size for precise prefix caching (must match between ModelService and EPP)
@@ -467,6 +478,10 @@ spec:
           value: $(params.HASH_BLOCK_SIZE)
         - name: ENABLE_RDMA
           value: $(params.ENABLE_RDMA)
+        - name: HELMFILE_ENVIRONMENT
+          value: $(params.HELMFILE_ENVIRONMENT)
+        - name: MODELSERVICE_IMAGE
+          value: $(params.MODELSERVICE_IMAGE)
         - name: HF_TOKEN_SECRET
           value: $(params.HF_TOKEN_SECRET)
         - name: VLLM_ARGS
